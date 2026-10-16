@@ -1,5 +1,7 @@
 #pragma once
 
+#include "keys.hpp"
+
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -18,10 +20,22 @@ struct StateSnapshot {
 };
 
 // Protocol: UTF-8 lines. A request is one command line; the answer is one
-// JSON object on one line. Commands: ping, state, help.
+// JSON object on one line. Commands: ping, state, help, and with input
+// enabled key, pause, resume, speed. Input commands answer with the state
+// read after the action.
 struct Handlers {
     std::function<StateSnapshot()> read_state;
+    // Queues a key press (down, character, up) for the game; returns an error text, or
+    // an empty string on success. Left empty when input is disabled.
+    std::function<std::string(const KeyPress&)> press_key;
+    std::function<void(int ms)> sleep_ms;
+    std::function<std::uint64_t()> now_ms;  // monotonic clock
     std::uint32_t process_id = 0;
+    // How long pause/resume/speed wait for the game to react. Right after a save
+    // loads, the main loop handled a key press only 2-7 s later.
+    int wait_timeout_ms = 10000;
+    int poll_interval_ms = 10;
+    int key_settle_ms = 100;     // `key` waits this long before reading the state
 };
 
 std::string HandleRequest(std::string_view line, const Handlers& handlers);

@@ -22,14 +22,14 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 option(TONGS_BUILD_TESTS "Build unit tests" ON)
 
 # Platform-independent parts (protocol, config, date), shared with the tests.
-add_library(tongs_core STATIC src/protocol.cpp src/config.cpp src/game_date.cpp)
+add_library(tongs_core STATIC src/protocol.cpp src/config.cpp src/game_date.cpp src/keys.cpp)
 target_include_directories(tongs_core PUBLIC third_party src)
 target_compile_definitions(tongs_core PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX TONGS_VERSION="${TONGS_VERSION_TEXT}")
 if(MSVC)
     target_compile_options(tongs_core PUBLIC /W4 /utf-8 /permissive- /EHsc)
 endif()
 
-add_library(tongs SHARED src/plugin.cpp src/game_state.cpp src/pipe_server.cpp)
+add_library(tongs SHARED src/plugin.cpp src/game_state.cpp src/game_input.cpp src/pipe_server.cpp)
 target_link_libraries(tongs PRIVATE tongs_core advapi32)
 
 if(TONGS_BUILD_TESTS)

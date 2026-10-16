@@ -1,5 +1,6 @@
 // Tongs — Anvil plugin entry point.
 #include "config.hpp"
+#include "game_input.hpp"
 #include "game_state.hpp"
 #include "pipe_server.hpp"
 
@@ -52,6 +53,14 @@ extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* ho
     tongs::Handlers handlers;
     handlers.process_id = GetCurrentProcessId();
     handlers.read_state = [image_base] { return tongs::ReadState(image_base, tongs::GameLayout{}); };
+    handlers.sleep_ms = [](int ms) { Sleep(static_cast<DWORD>(ms)); };
+    handlers.now_ms = [] { return static_cast<std::uint64_t>(GetTickCount64()); };
+    if (config.input) {
+        handlers.press_key = [image_base](const tongs::KeyPress& key) {
+            return tongs::PressKey(image_base, tongs::InputLayout{}, key);
+        };
+    }
+    Log(ANVIL_LOG_INFO, config.input ? "input commands enabled" : "input commands disabled (input = false)");
     tongs::StartPipeServer(handlers, Log);
     return ANVIL_OK;  // a pipe that failed to start only turns the plugin into a no-op
 }

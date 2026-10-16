@@ -2,7 +2,7 @@ id = "tongs"
 name = "Tongs"
 version = "0.1.0"
 authors = ["Happy Dwarf Team"]
-description = "Control EU4 from scripts and agents: a local command pipe that reads the state of a running game."
+description = "Control EU4 from scripts and agents: a local command pipe that reads the state of a running game and, when allowed, presses keys in it."
 api = 1
 anvil = ">=0.2.0"
 entry = "tongs.dll"
@@ -10,7 +10,7 @@ phase = "main"
 affects_gameplay = false
 game_builds = ["eu4-1.37.5-steam-win64"]
 
-# Game code and data layout the state reader depends on (see docs/design.md).
+# Game code and data layout the state reader and the key input depend on (see docs/design.md).
 
 [[expect]]
 build = "eu4-1.37.5-steam-win64"
@@ -45,3 +45,27 @@ bytes = """
 B8 01 00 00 00 75 05 B8 02 00 00 00 83 F8 02 0F 95 C0 48 83 C4 20 5B C3
 """
 name = "game speed: is paused"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x17325DD
+bytes = "48 8D 0D AC 45 01 00 48 89 0D D5 DC 87 00"
+name = "SDL 2.0.4 dynapi init: slot 88 (0x1FB02C0) = SDL_PushEvent 0x1746B90"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x1746B90
+bytes = "40 57 48 83 EC 20 48 8B F9 E8 82 B3 01 00 89 47 04"
+name = "SDL_PushEvent: timestamp from SDL_GetTicks"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x1569D08
+bytes = "48 8D 4D B0 E8 EF B6 1C 00 85 C0"
+name = "game event loop: SDL_PollEvent into the event at rbp-0x50"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x156A043
+bytes = "44 8B 65 C4 33 C9 48 8B 95 88 00 00 00 41 81 FC 58 00 00 40 44 8B 7D C0"
+name = "game event loop, SDL_KEYDOWN: keysym.sym at +0x14, keysym.scancode at +0x10"

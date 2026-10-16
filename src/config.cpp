@@ -14,8 +14,10 @@ std::string_view Trim(std::string_view s) {
 const char kDefaultConfig[] =
     "# Tongs\n"
     "# enabled = true opens the local pipe \\\\.\\pipe\\tongs for the current Windows user.\n"
-    "# It only reads game state; nothing in the game is changed.\n"
-    "enabled = false\n";
+    "enabled = false\n"
+    "# input = true also accepts key, pause, resume and speed: key presses queued\n"
+    "# in the game's own SDL input, as a player would press them.\n"
+    "input = false\n";
 
 Config ParseConfig(std::string_view text) {
     Config config;
@@ -35,13 +37,15 @@ Config ParseConfig(std::string_view text) {
         }
         const std::string_view key = Trim(line.substr(0, eq));
         const std::string_view value = Trim(line.substr(eq + 1));
-        if (key == "enabled") {
+        if (key == "enabled" || key == "input") {
+            bool& target = key == "enabled" ? config.enabled : config.input;
             if (value == "true") {
-                config.enabled = true;
+                target = true;
             } else if (value == "false") {
-                config.enabled = false;
+                target = false;
             } else {
-                config.notes.push_back("config line " + std::to_string(line_number) + ": enabled must be true or false");
+                config.notes.push_back("config line " + std::to_string(line_number) + ": " + std::string(key) +
+                                       " must be true or false");
             }
         } else {
             config.notes.push_back("config line " + std::to_string(line_number) + ": unknown key '" +

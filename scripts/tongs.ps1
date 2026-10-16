@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    # One protocol command, e.g. ping, state, help.
+    # One protocol command, e.g. ping, state, help, pause, resume, 'speed 5', 'key escape'.
     [Parameter(Position = 0)][string]$Command = 'state',
     [ValidateRange(100, 60000)][int]$TimeoutMs = 2000,
     # Return the parsed object instead of the raw JSON line.
