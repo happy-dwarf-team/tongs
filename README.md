@@ -6,10 +6,12 @@ and scripts talk to a running game through a local named pipe, instead of
 reading pixels from screenshots. Like a smith's tongs, it holds the work from
 outside the forge.
 
-> Status: 0.1.0, skeleton. It only **reads** game state; it does not pause,
-> click or change anything in the game. Supported game build: EU4 1.37.5
-> (Steam, Windows 64-bit); Anvil skips it on other builds. Design and the
-> addresses it relies on: [docs/design.md](docs/design.md).
+> Status: early. It reads game state and, when you allow it, presses keys in
+> the game (pause, resume, speed, any key) through the game's own SDL input,
+> so the window does not need focus. It does not click and does not write game
+> state. Supported game build: EU4 1.37.5 (Steam, Windows 64-bit); Anvil skips
+> it on other builds. Design and the addresses it relies on:
+> [docs/design.md](docs/design.md).
 
 ## Commands
 
@@ -20,20 +22,45 @@ answer is one JSON object on one line.
 | --- | --- |
 | `ping` | plugin version and game process id |
 | `state` | `in_game`; with a loaded game also `date` (`"1719.3.17"`), `date_raw`, `hour`, `speed` (1–5 as in the UI), `speed_internal` (0–4), `paused` (the game's own answer) and `paused_flag` (the player pause byte) |
-| `help` | list of commands |
+| `help` | list of commands and whether input commands are enabled |
+
+With `input = true` in the config, also:
+
+| Command | What it does |
+| --- | --- |
+| `pause` | presses Space unless the player pause is already on, then waits until it is |
+| `resume` | presses Space if the player pause is on, then waits until the game runs; refuses when something else holds the game paused |
+| `speed N` | presses keypad `+` / `-` one step at a time until the speed is `N` (1–5, as in the UI); works while paused |
+| `key NAME` | presses one key: `a`–`z`, `0`–`9`, `f1`–`f12`, `space`, `return`, `escape`, `tab`, `backspace`, `delete`, `minus`, `equals`, `kp_plus`, `kp_minus`, `kp_enter`, arrows (`up`, `down`, `left`, `right`), `home`, `end`, `page_up`, `page_down` |
+
+Each input command answers once the game has reacted (or after 10 s) with
+`command`, `presses`, `waited_ms` and the fields of `state`. When the game
+does not react in time, `ok` is `false` with an `error`, and the state is
+still included. `key` does not expect a change; it answers with the state
+read 0.1 s after the press.
 
 ```powershell
 .\scripts\tongs.ps1 state
-# {"ok":true,"in_game":true,"date":"1719.3.17","date_raw":58860240,"hour":0,"speed":5,"speed_internal":4,"paused":true,"paused_flag":true}
+# {"ok":true,"in_game":true,"date":"1719.3.17","date_raw":58860240,"hour":0,"speed":2,"speed_internal":1,"paused":true,"paused_flag":true}
+.\scripts\tongs.ps1 'speed 5'
+# {"ok":true,"command":"speed","presses":3,"waited_ms":78,"in_game":true,"date":"1719.3.17",...,"speed":5,...}
+.\scripts\tongs.ps1 resume
+# {"ok":true,"command":"resume","presses":1,"waited_ms":16,...,"paused":false,"paused_flag":false}
 ```
+
+Right after a save loads, the game handles a key press only seconds later;
+the commands wait for it. While the Esc menu is open, Space does not resume
+the game.
 
 ## Safety
 
 - Off by default. The pipe opens only with `enabled = true` in
-  `anvil/data/tongs/config.toml` (created on the first start).
+  `anvil/data/tongs/config.toml` (created on the first start), and accepts
+  key presses only with `input = true` as well.
 - Local clients of the Windows user running the game only (pipe DACL, remote
   clients rejected). No network listener.
-- Read-only: no game code is patched. `affects_gameplay = false`.
+- No game code is patched and no game state is written: key presses go into
+  the game's SDL event queue, as a player's would. `affects_gameplay = false`.
 
 ## Install / uninstall
 
