@@ -7,7 +7,7 @@
 
 #include <memory>
 
-namespace lc {
+namespace tongs {
 namespace {
 
 constexpr DWORD kBufferSize = 4096;
@@ -84,7 +84,7 @@ DWORD WINAPI ServerThread(void* param) {
                                         "); is another game instance serving it?");
         return 1;
     }
-    server.log(ANVIL_LOG_INFO, "serving \\\\.\\pipe\\eu4-lab-control");
+    server.log(ANVIL_LOG_INFO, "serving \\\\.\\pipe\\tongs");
     for (;;) {
         const bool connected = ConnectNamedPipe(pipe, nullptr) || GetLastError() == ERROR_PIPE_CONNECTED;
         if (connected) ServeClient(server, pipe);
@@ -110,9 +110,9 @@ bool StartPipeServer(const Handlers& handlers, LogFn log) {
         delete server;
         return false;
     }
-    SetThreadDescription(thread, L"eu4-lab-control pipe");
+    SetThreadDescription(thread, L"tongs pipe");
     CloseHandle(thread);
     return true;
 }
 
-}  // namespace lc
+}  // namespace tongs

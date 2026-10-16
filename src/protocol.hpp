@@ -5,7 +5,7 @@
 #include <string>
 #include <string_view>
 
-namespace lc {
+namespace tongs {
 
 // One snapshot of what the plugin can read from the game (game_state.cpp).
 struct StateSnapshot {
@@ -28,4 +28,4 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers);
 
 std::string JsonEscape(std::string_view text);
 
-}  // namespace lc
+}  // namespace tongs

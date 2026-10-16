@@ -7,9 +7,9 @@ param(
     [switch]$AsObject
 )
 
-# Client for \\.\pipe\eu4-lab-control: sends one command line, prints the one-line JSON answer.
+# Client for \\.\pipe\tongs: sends one command line, prints the one-line JSON answer.
 $ErrorActionPreference = 'Stop'
-$pipe = [System.IO.Pipes.NamedPipeClientStream]::new('.', 'eu4-lab-control', [System.IO.Pipes.PipeDirection]::InOut)
+$pipe = [System.IO.Pipes.NamedPipeClientStream]::new('.', 'tongs', [System.IO.Pipes.PipeDirection]::InOut)
 try {
     $pipe.Connect($TimeoutMs)
     $utf8 = [System.Text.UTF8Encoding]::new($false)

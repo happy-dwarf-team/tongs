@@ -1,6 +1,6 @@
 #include "game_date.hpp"
 
-namespace lc {
+namespace tongs {
 namespace {
 
 constexpr std::int64_t kHoursToYearZero = 43'800'000;  // 5000 years * 365 days * 24 hours
@@ -31,4 +31,4 @@ std::string FormatGameDate(const GameDate& date) {
     return std::to_string(date.year) + "." + std::to_string(date.month) + "." + std::to_string(date.day);
 }
 
-}  // namespace lc
+}  // namespace tongs

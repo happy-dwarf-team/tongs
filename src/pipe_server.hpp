@@ -4,9 +4,9 @@
 
 #include <string>
 
-namespace lc {
+namespace tongs {
 
-inline constexpr wchar_t kPipeName[] = L"\\\\.\\pipe\\eu4-lab-control";
+inline constexpr wchar_t kPipeName[] = L"\\\\.\\pipe\\tongs";
 
 using LogFn = void (*)(int level, const std::string& message);  // level: AnvilLogLevel
 
@@ -15,4 +15,4 @@ using LogFn = void (*)(int level, const std::string& message);  // level: AnvilL
 // not be created (for example a second game already owns it).
 bool StartPipeServer(const Handlers& handlers, LogFn log);
 
-}  // namespace lc
+}  // namespace tongs

@@ -1,11 +1,11 @@
-id = "eu4-lab-control"
-name = "EU4 Lab Control"
+id = "tongs"
+name = "Tongs"
 version = "0.1.0"
 authors = ["Happy Dwarf Team"]
-description = "Local command pipe that lets test agents read the state of a running game."
+description = "Control EU4 from scripts and agents: a local command pipe that reads the state of a running game."
 api = 1
 anvil = ">=0.2.0"
-entry = "eu4_lab_control.dll"
+entry = "tongs.dll"
 phase = "main"
 affects_gameplay = false
 game_builds = ["eu4-1.37.5-steam-win64"]

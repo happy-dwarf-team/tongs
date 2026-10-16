@@ -1,4 +1,4 @@
-# EU4 Lab Control — design
+# Tongs — design
 
 Status: draft 1 (2026-10-16), layer 1 (read-only state) implemented.
 
@@ -23,12 +23,12 @@ state directly, so the game behaves as it would for a human player.
 
 ## Transport
 
-- Named pipe `\\.\pipe\eu4-lab-control`, one instance, created with
+- Named pipe `\\.\pipe\tongs`, one instance, created with
   `FILE_FLAG_FIRST_PIPE_INSTANCE` (a second game cannot take it over and logs
   an error instead), `PIPE_REJECT_REMOTE_CLIENTS`, and a DACL that allows only
   the user running the game and SYSTEM.
 - One client at a time; requests are lines, answers are single-line JSON.
-- Off unless `enabled = true` in `anvil/data/eu4-lab-control/config.toml`.
+- Off unless `enabled = true` in `anvil/data/tongs/config.toml`.
 
 ## State reading (EU4 1.37.5)
 

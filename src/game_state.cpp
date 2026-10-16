@@ -4,7 +4,7 @@
 
 #include <cstring>
 
-namespace lc {
+namespace tongs {
 namespace {
 
 using IsPausedFn = bool (*)(void* game_speed);
@@ -58,4 +58,4 @@ StateSnapshot ReadState(std::uintptr_t image_base, const GameLayout& layout) {
     return snapshot;
 }
 
-}  // namespace lc
+}  // namespace tongs

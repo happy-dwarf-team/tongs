@@ -6,7 +6,7 @@
 #include <cstdio>
 #include <string>
 
-using namespace lc;
+using namespace tongs;
 
 static bool Contains(const std::string& text, const char* part) { return text.find(part) != std::string::npos; }
 

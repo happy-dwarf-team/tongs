@@ -4,7 +4,7 @@
 
 #include <cstdint>
 
-namespace lc {
+namespace tongs {
 
 // Addresses for EU4 1.37.5 (Steam, win64). plugin.toml lists the code that
 // uses them as [[expect]] entries, so Anvil skips the plugin on other bytes.
@@ -23,4 +23,4 @@ struct GameLayout {
 // and are guarded by SEH; a fault is reported in `reason`, not raised.
 StateSnapshot ReadState(std::uintptr_t image_base, const GameLayout& layout);
 
-}  // namespace lc
+}  // namespace tongs

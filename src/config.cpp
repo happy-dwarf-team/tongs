@@ -1,6 +1,6 @@
 #include "config.hpp"
 
-namespace lc {
+namespace tongs {
 namespace {
 
 std::string_view Trim(std::string_view s) {
@@ -12,8 +12,8 @@ std::string_view Trim(std::string_view s) {
 }  // namespace
 
 const char kDefaultConfig[] =
-    "# EU4 Lab Control\n"
-    "# enabled = true opens the local pipe \\\\.\\pipe\\eu4-lab-control for the current Windows user.\n"
+    "# Tongs\n"
+    "# enabled = true opens the local pipe \\\\.\\pipe\\tongs for the current Windows user.\n"
     "# It only reads game state; nothing in the game is changed.\n"
     "enabled = false\n";
 
@@ -51,4 +51,4 @@ Config ParseConfig(std::string_view text) {
     return config;
 }
 
-}  // namespace lc
+}  // namespace tongs

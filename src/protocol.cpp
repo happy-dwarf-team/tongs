@@ -4,7 +4,7 @@
 
 #include <cstdio>
 
-namespace lc {
+namespace tongs {
 namespace {
 
 std::string_view Trim(std::string_view s) {
@@ -69,7 +69,7 @@ std::string JsonEscape(std::string_view text) {
 std::string HandleRequest(std::string_view line, const Handlers& handlers) {
     const std::string_view command = Trim(line);
     if (command == "ping") {
-        return std::string("{\"ok\":true,\"pong\":true,\"version\":\"") + LC_VERSION + "\",\"pid\":" +
+        return std::string("{\"ok\":true,\"pong\":true,\"version\":\"") + TONGS_VERSION + "\",\"pid\":" +
                std::to_string(handlers.process_id) + "}";
     }
     if (command == "state") {
@@ -83,4 +83,4 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers) {
     return Error("unknown command: " + std::string(command.substr(0, 64)));
 }
 
-}  // namespace lc
+}  // namespace tongs
