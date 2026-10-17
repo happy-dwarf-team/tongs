@@ -427,8 +427,37 @@ static void TestWindowAndMouse() {
     assert(Contains(HandleRequest("window", h), "\"found\":false"));
 }
 
+static void TestThreads() {
+    Handlers h;
+    ThreadsSnapshot t;
+    t.ok = true;
+    t.threads_setting = -1;
+    t.pools[0] = {0x242B8E0, 8, 8};
+    t.pools[1] = {0x242B950, 8, 16};
+    t.process_mask = 0xFFFF;
+    t.system_mask = 0xFFFFFFFF;
+    t.process_threads = 70;
+    t.main_thread_id = 1234;
+    t.main_mask = 0x10;
+    t.main_ideal_cpu = 4;
+    h.read_threads = [&] { return t; };
+    std::string out = HandleRequest("threads", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"rva\":\"0x242B8E0\",\"workers\":8,\"capacity\":8"));
+    assert(Contains(out, "\"workers_equal\":true") && Contains(out, "\"process_mask\":\"0xFFFF\""));
+    assert(Contains(out, "\"main_mask\":\"0x10\"") && Contains(out, "\"main_ideal_cpu\":4") && Contains(out, "\"threads_setting\":-1"));
+    t.pools[1].workers = 7;
+    assert(Contains(HandleRequest("threads", h), "\"workers_equal\":false"));
+    t.ok = false;
+    t.reason = "a pool's worker vector is not readable yet";
+    t.main_thread_id = 0;
+    out = HandleRequest("threads", h);
+    assert(Contains(out, "\"ok\":false") && Contains(out, "not readable yet") && !Contains(out, "main_mask"));
+    assert(Contains(HandleRequest("threads", Handlers{}), "thread reader unavailable"));
+}
+
 int main() {
     TestDate();
+    TestThreads();
     TestTextEvents();
     TestWindowAndMouse();
     TestParseDate();

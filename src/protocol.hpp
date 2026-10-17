@@ -35,14 +35,34 @@ struct WindowSnapshot {
     unsigned dpi = 0;              // as the window reports it (96 = 100 %)
 };
 
+// The game's worker pools and CPU masks (game_threads.cpp).
+struct ThreadsSnapshot {
+    bool ok = false;
+    const char* reason = nullptr;   // why ok is false
+    std::int32_t threads_setting = 0;  // the game's "threads" option; -1 = automatic
+    struct Pool {
+        std::uint32_t rva = 0;
+        std::int64_t workers = -1;  // worker threads in the pool's vector; -1 = not readable
+        std::int64_t capacity = -1;
+    } pools[2];
+    std::uint64_t process_mask = 0;  // process affinity
+    std::uint64_t system_mask = 0;
+    int process_threads = 0;         // all threads of the process
+    std::uint32_t main_thread_id = 0;  // the window's thread; 0 = no window yet
+    std::uint64_t main_mask = 0;     // its affinity (0 = not readable)
+    int main_ideal_cpu = -1;
+    int main_priority = 0;           // GetThreadPriority
+};
+
 // Protocol: UTF-8 lines. A request is one command line; the answer is one
-// JSON object on one line. Commands: ping, state, window, help, wait_until,
-// cancel, and with input enabled key, text, move, click, scroll, release, pause,
-// resume, speed, run_until. Input commands answer with the state read after
+// JSON object on one line. Commands: ping, state, window, threads, help,
+// wait_until, cancel, and with input enabled key, text, move, click, scroll,
+// release, pause, resume, speed, run_until. Input commands answer with the state read after
 // the action; they take turns across clients.
 struct Handlers {
     std::function<StateSnapshot()> read_state;
     std::function<WindowSnapshot()> read_window;
+    std::function<ThreadsSnapshot()> read_threads;
     // Queues SDL events for the game in order; returns an error text, or an
     // empty string on success. Left empty when input is disabled.
     std::function<std::string(const std::vector<InputEvent>&)> send_input;
