@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Called by release.yml to build the package of a new release.
+  workflow_call:
 
 permissions:
   contents: read
@@ -36,7 +38,7 @@ jobs:
           } | Set-Content dist/package/SHA256SUMS.txt
           Compress-Archive -Path dist/package/* -DestinationPath dist/tongs-${{ github.sha }}.zip
 
-      # Per-commit artifact with the plugin folder (no releases yet).
+      # Per-commit artifact; for a release, release.yml attaches it to the GitHub release.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tongs-${{ github.sha }}
