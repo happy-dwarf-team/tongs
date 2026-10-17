@@ -3,6 +3,7 @@
 #include "game_cursor.hpp"
 #include "game_input.hpp"
 #include "game_state.hpp"
+#include "game_threads.hpp"
 #include "game_window.hpp"
 #include "pipe_server.hpp"
 
@@ -58,6 +59,9 @@ extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* ho
     handlers.process_id = GetCurrentProcessId();
     handlers.read_state = [image_base] { return tongs::ReadState(image_base, tongs::GameLayout{}); };
     handlers.read_window = [] { return tongs::ReadGameWindow(); };
+    handlers.read_threads = [image_base] {
+        return tongs::ReadThreads(image_base, tongs::ThreadsLayout{}, tongs::ReadGameWindow().thread_id);
+    };
     handlers.sleep_ms = [](int ms) { Sleep(static_cast<DWORD>(ms)); };
     handlers.now_ms = [] {  // steady_clock is QueryPerformanceCounter: 1 ms, not GetTickCount64's ~16 ms
         return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(

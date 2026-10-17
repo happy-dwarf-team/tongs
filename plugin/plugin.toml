@@ -69,3 +69,21 @@ build = "eu4-1.37.5-steam-win64"
 rva = 0x156A043
 bytes = "44 8B 65 C4 33 C9 48 8B 95 88 00 00 00 41 81 FC 58 00 00 40 44 8B 7D C0"
 name = "game event loop, SDL_KEYDOWN: keysym.sym at +0x14, keysym.scancode at +0x10"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x8A750
+bytes = "48 89 1D C1 11 3A 02 0F 57 C0 66 0F 7F 05 BE 11 3A 02"
+name = "worker pool 0x242B8E0, static init: worker vector at +0x38 / +0x40 / +0x48"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x8A860
+bytes = "48 89 1D 21 11 3A 02 0F 57 C0 66 0F 7F 05 1E 11 3A 02"
+name = "worker pool 0x242B950, static init: worker vector at +0x38 / +0x40 / +0x48"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x876999
+bytes = "89 05 0D BA 74 01"
+name = "start-up: threads option stored at 0x1FC23AC"

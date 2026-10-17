@@ -381,6 +381,34 @@ std::string RunUntil(const Handlers& h, std::string_view argument) {
     return out;
 }
 
+std::string Hex(std::uint64_t value) {
+    char buf[24];
+    std::snprintf(buf, sizeof buf, "\"0x%llX\"", static_cast<unsigned long long>(value));
+    return buf;
+}
+
+std::string ThreadsJson(const ThreadsSnapshot& t) {
+    std::string out = std::string("{\"ok\":") + Bool(t.ok);
+    if (!t.ok) out += ",\"error\":\"" + JsonEscape(t.reason ? t.reason : "") + "\"";
+    out += ",\"threads_setting\":" + std::to_string(t.threads_setting) + ",\"pools\":[";
+    for (int i = 0; i < 2; ++i) {
+        if (i) out += ",";
+        char rva[16];
+        std::snprintf(rva, sizeof rva, "0x%X", t.pools[i].rva);
+        out += std::string("{\"rva\":\"") + rva + "\",\"workers\":" + std::to_string(t.pools[i].workers) +
+               ",\"capacity\":" + std::to_string(t.pools[i].capacity) + "}";
+    }
+    out += "],\"workers_equal\":" + std::string(Bool(t.ok && t.pools[0].workers == t.pools[1].workers));
+    out += ",\"process_mask\":" + Hex(t.process_mask) + ",\"system_mask\":" + Hex(t.system_mask);
+    out += ",\"process_threads\":" + std::to_string(t.process_threads);
+    out += ",\"main_thread_id\":" + std::to_string(t.main_thread_id);
+    if (t.main_thread_id != 0) {
+        out += ",\"main_mask\":" + Hex(t.main_mask) + ",\"main_ideal_cpu\":" + std::to_string(t.main_ideal_cpu) +
+               ",\"main_priority\":" + std::to_string(t.main_priority);
+    }
+    return out + "}";
+}
+
 std::string WindowFields(const WindowSnapshot& w) {
     if (!w.found) return std::string("\"found\":false,\"reason\":\"") + JsonEscape(w.reason ? w.reason : "") + "\"";
     std::string out = "\"found\":true";
@@ -569,12 +597,16 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers) {
         if (!handlers.read_state) return Error("state reader unavailable");
         return "{\"ok\":true," + StateFields(handlers.read_state()) + "}";
     }
+    if (command == "threads" && argument.empty()) {
+        if (!handlers.read_threads) return Error("thread reader unavailable");
+        return ThreadsJson(handlers.read_threads());
+    }
     if (command == "window" && argument.empty()) {
         if (!handlers.read_window) return Error("window reader unavailable");
         return "{\"ok\":true," + WindowFields(handlers.read_window()) + "}";
     }
     if (command == "help" && argument.empty()) {
-        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"help\",\"wait_until\",") +
+        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"help\",\"wait_until\",") +
                "\"cancel\",\"key\",\"text\",\"move\",\"click\",\"scroll\",\"release\",\"pause\",\"resume\",\"speed\"," +
                "\"run_until\"],\"input\":" + Bool(InputReady(handlers)) + "}";
     }
