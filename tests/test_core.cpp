@@ -106,6 +106,7 @@ struct FakeGame {
     std::vector<std::int32_t> pressed;
     std::vector<InputEvent> events;
     WindowSnapshot window;
+    std::pair<int, int> cursor{-1, -1};  // the virtual GUI cursor
     bool clock_runs_date = false;  // the date advances (UI speed) hours per ms while not paused
     std::uint64_t date_clock = 0;
     std::function<void()> on_sleep;
@@ -140,6 +141,8 @@ struct FakeGame {
             return {};
         };
         h.read_window = [this] { return window; };
+        h.set_cursor = [this](int x, int y) { cursor = {x, y}; };
+        h.release_cursor = [this] { cursor = {-1, -1}; };
         h.sleep_ms = [this](int ms) {
             Apply();  // the date runs up to now at the old pause state
             clock += static_cast<std::uint64_t>(ms);
@@ -380,7 +383,9 @@ static void TestWindowAndMouse() {
     assert(Contains(out, "\"ok\":true") && Contains(out, "\"x\":100") && Contains(out, "\"presses\":0"));
     assert(game.events.size() == 1 && game.events[0].type == InputEvent::Type::MouseMove);
 
+    assert(game.cursor == std::make_pair(100, 200) && Contains(out, "\"cursor\":\"virtual\""));
     out = HandleRequest("click 110 190 right", h);
+    assert(game.cursor == std::make_pair(110, 190));
     assert(Contains(out, "\"ok\":true") && Contains(out, "\"button\":\"right\"") && Contains(out, "\"clicks\":1"));
     assert(game.events.size() == 4);
     assert(game.events[1].type == InputEvent::Type::MouseMove && game.events[1].xrel == 10 && game.events[1].yrel == -10);
@@ -397,7 +402,13 @@ static void TestWindowAndMouse() {
     assert(Contains(out, "\"ok\":true") && Contains(out, "\"steps\":-3") && game.events.size() == 4);
     assert(game.events[1].type == InputEvent::Type::Wheel && game.events[1].wheel == -1);
     game.events.clear();
+    assert(game.cursor == std::make_pair(50, 60));
     assert(Contains(HandleRequest("scroll 2", h), "\"ok\":true") && game.events.size() == 2 && game.events[0].wheel == 1);
+    assert(Contains(HandleRequest("release", h), "\"ok\":true") && game.cursor == std::make_pair(-1, -1));
+    Handlers events_only = h;
+    events_only.set_cursor = nullptr;
+    assert(Contains(HandleRequest("move 1 1", events_only), "\"cursor\":\"events only\""));
+    assert(game.cursor == std::make_pair(-1, -1));
 
     for (const char* bad : {"move", "move 1", "move a b", "move 1920 5", "move 5 1080", "move -1 5", "click 1 2 left x",
                             "click 1 2 up", "scroll 0", "scroll 21", "scroll 1 2", "scroll 1 5000 5", "text"}) {

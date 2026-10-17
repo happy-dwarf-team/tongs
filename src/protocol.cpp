@@ -427,7 +427,12 @@ std::string CheckPoint(const Handlers& h, int x, int y) {
     return {};
 }
 
-std::string PointFields(int x, int y) { return ",\"x\":" + std::to_string(x) + ",\"y\":" + std::to_string(y); }
+// Puts the GUI pointer at (x, y) and describes the point for the answer.
+std::string PointAt(const Handlers& h, int x, int y) {
+    if (h.set_cursor) h.set_cursor(x, y);
+    return ",\"x\":" + std::to_string(x) + ",\"y\":" + std::to_string(y) + ",\"cursor\":\"" +
+           (h.set_cursor ? "virtual" : "events only") + "\"";
+}
 
 constexpr int kClickMoveSettleMs = 50;  // a few frames between moving the pointer and pressing
 constexpr int kMaxScrollSteps = 20;
@@ -439,7 +444,8 @@ std::string MouseCommand(const Handlers& h, std::string_view command, std::strin
         int x = 0, y = 0;
         if (words.size() != 2 || !ParseInt(words[0], x) || !ParseInt(words[1], y)) return Error("usage: move X Y");
         if (std::string error = CheckPoint(h, x, y); !error.empty()) return Error(error);
-        return ActionJson(command, actions.Settled({MoveTo(x, y)}, 0, PointFields(x, y)));
+        const std::string point = PointAt(h, x, y);
+        return ActionJson(command, actions.Settled({MoveTo(x, y)}, 0, point));
     }
     if (command == "click") {
         int x = 0, y = 0;
@@ -463,6 +469,7 @@ std::string MouseCommand(const Handlers& h, std::string_view command, std::strin
         }
         if (std::string error = CheckPoint(h, x, y); !error.empty()) return Error(error);
         // Move first and let the game see the pointer there, then press and release.
+        const std::string point = PointAt(h, x, y);
         ActionResult moved = actions.Settled({MoveTo(x, y)}, 0);
         if (!moved.ok) return ActionJson(command, moved);
         h.sleep_ms(kClickMoveSettleMs);
@@ -481,7 +488,7 @@ std::string MouseCommand(const Handlers& h, std::string_view command, std::strin
         }
         static const char* const kNames[] = {"", "left", "middle", "right"};
         return ActionJson(command, actions.Settled(presses, count,
-                                                   PointFields(x, y) + ",\"button\":\"" + kNames[button] +
+                                                   point + ",\"button\":\"" + kNames[button] +
                                                        "\",\"clicks\":" + std::to_string(count)));
     }
     // scroll STEPS [X Y]
@@ -496,8 +503,8 @@ std::string MouseCommand(const Handlers& h, std::string_view command, std::strin
         int x = 0, y = 0;
         if (!ParseInt(words[1], x) || !ParseInt(words[2], y)) return Error("usage: scroll STEPS [X Y]");
         if (std::string error = CheckPoint(h, x, y); !error.empty()) return Error(error);
+        extra += PointAt(h, x, y);
         events.push_back(MoveTo(x, y));
-        extra += PointFields(x, y);
     }
     const int one = steps > 0 ? 1 : -1;
     for (int i = 0; i != steps; i += one) {
@@ -568,7 +575,7 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers) {
     }
     if (command == "help" && argument.empty()) {
         return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"help\",\"wait_until\",") +
-               "\"cancel\",\"key\",\"text\",\"move\",\"click\",\"scroll\",\"pause\",\"resume\",\"speed\"," +
+               "\"cancel\",\"key\",\"text\",\"move\",\"click\",\"scroll\",\"release\",\"pause\",\"resume\",\"speed\"," +
                "\"run_until\"],\"input\":" + Bool(InputReady(handlers)) + "}";
     }
     if (command == "cancel" && argument.empty()) {
@@ -582,6 +589,11 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers) {
     if (command == "run_until") {
         if (!InputReady(handlers)) return Error(kInputDisabled);
         return RunUntil(handlers, argument);
+    }
+    if (command == "release" && argument.empty()) {
+        if (!InputReady(handlers)) return Error(kInputDisabled);
+        if (handlers.release_cursor) handlers.release_cursor();
+        return "{\"ok\":true,\"command\":\"release\"}";
     }
     if (command == "text" || command == "move" || command == "click" || command == "scroll") {
         if (!InputReady(handlers)) return Error(kInputDisabled);

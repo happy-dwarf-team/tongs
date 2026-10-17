@@ -1,5 +1,6 @@
 // Tongs — Anvil plugin entry point.
 #include "config.hpp"
+#include "game_cursor.hpp"
 #include "game_input.hpp"
 #include "game_state.hpp"
 #include "game_window.hpp"
@@ -67,6 +68,12 @@ extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* ho
         handlers.send_input = [image_base](const std::vector<tongs::InputEvent>& events) {
             return tongs::PushInput(image_base, tongs::InputLayout{}, events);
         };
+        if (const std::string error = tongs::InstallCursorHook(host, self, tongs::CursorLayout{}); error.empty()) {
+            handlers.set_cursor = [](int x, int y) { tongs::SetVirtualCursor(x, y); };
+            handlers.release_cursor = [] { tongs::ReleaseVirtualCursor(); };
+        } else {
+            Log(ANVIL_LOG_WARNING, error + "; mouse commands send SDL events only");
+        }
     }
     Log(ANVIL_LOG_INFO, config.input ? "input commands enabled" : "input commands disabled (input = false)");
     tongs::StartPipeServer(handlers, Log);

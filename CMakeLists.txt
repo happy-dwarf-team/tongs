@@ -29,7 +29,7 @@ if(MSVC)
     target_compile_options(tongs_core PUBLIC /W4 /utf-8 /permissive- /EHsc)
 endif()
 
-add_library(tongs SHARED src/plugin.cpp src/game_state.cpp src/game_input.cpp src/game_window.cpp src/pipe_server.cpp)
+add_library(tongs SHARED src/plugin.cpp src/game_state.cpp src/game_input.cpp src/game_window.cpp src/game_cursor.cpp src/pipe_server.cpp)
 target_link_libraries(tongs PRIVATE tongs_core advapi32 user32)
 
 if(TONGS_BUILD_TESTS)

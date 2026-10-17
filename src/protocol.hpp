@@ -37,7 +37,7 @@ struct WindowSnapshot {
 
 // Protocol: UTF-8 lines. A request is one command line; the answer is one
 // JSON object on one line. Commands: ping, state, window, help, wait_until,
-// cancel, and with input enabled key, text, move, click, scroll, pause,
+// cancel, and with input enabled key, text, move, click, scroll, release, pause,
 // resume, speed, run_until. Input commands answer with the state read after
 // the action; they take turns across clients.
 struct Handlers {
@@ -46,6 +46,11 @@ struct Handlers {
     // Queues SDL events for the game in order; returns an error text, or an
     // empty string on success. Left empty when input is disabled.
     std::function<std::string(const std::vector<InputEvent>&)> send_input;
+    // Where the game's GUI sees the pointer (game_cursor.cpp): set before mouse
+    // events, released by `release`. Optional; without it only the SDL events carry
+    // the position.
+    std::function<void(int x, int y)> set_cursor;
+    std::function<void()> release_cursor;
     std::function<void(int ms)> sleep_ms;
     std::function<std::uint64_t()> now_ms;  // monotonic clock
     std::uint32_t process_id = 0;
