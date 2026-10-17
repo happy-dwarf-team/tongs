@@ -1,7 +1,7 @@
 # Tongs — design
 
-Status: draft 2 (2026-10-16): layer 1 (state) and the key part of layer 2
-(input) implemented.
+Status: draft 3 (2026-10-17): layers 1 and 2 implemented, plus timing
+(`run_until`), worker pools and screenshots for measurements.
 
 ## Goal
 
@@ -15,21 +15,29 @@ Layers, cheapest first:
 2. **Input:** inject keyboard/mouse events into the game's own SDL event queue
    (`SDL_PushEvent` is linked statically into `eu4.exe`), so shortcuts work
    without focusing the window. Commands such as `pause`, `resume`, `speed N`,
-   `key`, each answered with the state after the action. Keys are
-   implemented; mouse events are not.
+   `key`, `text`, `click`, each answered with the state after the action.
+   Mouse positions also need the cursor hook (see "Mouse").
 3. **Widgets by name:** find GUI elements by their `.gui` names, click them and
    read their text. Only if layer 2 is not enough.
 
 Actions go through the same path as a player's input, never by writing game
 state directly, so the game behaves as it would for a human player.
 
+Beside the layers, for measurements: `run_until` / `wait_until` time the
+game between two dates, `threads` reads the worker pools and CPU masks the
+lab checks before every simulation measurement, `screenshot` captures the
+window for agents that need to look.
+
 ## Transport
 
-- Named pipe `\\.\pipe\tongs`, one instance, created with
-  `FILE_FLAG_FIRST_PIPE_INSTANCE` (a second game cannot take it over and logs
-  an error instead), `PIPE_REJECT_REMOTE_CLIENTS`, and a DACL that allows only
-  the user running the game and SYSTEM.
-- One client at a time; requests are lines, answers are single-line JSON.
+- Named pipe `\\.\pipe\tongs`, 4 instances, each served by its own thread.
+  The first is created with `FILE_FLAG_FIRST_PIPE_INSTANCE` (a second game
+  cannot take the name over and logs an error instead); all with
+  `PIPE_REJECT_REMOTE_CLIENTS` and a DACL that allows only the user running
+  the game and SYSTEM.
+- Up to 4 clients at once, one per instance; requests are lines, answers are
+  single-line JSON. Input commands take turns through one lock, so presses of
+  two clients never interleave; `run_until` holds it only while pressing.
 - Off unless `enabled = true` in `anvil/data/tongs/config.toml`; the input
   commands also need `input = true`.
 
@@ -149,6 +157,90 @@ PID, path and start time; save unchanged, `settings.txt` differed only in
 - After `pause`, the date may still advance by one day (the day in progress);
   then it stays.
 
+## Run timing
+
+`wait_until` polls the state every 10 ms (`std::chrono::steady_clock`, i.e.
+QueryPerformanceCounter; `GetTickCount64` would add ~16 ms steps) until the
+date reaches the target, a `cancel`, a timeout or the game is left.
+`run_until` sets the speed and resumes under the input lock, waits without
+it, and pauses again. `wall_ms` runs from the start of the wait (just after
+the resume took hold) to the first poll that sees the target date; the error
+is one poll interval. `paused_ms` adds up the polls that saw the game paused,
+so a measured stretch with an event pause can be rejected.
+
+## Mouse
+
+The game's event loop (`0x1569C70`) passes SDL mouse events to the interface:
+motion reads `x`/`y` (+0x14/+0x18) and skips touch (`which` = -1); button
+down/up (`0x401`/`0x402`) read `button` (+0x10) and `x`/`y`; the wheel
+(`0x403`) reads `y` (+0x14) and uses its sign. That alone was not enough: in
+the first live check clicks queued with `SDL_PushEvent` did nothing.
+
+The interface asks for the pointer once per frame in `0x14E5E50` (two
+callers, `0x162DDE2` and `0x162E30A`): with focus through `GetCursorPos` and
+the window rectangle, without focus through `SDL_GetMouseState` (dynapi slot
+209), i.e. SDL's own mouse state, which `SDL_PushEvent` does not update. The
+other `GetCursorPos` calls in the executable are inside SDL.
+
+With `input = true` Tongs hooks `0x14E5E50` (Anvil `hook_function`, prologue
+`48 89 5C 24 10 55 56 57 48 83 EC 40`). `move`, `click` and `scroll X Y` set
+a virtual pointer in client coordinates; while it is set, the hook writes it
+to the result instead of calling the game's code. It is dropped by `release`
+or as soon as the real cursor is somewhere else than when the pointer was
+set, so a player's mouse takes over again. `click` sets the pointer, sends
+the motion event, waits 50 ms for the interface to update its hover state,
+then sends button down and up.
+
+## Worker pools
+
+From the lab repository (`docs/reverse-engineering.md`, "Inicjalizacja
+puli"): two global pools at `0x242B8E0` and `0x242B950`, each with a vector of
+8-byte worker handles at +0x38 (begin), +0x40 (end), +0x48 (capacity end).
+Their static initializers (`0x8A750`, `0x8A860`) and the store of the
+`threads` option (`0x876999` to `0x1FC23AC`) are `[[expect]]` entries. The
+main thread is the thread of the game window. The pools are sized once from
+the process affinity at start-up; a mask set later (Process Lasso) does not
+change them.
+
+## Screenshots
+
+`PrintWindow(PW_CLIENTONLY | PW_RENDERFULLCONTENT)` into a 32-bit DIB, with a
+copy from the screen as fallback when the result is all black; PNG through
+WIC, into `anvil/data/tongs/screenshots/`, the newest 100 kept.
+
+### Live check (2026-10-17)
+
+Same setup as above, the stack of this release (`tongs-stack-1` and `-2`,
+Python client). Anvil: all 12 `[[expect]]` ranges matched; with the hook
+"1 patch(es)". Both sessions closed by the script after the PID, path and
+start-time check; save unchanged, `settings.txt` differed only in
+`graceful_exit` and was restored.
+
+- `window`: 3440x1440 client area at 0,0, DPI 96, not focused.
+- `threads`: 31 workers in each pool (capacity 42), process mask `0xFE`
+  (Process Lasso's `1-7`), main thread mask `0xFE`, `threads` option -1. The
+  pools were created before Process Lasso narrowed the mask.
+- `screenshot`: `print_window` worked with the window unfocused and the
+  cursor on another monitor; 3440x1440 PNG, 3-7.5 MB.
+- `run_until 1719.6.1 speed=5` from 17 March 1719: reached 1719.6.1 after
+  6 153 ms (76 days, 12.35 days/s at this mask), paused exactly on the
+  target (`overshoot_hours` 0), `paused_ms` 0. A second client read `state`
+  every 0.5 s meanwhile. Event pop-ups opened during the run without pausing.
+- `cancel` from a second client 2 s into `run_until 1730.1.1` ended it with
+  `cancelled`; the game was paused again.
+- `wait_until` with the game paused timed out after the given 2 s, with
+  `paused_ms` 2 001.
+- `key grave` opened the console, `text tongs typed this` appeared in its
+  input line (seen in a screenshot), `key grave` closed it again; Esc did not
+  close it.
+- Clicks without the hook did nothing; with it: speed `+` (3350,32) twice,
+  `-` (3350,62) once and the pause button (3407,27) twice changed speed
+  2 to 3 to 4 to 3 and paused / resumed, as read from the state.
+- `move 1500 800` stopped the map's edge scrolling (the unfocused game had
+  taken the real cursor, on another monitor, as being at the right edge) and
+  showed the province tooltip at that point; `scroll -6 1500 800` zoomed the
+  map out.
+
 ## Not verified yet
 
 - `paused` for pauses not caused by the pause button (event popups that pause,
@@ -159,3 +251,8 @@ PID, path and start time; save unchanged, `settings.txt` differed only in
   and the characters sent follow a US layout).
 - Whether the speed keys need `SDL_TEXTINPUT` alone or both events; both are
   sent, as SDL does for a real key.
+- Mouse: dragging (no command yet), right and middle clicks, double clicks,
+  clicks on the map (only interface buttons were tried), and the focused
+  window path of `0x14E5E50` (the game was never focused in the checks).
+- `run_until` across an event that pauses the game (the mod set used does not
+  pause on events).

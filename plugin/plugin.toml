@@ -2,7 +2,7 @@ id = "tongs"
 name = "Tongs"
 version = "0.1.0"
 authors = ["Happy Dwarf Team"]
-description = "Control EU4 from scripts and agents: a local command pipe that reads the state of a running game and, when allowed, presses keys in it."
+description = "Control EU4 from scripts and agents: a local command pipe that reads the state of a running game and, when allowed, uses its keyboard and mouse."
 api = 1
 anvil = ">=0.2.0"
 entry = "tongs.dll"

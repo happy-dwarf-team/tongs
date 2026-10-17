@@ -15,8 +15,9 @@ const char kDefaultConfig[] =
     "# Tongs\n"
     "# enabled = true opens the local pipe \\\\.\\pipe\\tongs for the current Windows user.\n"
     "enabled = false\n"
-    "# input = true also accepts key, pause, resume and speed: key presses queued\n"
-    "# in the game's own SDL input, as a player would press them.\n"
+    "# input = true also accepts the keyboard and mouse commands (pause, speed,\n"
+    "# run_until, key, text, click...): input queued in the game's own SDL input,\n"
+    "# as a player's would be, and a hook so the interface sees the mouse pointer.\n"
     "input = false\n";
 
 Config ParseConfig(std::string_view text) {

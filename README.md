@@ -6,22 +6,28 @@ and scripts talk to a running game through a local named pipe, instead of
 reading pixels from screenshots. Like a smith's tongs, it holds the work from
 outside the forge.
 
-> Status: early. It reads game state and, when you allow it, presses keys in
-> the game (pause, resume, speed, any key) through the game's own SDL input,
-> so the window does not need focus. It does not click and does not write game
-> state. Supported game build: EU4 1.37.5 (Steam, Windows 64-bit); Anvil skips
-> it on other builds. Design and the addresses it relies on:
-> [docs/design.md](docs/design.md).
+> Status: early. It reads game state, takes screenshots and, when you allow
+> it, uses the keyboard and mouse in the game (pause, speed, run to a date,
+> keys, text, clicks) through the game's own SDL input, so the window does not
+> need focus. It never writes game state. Supported game build: EU4 1.37.5
+> (Steam, Windows 64-bit); Anvil skips it on other builds. Design and the
+> addresses it relies on: [docs/design.md](docs/design.md).
 
 ## Commands
 
-The pipe is `\\.\pipe\tongs`. A request is one line of text; the
-answer is one JSON object on one line.
+The pipe is `\\.\pipe\tongs`. A request is one line of text; the answer is
+one JSON object on one line. Up to 4 clients can be connected at once, so one
+can wait in `run_until` while another reads `state` or sends `cancel`.
 
 | Command | Answer |
 | --- | --- |
 | `ping` | plugin version and game process id |
 | `state` | `in_game`; with a loaded game also `date` (`"1719.3.17"`), `date_raw`, `hour`, `speed` (1–5 as in the UI), `speed_internal` (0–4), `paused` (the game's own answer) and `paused_flag` (the player pause byte) |
+| `window` | the game window: client `width` / `height`, `screen_x` / `screen_y`, `focused`, `minimized`, `thread_id` (the game's main thread), `dpi` |
+| `threads` | worker threads in each of the game's two pools, the `threads` option, process and main-thread CPU masks, ideal CPU and priority of the main thread, number of threads |
+| `screenshot [NAME]` | writes a PNG of the game window to `anvil/data/tongs/screenshots/` (keeps the newest 100) and answers with its `path`, size and capture `method`; works while the window is covered |
+| `wait_until DATE [timeout=S]` | waits (without touching the game) until the date reaches `DATE` (`1720.1.1` or `1720.1.1.12`); answers with the timing below |
+| `cancel` | ends every `wait_until` / `run_until` in progress |
 | `help` | list of commands and whether input commands are enabled |
 
 With `input = true` in the config, also:
@@ -31,36 +37,73 @@ With `input = true` in the config, also:
 | `pause` | presses Space unless the player pause is already on, then waits until it is |
 | `resume` | presses Space if the player pause is on, then waits until the game runs; refuses when something else holds the game paused |
 | `speed N` | presses keypad `+` / `-` one step at a time until the speed is `N` (1–5, as in the UI); works while paused |
-| `key NAME` | presses one key: `a`–`z`, `0`–`9`, `f1`–`f12`, `space`, `return`, `escape`, `tab`, `backspace`, `delete`, `minus`, `equals`, `kp_plus`, `kp_minus`, `kp_enter`, arrows (`up`, `down`, `left`, `right`), `home`, `end`, `page_up`, `page_down` |
+| `run_until DATE [speed=N] [timeout=S]` | sets the speed, resumes, waits for the date and pauses again; for measuring how fast the game runs |
+| `key NAME` | presses one key: `a`–`z`, `0`–`9`, `f1`–`f12`, `space`, `return`, `escape`, `tab`, `backspace`, `delete`, `minus`, `equals`, `grave` (the console key on a US layout), `kp_plus`, `kp_minus`, `kp_enter`, arrows (`up`, `down`, `left`, `right`), `home`, `end`, `page_up`, `page_down` |
+| `text STRING` | types the rest of the line into the focused text field (characters U+0020–U+007E and U+00A0–U+00FF) |
+| `move X Y` | points the mouse at client coordinates `X Y` (hovering shows tooltips) |
+| `click X Y [left\|right\|middle] [double]` | moves there and clicks |
+| `scroll STEPS [X Y]` | turns the wheel; positive scrolls up (zooms in on the map), negative down |
+| `release` | hands the pointer back to the real mouse |
 
-Each input command answers once the game has reacted (or after 10 s) with
+Input commands answer once the game has reacted (or after 10 s) with
 `command`, `presses`, `waited_ms` and the fields of `state`. When the game
 does not react in time, `ok` is `false` with an `error`, and the state is
-still included. `key` does not expect a change; it answers with the state
-read 0.1 s after the press.
+still included. `key`, `text` and the mouse commands do not expect a change;
+they answer with the state read 0.1 s after the input. Input commands from
+different clients take turns.
+
+`wait_until` and `run_until` report `start_date`, `reached` and
+`reached_date`, `game_days`, `wall_ms` (from the start of the wait until the
+target date was first seen), `days_per_second`, `paused_ms` (time seen paused
+while waiting, e.g. an event that pauses the game) and `first_change_ms`;
+`run_until` also `start_speed` and `overshoot_hours` (game hours past the
+target when the pause took hold, usually 0). Both wait at most 1 hour by
+default (`timeout=` up to 14 400 s).
+
+The mouse commands also make the game's interface see the pointer at the given
+point (a hook on the game's cursor query), until `release` or until the real
+mouse moves; the real cursor itself does not move.
 
 ```powershell
 .\scripts\tongs.ps1 state
 # {"ok":true,"in_game":true,"date":"1719.3.17","date_raw":58860240,"hour":0,"speed":2,"speed_internal":1,"paused":true,"paused_flag":true}
-.\scripts\tongs.ps1 'speed 5'
-# {"ok":true,"command":"speed","presses":3,"waited_ms":78,"in_game":true,"date":"1719.3.17",...,"speed":5,...}
-.\scripts\tongs.ps1 resume
-# {"ok":true,"command":"resume","presses":1,"waited_ms":16,...,"paused":false,"paused_flag":false}
+.\scripts\tongs.ps1 'run_until 1719.6.1 speed=5'
+# {"ok":true,"command":"run_until","target":"1719.6.1","start_date":"1719.3.17","reached":true,"reached_date":"1719.6.1",
+#  "game_days":76.000,"days_per_second":12.352,"wall_ms":6153,"paused_ms":0,...,"overshoot_hours":0,...,"paused":true,...}
+.\scripts\tongs.ps1 'click 3350 32' screenshot
 ```
 
-Right after a save loads, the game handles a key press only seconds later;
-the commands wait for it. While the Esc menu is open, Space does not resume
-the game.
+Right after a save loads, the game handles input only seconds later; the
+commands wait for it. While the Esc menu is open, Space does not resume the
+game.
+
+## Clients
+
+- `scripts/tongs.ps1 CMD [CMD ...] [-AsObject] [-StopOnError]`: sends the
+  commands over one connection and prints one answer line per command.
+- `scripts/tongs.py` (Python 3, standard library): the same from the command
+  line (`python tongs.py pause "speed 5"`), or as a module:
+
+  ```python
+  from tongs import Tongs
+  with Tongs() as game:
+      result = game.call("run_until 1720.1.1 speed=5", check=True)
+      print(result["days_per_second"])
+  ```
 
 ## Safety
 
 - Off by default. The pipe opens only with `enabled = true` in
   `anvil/data/tongs/config.toml` (created on the first start), and accepts
-  key presses only with `input = true` as well.
+  keyboard and mouse input only with `input = true` as well.
 - Local clients of the Windows user running the game only (pipe DACL, remote
   clients rejected). No network listener.
-- No game code is patched and no game state is written: key presses go into
-  the game's SDL event queue, as a player's would. `affects_gameplay = false`.
+- Game state is never written. Keys, text and mouse buttons go into the
+  game's SDL event queue, as a player's would. With `input = true` the plugin
+  hooks one function, the interface's cursor query, to answer with the pointer
+  set by the mouse commands; without it, no game code is patched.
+  `affects_gameplay = false`.
+- Screenshots are written only to the plugin's data folder.
 
 ## Install / uninstall
 
