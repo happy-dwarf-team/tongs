@@ -1,11 +1,12 @@
 #pragma once
 
-#include "keys.hpp"
+#include "input.hpp"
 
 #include <cstdint>
 #include <functional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace tongs {
 
@@ -19,16 +20,37 @@ struct StateSnapshot {
     bool paused_flag = false;    // the player pause byte (+0x48) alone
 };
 
+// The game window (game_window.cpp). Mouse commands use client coordinates.
+struct WindowSnapshot {
+    bool found = false;
+    const char* reason = nullptr;  // why found is false
+    std::uintptr_t handle = 0;
+    int width = 0;                 // client area
+    int height = 0;
+    int screen_x = 0;              // client origin on the screen
+    int screen_y = 0;
+    bool focused = false;          // the foreground window
+    bool minimized = false;
+    std::uint32_t thread_id = 0;   // the thread that owns the window: the game's main thread
+    unsigned dpi = 0;              // as the window reports it (96 = 100 %)
+};
+
 // Protocol: UTF-8 lines. A request is one command line; the answer is one
-// JSON object on one line. Commands: ping, state, help, wait_until, cancel,
-// and with input enabled key, pause, resume, speed, run_until. Input commands
-// answer with the state read after the action; they take turns across
-// clients.
+// JSON object on one line. Commands: ping, state, window, help, wait_until,
+// cancel, and with input enabled key, text, move, click, scroll, release, pause,
+// resume, speed, run_until. Input commands answer with the state read after
+// the action; they take turns across clients.
 struct Handlers {
     std::function<StateSnapshot()> read_state;
-    // Queues a key press (down, character, up) for the game; returns an error text, or
-    // an empty string on success. Left empty when input is disabled.
-    std::function<std::string(const KeyPress&)> press_key;
+    std::function<WindowSnapshot()> read_window;
+    // Queues SDL events for the game in order; returns an error text, or an
+    // empty string on success. Left empty when input is disabled.
+    std::function<std::string(const std::vector<InputEvent>&)> send_input;
+    // Where the game's GUI sees the pointer (game_cursor.cpp): set before mouse
+    // events, released by `release`. Optional; without it only the SDL events carry
+    // the position.
+    std::function<void(int x, int y)> set_cursor;
+    std::function<void()> release_cursor;
     std::function<void(int ms)> sleep_ms;
     std::function<std::uint64_t()> now_ms;  // monotonic clock
     std::uint32_t process_id = 0;
@@ -36,7 +58,7 @@ struct Handlers {
     // loads, the main loop handled a key press only 2-7 s later.
     int wait_timeout_ms = 10000;
     int poll_interval_ms = 10;
-    int key_settle_ms = 100;     // `key` waits this long before reading the state
+    int key_settle_ms = 100;     // key, text and mouse commands wait this long before reading the state
 };
 
 std::string HandleRequest(std::string_view line, const Handlers& handlers);
