@@ -282,6 +282,11 @@ static void TestWaitUntil() {
     assert(Contains(out, "\"ok\":false") && Contains(out, "timeout before the target date"));
     assert(Contains(out, "\"reached\":false") && Contains(out, "\"paused_ms\":1"));
 
+    // Paused with max_pause: stops after it instead of the timeout.
+    out = HandleRequest("wait_until 1719.3.18 timeout=100 max_pause=1", h);
+    assert(Contains(out, "longer than max_pause") && Contains(out, "\"paused_date\":\"1719.3.17\""));
+    assert(Contains(out, "\"wall_ms\":10"));  // 1000 ms and a poll, not 100 s
+
     game.state.paused_flag = false;
     out = HandleRequest("wait_until 1719.3.18", h);
     assert(Contains(out, "\"ok\":true") && Contains(out, "\"reached\":true") && Contains(out, "\"command\":\"wait_until\""));
@@ -331,6 +336,19 @@ static void TestRunUntil() {
     game.on_sleep = nullptr;
 
     // Timeout.
+    // An event pauses the game in the middle of the stretch: max_pause stops the wait early.
+    int ticks = 0;
+    game.on_sleep = [&] {
+        if (++ticks == 30) game.held_by_game = true;
+    };
+    out = HandleRequest("run_until 1800.1.1 timeout=600 max_pause=2", h);
+    assert(Contains(out, "\"ok\":false") && Contains(out, "longer than max_pause") && Contains(out, "\"paused_date\":"));
+    assert(!Contains(out, "\"paused_ms\":0,") && game.clock < 600'000);
+    game.on_sleep = nullptr;
+    game.held_by_game = false;
+    assert(Contains(HandleRequest("run_until 1800.1.1 max_pause=0", h), "bad option"));
+    assert(Contains(HandleRequest("wait_until 1800.1.1 max_pause=x", h), "bad option"));
+
     out = HandleRequest("run_until 1800.1.1 timeout=1", h);
     assert(Contains(out, "timeout before the target date") && game.state.paused_flag);
 

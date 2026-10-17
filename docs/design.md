@@ -166,7 +166,12 @@ date reaches the target, a `cancel`, a timeout or the game is left.
 it, and pauses again. `wall_ms` runs from the start of the wait (just after
 the resume took hold) to the first poll that sees the target date; the error
 is one poll interval. `paused_ms` adds up the polls that saw the game paused,
-so a measured stretch with an event pause can be rejected.
+so a measured stretch with an event pause can be rejected; `paused_date` is
+the date of the last pause that began during the wait. With `max_pause=S` the
+wait ends once one pause has lasted `S` seconds. In the lab's first
+simulation series an event with a choice ("Tariffs on Fish", 3 October 1720)
+paused the game with the player pause flag set; without `max_pause` the trial
+waited for the whole timeout.
 
 ## Mouse
 
