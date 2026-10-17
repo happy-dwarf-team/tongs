@@ -6,6 +6,7 @@
 #include "game_threads.hpp"
 #include "game_window.hpp"
 #include "pipe_server.hpp"
+#include "screenshot.hpp"
 
 #include <anvil/anvil_plugin.h>
 
@@ -48,7 +49,8 @@ extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* ho
     g_host = host;
     g_self = self;
     // plugin.toml limits the plugin to the one build whose layout game_state.hpp describes.
-    const tongs::Config config = LoadConfig(std::filesystem::path(host->data_dir(self)));
+    const std::filesystem::path data_dir(host->data_dir(self));
+    const tongs::Config config = LoadConfig(data_dir);
     for (const auto& note : config.notes) Log(ANVIL_LOG_WARNING, note);
     if (!config.enabled) {
         Log(ANVIL_LOG_INFO, "pipe disabled (set enabled = true in anvil/data/tongs/config.toml)");
@@ -59,6 +61,9 @@ extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* ho
     handlers.process_id = GetCurrentProcessId();
     handlers.read_state = [image_base] { return tongs::ReadState(image_base, tongs::GameLayout{}); };
     handlers.read_window = [] { return tongs::ReadGameWindow(); };
+    handlers.take_screenshot = [folder = data_dir / "screenshots"](std::string_view name) {
+        return tongs::TakeScreenshot(folder, name);
+    };
     handlers.read_threads = [image_base] {
         return tongs::ReadThreads(image_base, tongs::ThreadsLayout{}, tongs::ReadGameWindow().thread_id);
     };

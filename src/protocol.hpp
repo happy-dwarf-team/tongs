@@ -54,15 +54,30 @@ struct ThreadsSnapshot {
     int main_priority = 0;           // GetThreadPriority
 };
 
+// A PNG of the game window (screenshot.cpp).
+struct ScreenshotResult {
+    bool ok = false;
+    std::string error;
+    std::string path;      // UTF-8, absolute
+    int width = 0;
+    int height = 0;
+    std::uint64_t bytes = 0;
+    std::string method;    // "print_window" or "screen"
+    bool blank = false;    // every pixel black: the capture probably failed
+};
+
 // Protocol: UTF-8 lines. A request is one command line; the answer is one
-// JSON object on one line. Commands: ping, state, window, threads, help,
-// wait_until, cancel, and with input enabled key, text, move, click, scroll,
-// release, pause, resume, speed, run_until. Input commands answer with the state read after
+// JSON object on one line. Commands: ping, state, window, threads, screenshot,
+// help, wait_until, cancel, and with input enabled key, text, move, click,
+// scroll, release, pause, resume, speed, run_until. Input commands answer with the state read after
 // the action; they take turns across clients.
 struct Handlers {
     std::function<StateSnapshot()> read_state;
     std::function<WindowSnapshot()> read_window;
     std::function<ThreadsSnapshot()> read_threads;
+    // Writes a PNG named after the argument (validated: 1-48 of A-Z a-z 0-9 _ -),
+    // or a time-stamped name when it is empty.
+    std::function<ScreenshotResult(std::string_view name)> take_screenshot;
     // Queues SDL events for the game in order; returns an error text, or an
     // empty string on success. Left empty when input is disabled.
     std::function<std::string(const std::vector<InputEvent>&)> send_input;

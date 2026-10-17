@@ -455,8 +455,38 @@ static void TestThreads() {
     assert(Contains(HandleRequest("threads", Handlers{}), "thread reader unavailable"));
 }
 
+static void TestScreenshot() {
+    Handlers h;
+    std::string asked;
+    ScreenshotResult shot;
+    shot.ok = true;
+    shot.path = "C:\\game\\anvil\\data\\tongs\\screenshots\\menu.png";
+    shot.width = 1920;
+    shot.height = 1080;
+    shot.bytes = 12345;
+    shot.method = "print_window";
+    h.take_screenshot = [&](std::string_view name) {
+        asked = std::string(name);
+        return shot;
+    };
+    std::string out = HandleRequest("screenshot menu", h);
+    assert(asked == "menu" && Contains(out, "\"ok\":true") && Contains(out, "screenshots\\\\menu.png"));
+    assert(Contains(out, "\"width\":1920") && Contains(out, "\"method\":\"print_window\"") && Contains(out, "\"blank\":false"));
+    HandleRequest("screenshot", h);
+    assert(asked.empty());
+    for (const char* bad : {"screenshot ../x", "screenshot a b", "screenshot a.png",
+                            "screenshot 0123456789012345678901234567890123456789012345678"}) {
+        assert(Contains(HandleRequest(bad, h), "optional name"));
+    }
+    shot.ok = false;
+    shot.error = "the game window is minimized";
+    assert(Contains(HandleRequest("screenshot", h), "minimized"));
+    assert(Contains(HandleRequest("screenshot", Handlers{}), "unavailable"));
+}
+
 int main() {
     TestDate();
+    TestScreenshot();
     TestThreads();
     TestTextEvents();
     TestWindowAndMouse();
