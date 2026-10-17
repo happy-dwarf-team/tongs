@@ -368,8 +368,10 @@ std::string RunUntil(const Handlers& h, std::string_view argument) {
     if (!message.empty()) out += ",\"error\":\"" + JsonEscape(message) + "\"";
     out += ",\"command\":\"run_until\"" + WaitFields(w, request.target);
     out += ",\"start_speed\":" + std::to_string(before.speed + 1);
-    out += ",\"overshoot_hours\":" +
-           std::to_string(pause.state.in_game ? static_cast<std::int64_t>(pause.state.date_raw) - request.target : 0);
+    if (w.reached && pause.state.in_game) {
+        // Game hours past the target when the pause took hold.
+        out += ",\"overshoot_hours\":" + std::to_string(static_cast<std::int64_t>(pause.state.date_raw) - request.target);
+    }
     out += "," + StateFields(pause.state) + "}";
     return out;
 }

@@ -315,6 +315,7 @@ static void TestRunUntil() {
     };
     out = HandleRequest("run_until 1730.1.1", h);
     assert(Contains(out, "\"ok\":false") && Contains(out, "\"error\":\"cancelled\"") && Contains(out, "\"reached\":false"));
+    assert(!Contains(out, "overshoot_hours"));
     assert(game.state.paused_flag);
     game.on_sleep = nullptr;
 
