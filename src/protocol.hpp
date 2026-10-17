@@ -69,8 +69,8 @@ struct ScreenshotResult {
 // Protocol: UTF-8 lines. A request is one command line; the answer is one
 // JSON object on one line. Commands: ping, state, window, threads, screenshot,
 // help, wait_until, cancel, and with input enabled key, text, move, click,
-// scroll, release, pause, resume, speed, run_until. Input commands answer with the state read after
-// the action; they take turns across clients.
+// scroll, release, pause, resume, speed, run_until. Input commands answer with
+// the state read after the action; they take turns across clients.
 struct Handlers {
     std::function<StateSnapshot()> read_state;
     std::function<WindowSnapshot()> read_window;
