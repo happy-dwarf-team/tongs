@@ -26,7 +26,7 @@ can wait in `run_until` while another reads `state` or sends `cancel`.
 | `window` | the game window: client `width` / `height`, `screen_x` / `screen_y`, `focused`, `minimized`, `thread_id` (the game's main thread), `dpi` |
 | `threads` | worker threads in each of the game's two pools, the `threads` option, process and main-thread CPU masks, ideal CPU and priority of the main thread, number of threads |
 | `screenshot [NAME]` | writes a PNG of the game window to `anvil/data/tongs/screenshots/` (keeps the newest 100) and answers with its `path`, size and capture `method`; works while the window is covered |
-| `wait_until DATE [timeout=S]` | waits (without touching the game) until the date reaches `DATE` (`1720.1.1` or `1720.1.1.12`); answers with the timing below |
+| `wait_until DATE [timeout=S] [max_pause=S]` | waits (without touching the game) until the date reaches `DATE` (`1720.1.1` or `1720.1.1.12`); answers with the timing below |
 | `cancel` | ends every `wait_until` / `run_until` in progress |
 | `help` | list of commands and whether input commands are enabled |
 
@@ -37,7 +37,7 @@ With `input = true` in the config, also:
 | `pause` | presses Space unless the player pause is already on, then waits until it is |
 | `resume` | presses Space if the player pause is on, then waits until the game runs; refuses when something else holds the game paused |
 | `speed N` | presses keypad `+` / `-` one step at a time until the speed is `N` (1–5, as in the UI); works while paused |
-| `run_until DATE [speed=N] [timeout=S]` | sets the speed, resumes, waits for the date and pauses again; for measuring how fast the game runs |
+| `run_until DATE [speed=N] [timeout=S] [max_pause=S]` | sets the speed, resumes, waits for the date and pauses again; for measuring how fast the game runs |
 | `key NAME` | presses one key: `a`–`z`, `0`–`9`, `f1`–`f12`, `space`, `return`, `escape`, `tab`, `backspace`, `delete`, `minus`, `equals`, `grave` (the console key on a US layout), `kp_plus`, `kp_minus`, `kp_enter`, arrows (`up`, `down`, `left`, `right`), `home`, `end`, `page_up`, `page_down` |
 | `text STRING` | types the rest of the line into the focused text field (characters U+0020–U+007E and U+00A0–U+00FF) |
 | `move X Y` | points the mouse at client coordinates `X Y` (hovering shows tooltips) |
@@ -55,10 +55,13 @@ different clients take turns.
 `wait_until` and `run_until` report `start_date`, `reached` and
 `reached_date`, `game_days`, `wall_ms` (from the start of the wait until the
 target date was first seen), `days_per_second`, `paused_ms` (time seen paused
-while waiting, e.g. an event that pauses the game) and `first_change_ms`;
+while waiting, e.g. an event that pauses the game; with `paused_date`, the
+date of the last pause) and `first_change_ms`;
 `run_until` also `start_speed` and `overshoot_hours` (game hours past the
 target when the pause took hold, usually 0). Both wait at most 1 hour by
-default (`timeout=` up to 14 400 s).
+default (`timeout=` up to 14 400 s). `max_pause=S` ends the wait with an error
+once the game has stayed paused for `S` seconds, e.g. on an event with a
+choice, instead of waiting for the timeout.
 
 The mouse commands also make the game's interface see the pointer at the given
 point (a hook on the game's cursor query), until `release` or until the real

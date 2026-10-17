@@ -204,11 +204,12 @@ private:
     const Handlers& h_;
 };
 
-// wait_until / run_until arguments: DATE [speed=N] [timeout=SECONDS].
+// wait_until / run_until arguments: DATE [speed=N] [timeout=SECONDS] [max_pause=SECONDS].
 struct RunRequest {
     std::int32_t target = 0;
     int speed = 0;  // 0 = keep the current speed
     int timeout_s = kDefaultRunTimeoutS;
+    int max_pause_s = 0;  // stop when the game stays paused this long; 0 = wait until the timeout
 };
 
 std::string ParseRunRequest(std::string_view argument, bool allow_speed, RunRequest& out) {
@@ -228,12 +229,14 @@ std::string ParseRunRequest(std::string_view argument, bool allow_speed, RunRequ
         }
         if (key == "timeout" && number >= 1 && number <= kMaxRunTimeoutS) {
             out.timeout_s = number;
+        } else if (key == "max_pause" && number >= 1 && number <= kMaxRunTimeoutS) {
+            out.max_pause_s = number;
         } else if (key == "speed" && allow_speed && number >= 1 && number <= 5) {
             out.speed = number;
         } else {
             return "bad option: " + std::string(word.substr(0, 32)) +
-                   (allow_speed ? " (speed=1..5, timeout=1.." : " (timeout=1..") + std::to_string(kMaxRunTimeoutS) +
-                   ")";
+                   (allow_speed ? " (speed=1..5, timeout and max_pause 1.." : " (timeout and max_pause 1..") +
+                   std::to_string(kMaxRunTimeoutS) + ")";
         }
     }
     return {};
@@ -245,6 +248,8 @@ struct WaitResult {
     bool cancelled = false;
     bool timed_out = false;
     bool left_game = false;
+    bool pause_limit = false;      // stopped by max_pause
+    std::int32_t pause_raw = 0;    // date of the last pause that began while waiting
     std::int32_t start_raw = 0;    // date when the wait started
     std::int32_t reached_raw = 0;  // first date read at or after the target
     std::uint64_t wall_ms = 0;     // start of the wait -> target first seen
@@ -255,7 +260,7 @@ struct WaitResult {
 };
 
 // Polls the date until it reaches `target`, a cancel, a timeout or the game is left.
-WaitResult WaitForDate(const Handlers& h, std::int32_t target, int timeout_s) {
+WaitResult WaitForDate(const Handlers& h, std::int32_t target, int timeout_s, int max_pause_s) {
     WaitResult w;
     const std::uint64_t generation = g_cancel_generation.load();
     const std::uint64_t start = h.now_ms();
@@ -263,13 +268,22 @@ WaitResult WaitForDate(const Handlers& h, std::int32_t target, int timeout_s) {
     w.state = h.read_state();
     w.start_raw = w.state.date_raw;
     std::uint64_t last = start;
+    std::uint64_t paused_since = 0;  // start of the current pause; 0 = running
     for (;;) {
         const std::uint64_t now = h.now_ms();
         if (!w.state.in_game) {
             w.left_game = true;
             break;
         }
-        if (w.state.paused) w.paused_ms += now - last;
+        if (w.state.paused) {
+            w.paused_ms += now - last;
+            if (paused_since == 0) {
+                paused_since = now;
+                w.pause_raw = w.state.date_raw;
+            }
+        } else {
+            paused_since = 0;
+        }
         last = now;
         if (w.first_change_ms == 0 && w.state.date_raw != w.start_raw) {
             w.first_change_ms = now - start;
@@ -283,6 +297,10 @@ WaitResult WaitForDate(const Handlers& h, std::int32_t target, int timeout_s) {
         }
         if (g_cancel_generation.load() != generation) {
             w.cancelled = true;
+            break;
+        }
+        if (max_pause_s > 0 && paused_since != 0 && now - paused_since >= static_cast<std::uint64_t>(max_pause_s) * 1000) {
+            w.pause_limit = true;
             break;
         }
         if (now >= deadline) {
@@ -313,6 +331,7 @@ std::string WaitFields(const WaitResult& w, std::int32_t target) {
     }
     out += ",\"wall_ms\":" + std::to_string(w.wall_ms);
     out += ",\"paused_ms\":" + std::to_string(w.paused_ms);
+    if (w.paused_ms > 0) out += ",\"paused_date\":\"" + DateText(w.pause_raw) + "\"";
     if (w.first_change_ms > 0) {
         out += ",\"first_change_ms\":" + std::to_string(w.first_change_ms);
         out += ",\"first_change_date\":\"" + DateText(w.first_change_raw) + "\"";
@@ -323,6 +342,7 @@ std::string WaitFields(const WaitResult& w, std::int32_t target) {
 const char* WaitError(const WaitResult& w) {
     if (w.left_game) return "the game was left while waiting";
     if (w.cancelled) return "cancelled";
+    if (w.pause_limit) return "the game stayed paused longer than max_pause";
     if (w.timed_out) return "timeout before the target date";
     return nullptr;
 }
@@ -332,7 +352,7 @@ std::string WaitUntil(const Handlers& h, std::string_view argument) {
     if (std::string error = ParseRunRequest(argument, false, request); !error.empty()) return Error(error);
     const StateSnapshot now = h.read_state();
     if (!now.in_game) return Error("no game loaded");
-    const WaitResult w = WaitForDate(h, request.target, request.timeout_s);
+    const WaitResult w = WaitForDate(h, request.target, request.timeout_s, request.max_pause_s);
     const char* error = WaitError(w);
     std::string out = std::string("{\"ok\":") + Bool(error == nullptr);
     if (error) out += ",\"error\":\"" + std::string(error) + "\"";
@@ -360,7 +380,7 @@ std::string RunUntil(const Handlers& h, std::string_view argument) {
         const ActionResult resume = actions.SetPaused(false);
         if (!resume.ok) return ActionJson("run_until", resume);
     }
-    const WaitResult w = WaitForDate(h, request.target, request.timeout_s);
+    const WaitResult w = WaitForDate(h, request.target, request.timeout_s, request.max_pause_s);
     ActionResult pause;
     {
         std::lock_guard lock(g_input_mutex);
