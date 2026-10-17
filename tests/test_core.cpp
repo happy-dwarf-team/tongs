@@ -90,6 +90,7 @@ static void TestKeys() {
     assert(FindKey("kp_plus")->sym == 0x40000057 && FindKey("kp_plus")->scancode == 87);
     assert(FindKey("kp_minus")->sym == 0x40000056 && FindKey("kp_minus")->scancode == 86);
     assert(FindKey("escape")->sym == 27 && FindKey("return")->sym == '\r');
+    assert(FindKey("grave")->sym == '`' && FindKey("grave")->scancode == 53 && FindKey("grave")->text == '`');
     assert(FindKey(kPauseKeyName) && FindKey(kSpeedUpKeyName) && FindKey(kSpeedDownKeyName));
 }
 
