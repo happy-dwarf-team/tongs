@@ -104,6 +104,8 @@ struct FakeGame {
     std::string push_error;
     std::vector<std::pair<std::uint64_t, KeyPress>> pending;
     std::vector<std::int32_t> pressed;
+    std::vector<InputEvent> events;
+    WindowSnapshot window;
     bool clock_runs_date = false;  // the date advances (UI speed) hours per ms while not paused
     std::uint64_t date_clock = 0;
     std::function<void()> on_sleep;
@@ -127,12 +129,17 @@ struct FakeGame {
     Handlers Make() {
         Handlers h;
         h.read_state = [this] { Apply(); return state; };
-        h.press_key = [this](const KeyPress& key) -> std::string {
+        h.send_input = [this](const std::vector<InputEvent>& batch) -> std::string {
             if (!push_error.empty()) return push_error;
-            pressed.push_back(key.sym);
-            pending.emplace_back(clock + react_after_ms, key);
+            for (const InputEvent& e : batch) {
+                events.push_back(e);
+                if (e.type != InputEvent::Type::KeyDown) continue;
+                pressed.push_back(e.key.sym);
+                pending.emplace_back(clock + react_after_ms, e.key);
+            }
             return {};
         };
+        h.read_window = [this] { return window; };
         h.sleep_ms = [this](int ms) {
             Apply();  // the date runs up to now at the old pause state
             clock += static_cast<std::uint64_t>(ms);
@@ -156,7 +163,7 @@ static FakeGame LoadedGame() {
 static void TestInputDisabled() {
     FakeGame game = LoadedGame();
     Handlers h = game.Make();
-    h.press_key = nullptr;
+    h.send_input = nullptr;
     for (const char* command : {"key space", "pause", "resume", "speed 3"}) {
         const std::string out = HandleRequest(command, h);
         assert(Contains(out, "\"ok\":false") && Contains(out, "input = true"));
@@ -331,13 +338,88 @@ static void TestRunUntil() {
 
     assert(Contains(HandleRequest("run_until 1800.1.1 speed=6", h), "bad option"));
     Handlers no_input = h;
-    no_input.press_key = nullptr;
+    no_input.send_input = nullptr;
     assert(Contains(HandleRequest("run_until 1800.1.1", no_input), "input = true"));
     assert(Contains(HandleRequest("wait_until 1700.1.1", no_input), "\"ok\":true"));
 }
 
+static void TestTextEvents() {
+    std::vector<InputEvent> events;
+    assert(TextEvents("Ab 1", events).empty() && events.size() == 4);
+    assert(events[0].type == InputEvent::Type::Text && std::string(events[0].text) == "A");
+    assert(std::string(events[2].text) == " ");
+    events.clear();
+    assert(TextEvents("\xC3\xA4\xC3\xBF", events).empty() && events.size() == 2);  // U+00E4, U+00FF
+    assert(std::string(events[0].text) == "\xC3\xA4");
+    events.clear();
+    assert(!TextEvents("\xC5\x82", events).empty());      // U+0142 does not fit the game's 8-bit decoding
+    assert(!TextEvents("\xE2\x82\xAC", events).empty());  // three-byte UTF-8
+    assert(!TextEvents("a\tb", events).empty());          // control character
+    assert(!TextEvents("\xC3", events).empty());          // cut off
+    assert(!TextEvents("\xC2\x85", events).empty());      // C1 control
+
+    const std::vector<InputEvent> space = KeyPressEvents(*FindKey("space"));
+    assert(space.size() == 3 && space[0].type == InputEvent::Type::KeyDown && space[1].type == InputEvent::Type::Text &&
+           space[2].type == InputEvent::Type::KeyUp && space[1].text[0] == ' ');
+    assert(KeyPressEvents(*FindKey("escape")).size() == 2);
+}
+
+static void TestWindowAndMouse() {
+    FakeGame game = LoadedGame();
+    game.window.found = true;
+    game.window.width = 1920;
+    game.window.height = 1080;
+    game.window.thread_id = 42;
+    game.window.dpi = 96;
+    const Handlers h = game.Make();
+
+    std::string out = HandleRequest("window", h);
+    assert(Contains(out, "\"found\":true") && Contains(out, "\"width\":1920") && Contains(out, "\"thread_id\":42"));
+
+    out = HandleRequest("move 100 200", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"x\":100") && Contains(out, "\"presses\":0"));
+    assert(game.events.size() == 1 && game.events[0].type == InputEvent::Type::MouseMove);
+
+    out = HandleRequest("click 110 190 right", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"button\":\"right\"") && Contains(out, "\"clicks\":1"));
+    assert(game.events.size() == 4);
+    assert(game.events[1].type == InputEvent::Type::MouseMove && game.events[1].xrel == 10 && game.events[1].yrel == -10);
+    assert(game.events[2].type == InputEvent::Type::MouseDown && game.events[2].button == 3 && game.events[2].x == 110);
+    assert(game.events[3].type == InputEvent::Type::MouseUp && game.events[3].y == 190);
+
+    game.events.clear();
+    out = HandleRequest("click 5 5 double", h);
+    assert(Contains(out, "\"clicks\":2") && Contains(out, "\"presses\":2") && game.events.size() == 5);
+    assert(game.events[3].type == InputEvent::Type::MouseDown && game.events[3].clicks == 2 && game.events[3].button == 1);
+
+    game.events.clear();
+    out = HandleRequest("scroll -3 50 60", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"steps\":-3") && game.events.size() == 4);
+    assert(game.events[1].type == InputEvent::Type::Wheel && game.events[1].wheel == -1);
+    game.events.clear();
+    assert(Contains(HandleRequest("scroll 2", h), "\"ok\":true") && game.events.size() == 2 && game.events[0].wheel == 1);
+
+    for (const char* bad : {"move", "move 1", "move a b", "move 1920 5", "move 5 1080", "move -1 5", "click 1 2 left x",
+                            "click 1 2 up", "scroll 0", "scroll 21", "scroll 1 2", "scroll 1 5000 5", "text"}) {
+        assert(Contains(HandleRequest(bad, h), "\"ok\":false"));
+    }
+    assert(Contains(HandleRequest("move 1920 5", h), "outside the 1920x1080 client area"));
+
+    game.events.clear();
+    out = HandleRequest("text Hello World", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"characters\":11") && game.events.size() == 11);
+    assert(Contains(HandleRequest("text \xC5\x82", h), "cannot be typed"));
+
+    game.window = {};
+    game.window.reason = "no visible game window (SDL_app) yet";
+    assert(Contains(HandleRequest("click 1 1", h), "no visible game window"));
+    assert(Contains(HandleRequest("window", h), "\"found\":false"));
+}
+
 int main() {
     TestDate();
+    TestTextEvents();
+    TestWindowAndMouse();
     TestParseDate();
     TestWaitUntil();
     TestRunUntil();

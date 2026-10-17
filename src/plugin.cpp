@@ -2,6 +2,7 @@
 #include "config.hpp"
 #include "game_input.hpp"
 #include "game_state.hpp"
+#include "game_window.hpp"
 #include "pipe_server.hpp"
 
 #include <anvil/anvil_plugin.h>
@@ -13,6 +14,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -54,6 +56,7 @@ extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* ho
     tongs::Handlers handlers;
     handlers.process_id = GetCurrentProcessId();
     handlers.read_state = [image_base] { return tongs::ReadState(image_base, tongs::GameLayout{}); };
+    handlers.read_window = [] { return tongs::ReadGameWindow(); };
     handlers.sleep_ms = [](int ms) { Sleep(static_cast<DWORD>(ms)); };
     handlers.now_ms = [] {  // steady_clock is QueryPerformanceCounter: 1 ms, not GetTickCount64's ~16 ms
         return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -61,8 +64,8 @@ extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* ho
                                               .count());
     };
     if (config.input) {
-        handlers.press_key = [image_base](const tongs::KeyPress& key) {
-            return tongs::PressKey(image_base, tongs::InputLayout{}, key);
+        handlers.send_input = [image_base](const std::vector<tongs::InputEvent>& events) {
+            return tongs::PushInput(image_base, tongs::InputLayout{}, events);
         };
     }
     Log(ANVIL_LOG_INFO, config.input ? "input commands enabled" : "input commands disabled (input = false)");

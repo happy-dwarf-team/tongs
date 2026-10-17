@@ -86,6 +86,7 @@ struct ActionResult {
     std::string error;
     int presses = 0;
     std::uint64_t waited_ms = 0;
+    std::string extra;  // command-specific JSON members, each starting with a comma
     StateSnapshot state;
 };
 
@@ -95,6 +96,7 @@ std::string ActionJson(std::string_view command, const ActionResult& r) {
     out += ",\"command\":\"" + JsonEscape(command) + "\"";
     out += ",\"presses\":" + std::to_string(r.presses);
     out += ",\"waited_ms\":" + std::to_string(r.waited_ms);
+    out += r.extra;
     out += "," + StateFields(r.state) + "}";
     return out;
 }
@@ -103,11 +105,12 @@ class Actions {
 public:
     explicit Actions(const Handlers& handlers) : h_(handlers) {}
 
-    // Presses the key and reads the state after a short pause, without expecting a change.
-    ActionResult Key(const KeyPress& key) {
+    // Queues the events and reads the state after a short pause, without expecting a change.
+    ActionResult Settled(const std::vector<InputEvent>& events, int presses, std::string extra = {}) {
         ActionResult r;
+        r.extra = std::move(extra);
         const std::uint64_t start = h_.now_ms();
-        if (!Press(key, r)) return Finish(r, start);
+        if (!Send(events, presses, r)) return Finish(r, start);
         h_.sleep_ms(h_.key_settle_ms);
         return Finish(r, start);
     }
@@ -160,15 +163,17 @@ public:
     }
 
 private:
-    bool Press(const KeyPress& key, ActionResult& r) {
-        const std::string error = h_.press_key(key);
+    bool Press(const KeyPress& key, ActionResult& r) { return Send(KeyPressEvents(key), 1, r); }
+
+    bool Send(const std::vector<InputEvent>& events, int presses, ActionResult& r) {
+        const std::string error = h_.send_input(events);
         if (!error.empty()) {
             r.ok = false;
             r.error = error;
             r.state = h_.read_state();
             return false;
         }
-        ++r.presses;
+        r.presses += presses;
         return true;
     }
 
@@ -376,7 +381,144 @@ std::string RunUntil(const Handlers& h, std::string_view argument) {
     return out;
 }
 
-bool InputReady(const Handlers& h) { return h.press_key && h.read_state && h.sleep_ms && h.now_ms; }
+std::string WindowFields(const WindowSnapshot& w) {
+    if (!w.found) return std::string("\"found\":false,\"reason\":\"") + JsonEscape(w.reason ? w.reason : "") + "\"";
+    std::string out = "\"found\":true";
+    out += ",\"width\":" + std::to_string(w.width) + ",\"height\":" + std::to_string(w.height);
+    out += ",\"screen_x\":" + std::to_string(w.screen_x) + ",\"screen_y\":" + std::to_string(w.screen_y);
+    out += std::string(",\"focused\":") + Bool(w.focused) + ",\"minimized\":" + Bool(w.minimized);
+    out += ",\"thread_id\":" + std::to_string(w.thread_id) + ",\"dpi\":" + std::to_string(w.dpi);
+    out += ",\"handle\":" + std::to_string(w.handle);
+    return out;
+}
+
+// The last mouse position sent, for the relative motion of the next move.
+// Guarded by g_input_mutex.
+struct MouseTrack {
+    bool known = false;
+    int x = 0;
+    int y = 0;
+};
+MouseTrack g_mouse;
+
+InputEvent MoveTo(int x, int y) {
+    InputEvent e;
+    e.type = InputEvent::Type::MouseMove;
+    e.x = x;
+    e.y = y;
+    if (g_mouse.known) {
+        e.xrel = x - g_mouse.x;
+        e.yrel = y - g_mouse.y;
+    }
+    g_mouse = {true, x, y};
+    return e;
+}
+
+// Checks a point against the game window's client area, when the window is known.
+std::string CheckPoint(const Handlers& h, int x, int y) {
+    if (x < 0 || y < 0) return "coordinates must not be negative";
+    if (!h.read_window) return {};
+    const WindowSnapshot w = h.read_window();
+    if (!w.found) return w.reason ? w.reason : "no game window";
+    if (x >= w.width || y >= w.height) {
+        return "(" + std::to_string(x) + ", " + std::to_string(y) + ") is outside the " + std::to_string(w.width) +
+               "x" + std::to_string(w.height) + " client area";
+    }
+    return {};
+}
+
+std::string PointFields(int x, int y) { return ",\"x\":" + std::to_string(x) + ",\"y\":" + std::to_string(y); }
+
+constexpr int kClickMoveSettleMs = 50;  // a few frames between moving the pointer and pressing
+constexpr int kMaxScrollSteps = 20;
+
+std::string MouseCommand(const Handlers& h, std::string_view command, std::string_view argument) {
+    const std::vector<std::string_view> words = SplitWords(argument);
+    Actions actions(h);
+    if (command == "move") {
+        int x = 0, y = 0;
+        if (words.size() != 2 || !ParseInt(words[0], x) || !ParseInt(words[1], y)) return Error("usage: move X Y");
+        if (std::string error = CheckPoint(h, x, y); !error.empty()) return Error(error);
+        return ActionJson(command, actions.Settled({MoveTo(x, y)}, 0, PointFields(x, y)));
+    }
+    if (command == "click") {
+        int x = 0, y = 0;
+        if (words.size() < 2 || words.size() > 4 || !ParseInt(words[0], x) || !ParseInt(words[1], y)) {
+            return Error("usage: click X Y [left|right|middle] [double]");
+        }
+        int button = 1;
+        int count = 1;
+        for (std::size_t i = 2; i < words.size(); ++i) {
+            if (words[i] == "left") {
+                button = 1;
+            } else if (words[i] == "middle") {
+                button = 2;
+            } else if (words[i] == "right") {
+                button = 3;
+            } else if (words[i] == "double") {
+                count = 2;
+            } else {
+                return Error("usage: click X Y [left|right|middle] [double]");
+            }
+        }
+        if (std::string error = CheckPoint(h, x, y); !error.empty()) return Error(error);
+        // Move first and let the game see the pointer there, then press and release.
+        ActionResult moved = actions.Settled({MoveTo(x, y)}, 0);
+        if (!moved.ok) return ActionJson(command, moved);
+        h.sleep_ms(kClickMoveSettleMs);
+        std::vector<InputEvent> presses;
+        for (int c = 1; c <= count; ++c) {
+            InputEvent down;
+            down.type = InputEvent::Type::MouseDown;
+            down.x = x;
+            down.y = y;
+            down.button = button;
+            down.clicks = c;
+            InputEvent up = down;
+            up.type = InputEvent::Type::MouseUp;
+            presses.push_back(down);
+            presses.push_back(up);
+        }
+        static const char* const kNames[] = {"", "left", "middle", "right"};
+        return ActionJson(command, actions.Settled(presses, count,
+                                                   PointFields(x, y) + ",\"button\":\"" + kNames[button] +
+                                                       "\",\"clicks\":" + std::to_string(count)));
+    }
+    // scroll STEPS [X Y]
+    int steps = 0;
+    if ((words.size() != 1 && words.size() != 3) || !ParseInt(words[0], steps) || steps == 0 ||
+        steps < -kMaxScrollSteps || steps > kMaxScrollSteps) {
+        return Error("usage: scroll STEPS [X Y], STEPS -20..20 and not 0 (positive scrolls up)");
+    }
+    std::vector<InputEvent> events;
+    std::string extra = ",\"steps\":" + std::to_string(steps);
+    if (words.size() == 3) {
+        int x = 0, y = 0;
+        if (!ParseInt(words[1], x) || !ParseInt(words[2], y)) return Error("usage: scroll STEPS [X Y]");
+        if (std::string error = CheckPoint(h, x, y); !error.empty()) return Error(error);
+        events.push_back(MoveTo(x, y));
+        extra += PointFields(x, y);
+    }
+    const int one = steps > 0 ? 1 : -1;
+    for (int i = 0; i != steps; i += one) {
+        InputEvent wheel;
+        wheel.type = InputEvent::Type::Wheel;
+        wheel.wheel = one;
+        events.push_back(wheel);
+    }
+    return ActionJson(command, actions.Settled(events, steps > 0 ? steps : -steps, extra));
+}
+
+std::string TextCommand(const Handlers& h, std::string_view text) {
+    if (text.empty()) return Error("usage: text STRING");
+    std::vector<InputEvent> events;
+    if (std::string error = TextEvents(text, events); !error.empty()) return Error(error);
+    Actions actions(h);
+    const int count = static_cast<int>(events.size());
+    return ActionJson("text", actions.Settled(events, count, ",\"characters\":" + std::to_string(count)));
+}
+
+bool InputReady(const Handlers& h) { return h.send_input && h.read_state && h.sleep_ms && h.now_ms; }
 
 constexpr char kInputDisabled[] = "input commands are disabled (set input = true in anvil/data/tongs/config.toml)";
 
@@ -420,9 +562,14 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers) {
         if (!handlers.read_state) return Error("state reader unavailable");
         return "{\"ok\":true," + StateFields(handlers.read_state()) + "}";
     }
+    if (command == "window" && argument.empty()) {
+        if (!handlers.read_window) return Error("window reader unavailable");
+        return "{\"ok\":true," + WindowFields(handlers.read_window()) + "}";
+    }
     if (command == "help" && argument.empty()) {
-        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"help\",\"wait_until\",\"cancel\",") +
-               "\"key\",\"pause\",\"resume\",\"speed\",\"run_until\"],\"input\":" + Bool(InputReady(handlers)) + "}";
+        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"help\",\"wait_until\",") +
+               "\"cancel\",\"key\",\"text\",\"move\",\"click\",\"scroll\",\"pause\",\"resume\",\"speed\"," +
+               "\"run_until\"],\"input\":" + Bool(InputReady(handlers)) + "}";
     }
     if (command == "cancel" && argument.empty()) {
         g_cancel_generation.fetch_add(1);
@@ -436,6 +583,12 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers) {
         if (!InputReady(handlers)) return Error(kInputDisabled);
         return RunUntil(handlers, argument);
     }
+    if (command == "text" || command == "move" || command == "click" || command == "scroll") {
+        if (!InputReady(handlers)) return Error(kInputDisabled);
+        std::lock_guard lock(g_input_mutex);
+        if (command == "text") return TextCommand(handlers, argument);
+        return MouseCommand(handlers, command, argument);
+    }
     if (command == "key" || command == "pause" || command == "resume" || command == "speed") {
         if (!InputReady(handlers)) return Error(kInputDisabled);
         std::lock_guard lock(g_input_mutex);
@@ -443,7 +596,7 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers) {
         if (command == "key") {
             const auto key = FindKey(argument);
             if (!key) return Error("unknown key: " + std::string(argument.substr(0, 32)));
-            return ActionJson(command, actions.Key(*key));
+            return ActionJson(command, actions.Settled(KeyPressEvents(*key), 1));
         }
         if (command == "speed") {
             if (argument.size() != 1 || argument[0] < '1' || argument[0] > '5') {
