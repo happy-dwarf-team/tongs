@@ -107,8 +107,14 @@ game.
 
 ## Install / uninstall
 
-Install Anvil 0.2.0 or newer, then copy the `tongs` folder produced
-by `cmake --install` into `<EU4>/anvil/plugins/`. Delete it to uninstall.
+Install [Anvil](https://github.com/happy-dwarf-team/anvil#install--uninstall)
+0.2.0 or newer first. Then download `tongs-windows-x64.zip` from the
+[latest release](https://github.com/happy-dwarf-team/tongs/releases/latest)
+and extract it into `<EU4>/anvil/plugins/`; it contains the `tongs` folder
+(`SHA256SUMS.txt` next to the archive holds its checksum). Start the game once
+to create `anvil/data/tongs/config.toml`, then set `enabled = true` (and
+`input = true` for the input commands) and start the game again. Delete the
+`tongs` folder to uninstall.
 
 ## Building
 
@@ -120,6 +126,9 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 cmake --install build --component plugin --prefix dist
 ```
+
+Contributions, the commit convention and the release process: see
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
