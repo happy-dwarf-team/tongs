@@ -46,8 +46,8 @@ bool BuildSecurity(Server& server) {
 
 HANDLE CreatePipeInstance(Server& server, bool first) {
     return CreateNamedPipeW(kPipeName, PIPE_ACCESS_DUPLEX | (first ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0),
-                            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS, 1,
-                            kBufferSize, kBufferSize, 0, &server.security);
+                            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+                            kMaxClients, kBufferSize, kBufferSize, 0, &server.security);
 }
 
 bool WriteAll(HANDLE pipe, const std::string& text) {
@@ -76,21 +76,33 @@ void ServeClient(Server& server, HANDLE pipe) {
     }
 }
 
-DWORD WINAPI ServerThread(void* param) {
-    auto& server = *static_cast<Server*>(param);
-    HANDLE pipe = CreatePipeInstance(server, true);
-    if (pipe == INVALID_HANDLE_VALUE) {
-        server.log(ANVIL_LOG_ERROR, "cannot create the pipe (error " + std::to_string(GetLastError()) +
-                                        "); is another game instance serving it?");
-        return 1;
-    }
-    server.log(ANVIL_LOG_INFO, "serving \\\\.\\pipe\\tongs");
+struct Instance {
+    Server* server;
+    HANDLE pipe;
+};
+
+// Serves one pipe instance for the rest of the process, one client at a time.
+DWORD WINAPI InstanceThread(void* param) {
+    const Instance instance = *static_cast<Instance*>(param);
+    delete static_cast<Instance*>(param);
     for (;;) {
-        const bool connected = ConnectNamedPipe(pipe, nullptr) || GetLastError() == ERROR_PIPE_CONNECTED;
-        if (connected) ServeClient(server, pipe);
-        FlushFileBuffers(pipe);
-        DisconnectNamedPipe(pipe);
+        const bool connected = ConnectNamedPipe(instance.pipe, nullptr) || GetLastError() == ERROR_PIPE_CONNECTED;
+        if (connected) ServeClient(*instance.server, instance.pipe);
+        FlushFileBuffers(instance.pipe);
+        DisconnectNamedPipe(instance.pipe);
     }
+}
+
+bool StartInstance(Server& server, HANDLE pipe) {
+    auto* instance = new Instance{&server, pipe};
+    HANDLE thread = CreateThread(nullptr, 0, InstanceThread, instance, 0, nullptr);
+    if (thread == nullptr) {
+        delete instance;
+        return false;
+    }
+    SetThreadDescription(thread, L"tongs pipe");
+    CloseHandle(thread);
+    return true;
 }
 
 }  // namespace
@@ -103,15 +115,33 @@ bool StartPipeServer(const Handlers& handlers, LogFn log) {
         delete server;
         return false;
     }
-    HANDLE thread = CreateThread(nullptr, 0, ServerThread, server, 0, nullptr);
-    if (thread == nullptr) {
-        log(ANVIL_LOG_ERROR, "cannot start the pipe thread (error " + std::to_string(GetLastError()) + ")");
+    // The first instance claims the name, so a second game cannot serve it.
+    HANDLE first = CreatePipeInstance(*server, true);
+    if (first == INVALID_HANDLE_VALUE) {
+        log(ANVIL_LOG_ERROR, "cannot create the pipe (error " + std::to_string(GetLastError()) +
+                                 "); is another game instance serving it?");
         LocalFree(server->descriptor);
         delete server;
         return false;
     }
-    SetThreadDescription(thread, L"tongs pipe");
-    CloseHandle(thread);
+    if (!StartInstance(*server, first)) {
+        log(ANVIL_LOG_ERROR, "cannot start the pipe thread (error " + std::to_string(GetLastError()) + ")");
+        CloseHandle(first);
+        LocalFree(server->descriptor);
+        delete server;
+        return false;
+    }
+    int instances = 1;
+    while (instances < kMaxClients) {
+        HANDLE pipe = CreatePipeInstance(*server, false);
+        if (pipe == INVALID_HANDLE_VALUE) break;
+        if (!StartInstance(*server, pipe)) {
+            CloseHandle(pipe);
+            break;
+        }
+        ++instances;
+    }
+    log(ANVIL_LOG_INFO, "serving \\\\.\\pipe\\tongs, " + std::to_string(instances) + " clients at a time");
     return true;
 }
 
