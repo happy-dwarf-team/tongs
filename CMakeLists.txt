@@ -29,8 +29,8 @@ if(MSVC)
     target_compile_options(tongs_core PUBLIC /W4 /utf-8 /permissive- /EHsc)
 endif()
 
-add_library(tongs SHARED src/plugin.cpp src/game_state.cpp src/game_input.cpp src/game_window.cpp src/game_cursor.cpp src/game_threads.cpp src/pipe_server.cpp)
-target_link_libraries(tongs PRIVATE tongs_core advapi32 user32)
+add_library(tongs SHARED src/plugin.cpp src/game_state.cpp src/game_input.cpp src/game_window.cpp src/game_cursor.cpp src/game_threads.cpp src/pipe_server.cpp src/screenshot.cpp)
+target_link_libraries(tongs PRIVATE tongs_core advapi32 user32 gdi32 ole32 windowscodecs)
 
 if(TONGS_BUILD_TESTS)
     enable_testing()

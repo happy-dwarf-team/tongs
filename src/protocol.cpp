@@ -597,6 +597,18 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers) {
         if (!handlers.read_state) return Error("state reader unavailable");
         return "{\"ok\":true," + StateFields(handlers.read_state()) + "}";
     }
+    if (command == "screenshot") {
+        if (!handlers.take_screenshot) return Error("screenshots unavailable");
+        if (argument.size() > 48 || argument.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") !=
+                                        std::string_view::npos) {
+            return Error("screenshot takes an optional name of 1-48 letters, digits, _ or -");
+        }
+        const ScreenshotResult shot = handlers.take_screenshot(argument);
+        if (!shot.ok) return Error(shot.error);
+        return "{\"ok\":true,\"command\":\"screenshot\",\"path\":\"" + JsonEscape(shot.path) + "\",\"width\":" +
+               std::to_string(shot.width) + ",\"height\":" + std::to_string(shot.height) + ",\"bytes\":" +
+               std::to_string(shot.bytes) + ",\"method\":\"" + shot.method + "\",\"blank\":" + Bool(shot.blank) + "}";
+    }
     if (command == "threads" && argument.empty()) {
         if (!handlers.read_threads) return Error("thread reader unavailable");
         return ThreadsJson(handlers.read_threads());
@@ -606,7 +618,7 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers) {
         return "{\"ok\":true," + WindowFields(handlers.read_window()) + "}";
     }
     if (command == "help" && argument.empty()) {
-        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"help\",\"wait_until\",") +
+        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"help\",\"wait_until\",") +
                "\"cancel\",\"key\",\"text\",\"move\",\"click\",\"scroll\",\"release\",\"pause\",\"resume\",\"speed\"," +
                "\"run_until\"],\"input\":" + Bool(InputReady(handlers)) + "}";
     }
