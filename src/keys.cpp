@@ -28,6 +28,7 @@ constexpr std::array kNamedKeys = {
     NamedKey{"space", {' ', 44, ' '}},
     NamedKey{"minus", {'-', 45, '-'}},
     NamedKey{"equals", {'=', 46, '='}},
+    NamedKey{"grave", {'`', 53, '`'}},  // the key left of 1 (US layout); opens the game console
     NamedKey{"delete", {127, 76}},
     Special("home", 74),
     Special("page_up", 75),

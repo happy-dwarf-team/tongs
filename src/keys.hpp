@@ -17,7 +17,7 @@ struct KeyPress {
 };
 
 // Key names accepted by `key <name>`: a-z, 0-9, f1-f12, space, return,
-// escape, tab, backspace, delete, minus, equals, kp_plus, kp_minus, kp_enter,
+// escape, tab, backspace, delete, minus, equals, grave, kp_plus, kp_minus, kp_enter,
 // up, down, left, right, home, end, page_up, page_down. Case-insensitive.
 std::optional<KeyPress> FindKey(std::string_view name);
 
