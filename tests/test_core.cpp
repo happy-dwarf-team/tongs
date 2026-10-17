@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -103,8 +104,15 @@ struct FakeGame {
     std::string push_error;
     std::vector<std::pair<std::uint64_t, KeyPress>> pending;
     std::vector<std::int32_t> pressed;
+    bool clock_runs_date = false;  // the date advances (UI speed) hours per ms while not paused
+    std::uint64_t date_clock = 0;
+    std::function<void()> on_sleep;
 
     void Apply() {
+        if (clock_runs_date) {
+            if (!state.paused) state.date_raw += static_cast<std::int32_t>((clock - date_clock) * (state.speed + 1));
+            date_clock = clock;
+        }
         while (!pending.empty() && pending.front().first <= clock) {
             const KeyPress key = pending.front().second;
             pending.erase(pending.begin());
@@ -125,7 +133,11 @@ struct FakeGame {
             pending.emplace_back(clock + react_after_ms, key);
             return {};
         };
-        h.sleep_ms = [this](int ms) { clock += static_cast<std::uint64_t>(ms); };
+        h.sleep_ms = [this](int ms) {
+            Apply();  // the date runs up to now at the old pause state
+            clock += static_cast<std::uint64_t>(ms);
+            if (on_sleep) on_sleep();
+        };
         h.now_ms = [this] { return clock; };
         return h;
     }
@@ -234,8 +246,100 @@ static void TestSpeed() {
     assert(Contains(out, "\"ok\":false") && Contains(out, "speed: no change") && Contains(out, "\"presses\":1"));
 }
 
+static void TestParseDate() {
+    assert(ParseGameDate("1719.3.17") == 58'860'240);
+    assert(ParseGameDate("1719.3.17.5") == 58'860'245);
+    assert(ParseGameDate("1444.11.11") == 43'800'000 + 1444 * 365 * 24 + 314 * 24);
+    assert(*ParseGameDate("1720.1.1") - *ParseGameDate("1719.1.1") == 365 * 24);
+    assert(ParseGameDate("-1.12.31") == 43'800'000 - 24);
+    for (const char* bad : {"", "1720", "1720.1", "1720.13.1", "1720.2.29", "1720.0.1", "1720.1.0", "1720.1.1.24",
+                            "1720.1.1.1.1", "1720..1", "1720.1.1x", "x.1.1", "1720.1.1.", "1234567.1.1"}) {
+        assert(!ParseGameDate(bad));
+    }
+    for (std::int32_t raw : {58'860'240, 58'860'245, 43'800'000, 43'799'999}) {
+        const GameDate d = DecodeGameDate(raw);
+        assert(EncodeGameDate(d) == raw);
+    }
+}
+
+static void TestWaitUntil() {
+    FakeGame game = LoadedGame();
+    game.clock_runs_date = true;
+    const Handlers h = game.Make();
+    // Paused: the date does not move, so the wait times out.
+    std::string out = HandleRequest("wait_until 1719.3.18 timeout=1", h);
+    assert(Contains(out, "\"ok\":false") && Contains(out, "timeout before the target date"));
+    assert(Contains(out, "\"reached\":false") && Contains(out, "\"paused_ms\":1"));
+
+    game.state.paused_flag = false;
+    out = HandleRequest("wait_until 1719.3.18", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"reached\":true") && Contains(out, "\"command\":\"wait_until\""));
+    assert(Contains(out, "\"target\":\"1719.3.18\"") && Contains(out, "\"start_date\":\"1719.3.17\""));
+    assert(Contains(out, "\"reached_date\":\"1719.3.18\"") && Contains(out, "\"paused_ms\":0"));
+    assert(Contains(out, "\"days_per_second\":"));
+    assert(game.pressed.empty());  // wait_until never presses keys
+
+    // Already reached: answers at once.
+    out = HandleRequest("wait_until 1719.1.1", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"wall_ms\":0"));
+
+    for (const char* bad : {"wait_until", "wait_until 1720", "wait_until 1720.1.1 speed=5", "wait_until 1720.1.1 timeout=0",
+                            "wait_until 1720.1.1 timeout=x", "wait_until 1720.1.1 extra"}) {
+        assert(Contains(HandleRequest(bad, h), "\"ok\":false"));
+    }
+
+    FakeGame menu;
+    const Handlers hm = menu.Make();
+    assert(Contains(HandleRequest("wait_until 1720.1.1", hm), "no game loaded"));
+}
+
+static void TestRunUntil() {
+    FakeGame game = LoadedGame();  // paused, UI speed 2
+    game.clock_runs_date = true;
+    const Handlers h = game.Make();
+    std::string out = HandleRequest("run_until 1719.4.1 speed=5", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"command\":\"run_until\"") && Contains(out, "\"reached\":true"));
+    assert(Contains(out, "\"start_speed\":2") && Contains(out, "\"speed\":5"));
+    assert(Contains(out, "\"paused\":true") && Contains(out, "\"paused_flag\":true"));
+    assert(game.state.paused && game.state.date_raw >= *ParseGameDate("1719.4.1"));
+    assert(!Contains(out, "\"overshoot_hours\":-"));
+
+    // Already there.
+    out = HandleRequest("run_until 1719.4.1", h);
+    assert(Contains(out, "\"ok\":false") && Contains(out, "already at or past 1719.4.1"));
+
+    // Cancelled from "another client" while waiting; the game is paused again.
+    int sleeps = 0;
+    game.on_sleep = [&] {
+        if (++sleeps == 20) assert(Contains(HandleRequest("cancel", h), "\"ok\":true"));
+    };
+    out = HandleRequest("run_until 1730.1.1", h);
+    assert(Contains(out, "\"ok\":false") && Contains(out, "\"error\":\"cancelled\"") && Contains(out, "\"reached\":false"));
+    assert(game.state.paused_flag);
+    game.on_sleep = nullptr;
+
+    // Timeout.
+    out = HandleRequest("run_until 1800.1.1 timeout=1", h);
+    assert(Contains(out, "timeout before the target date") && game.state.paused_flag);
+
+    // A game that does not react to Space: the resume fails and nothing waits.
+    game.ignore_keys = true;
+    out = HandleRequest("run_until 1800.1.1", h);
+    assert(Contains(out, "\"ok\":false") && Contains(out, "resume: no change"));
+    game.ignore_keys = false;
+
+    assert(Contains(HandleRequest("run_until 1800.1.1 speed=6", h), "bad option"));
+    Handlers no_input = h;
+    no_input.press_key = nullptr;
+    assert(Contains(HandleRequest("run_until 1800.1.1", no_input), "input = true"));
+    assert(Contains(HandleRequest("wait_until 1700.1.1", no_input), "\"ok\":true"));
+}
+
 int main() {
     TestDate();
+    TestParseDate();
+    TestWaitUntil();
+    TestRunUntil();
     TestConfig();
     TestProtocol();
     TestKeys();

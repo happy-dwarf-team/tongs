@@ -8,6 +8,7 @@
 
 #include <windows.h>
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -54,7 +55,11 @@ extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* ho
     handlers.process_id = GetCurrentProcessId();
     handlers.read_state = [image_base] { return tongs::ReadState(image_base, tongs::GameLayout{}); };
     handlers.sleep_ms = [](int ms) { Sleep(static_cast<DWORD>(ms)); };
-    handlers.now_ms = [] { return static_cast<std::uint64_t>(GetTickCount64()); };
+    handlers.now_ms = [] {  // steady_clock is QueryPerformanceCounter: 1 ms, not GetTickCount64's ~16 ms
+        return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                              std::chrono::steady_clock::now().time_since_epoch())
+                                              .count());
+    };
     if (config.input) {
         handlers.press_key = [image_base](const tongs::KeyPress& key) {
             return tongs::PressKey(image_base, tongs::InputLayout{}, key);

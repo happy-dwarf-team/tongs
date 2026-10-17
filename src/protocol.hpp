@@ -20,9 +20,10 @@ struct StateSnapshot {
 };
 
 // Protocol: UTF-8 lines. A request is one command line; the answer is one
-// JSON object on one line. Commands: ping, state, help, and with input
-// enabled key, pause, resume, speed. Input commands answer with the state
-// read after the action.
+// JSON object on one line. Commands: ping, state, help, wait_until, cancel,
+// and with input enabled key, pause, resume, speed, run_until. Input commands
+// answer with the state read after the action; they take turns across
+// clients.
 struct Handlers {
     std::function<StateSnapshot()> read_state;
     // Queues a key press (down, character, up) for the game; returns an error text, or
