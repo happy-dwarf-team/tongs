@@ -57,6 +57,6 @@ a request.
 _Avoid_: event, push, callback
 
 **Input**:
-A key, text or mouse event that Tongs gives the game the way a player's
+A key press, typed text or mouse action that Tongs gives the game the way a player's
 keyboard and mouse would.
 _Avoid_: injection, synthetic event
