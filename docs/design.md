@@ -327,9 +327,8 @@ queue only when all three hold:
 The research proposes six `[[expect]]` entries: the prologue, the three call
 sites, the counter and the session gate `0x813F95`.
 
-The hook is installed whenever `enabled = true`. The 0.4.0 PR measures its
-cost (below). If the date advance at speed 5 changes beyond the lab's noise,
-the release adds an opt-out.
+The hook is installed whenever `enabled = true`. The 0.4.0 `SIMULATION` A/B
+(below) showed no cost, so there is no opt-out.
 
 **Contract** (from "What does a call dispatched to the main thread
 promise?"):
@@ -422,9 +421,31 @@ Findings:
   each).
 - **Cancel.** `cancel` answered `withdrawn: 0` (nothing queued).
 
+**Cost under `SIMULATION` conditions** (2026-10-18). Runs `sim-hook-ab-1` …
+`-8` used the lab's `measure-year-tongs.ps1` with these conditions:
+- the original EXE;
+- 8 workers in both pools;
+- the process on CPU 0–15 (`0xFFFF`) and the main thread on CPU4 (`0x10`);
+- the restricted broker;
+- the Russia save, warm-up to 1720.1.1, then 1720.1.1 → 1721.1.1 at speed 5
+  (365 days), measured by `run_until`.
+
+Runs alternated 0.3.0 (no frame hook) and this branch, one trial per run. Two
+trials were rejected because an event paused the game during the stretch
+(`max_pause` 5 s), one of each build, and one more run of each replaced them.
+
+| Build | Valid trials (s) | Mean | Days/s |
+| --- | --- | --- | --- |
+| 0.3.0 | 27.08, 30.82, 28.39 | 28.76 s | 12.7 |
+| 0.4.0 branch | 25.89, 26.08, 26.79 | 26.25 s | 13.9 |
+
+The branch was not slower; the difference lies within the spread between
+runs that the lab has seen before (27.6–28.4 s for the same stretch). The
+hook gets no opt-out. The Process Lasso rule `eu4.exe,0,1-7` was back after
+every run, and the broker was stopped after the batch.
+
 Not checked yet: the main menu (`continue=` skips it), an unfocused and a
-minimized window, a save loaded from the menu, and the hook's cost under the
-lab's `SIMULATION` conditions.
+minimized window, and a save loaded from the menu.
 
 ## Widget tree (0.5.0)
 
