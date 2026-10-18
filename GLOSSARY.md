@@ -16,6 +16,12 @@ A read of the game that Tongs does on the game's main thread and that changes
 nothing, such as reading the widget tree; not a game call.
 _Avoid_: safe call, read call
 
+**Outer frame**:
+One frame of the game's main loop, as opposed to a frame the game draws from
+inside a game update or a save load; game calls and main-thread reads run only
+after outer frames.
+_Avoid_: tick, frame (unqualified)
+
 **Marked run**:
 A stretch between two dates measured by Tongs during which at least one game
 call or input from any client happened.
