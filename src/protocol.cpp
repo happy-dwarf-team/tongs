@@ -619,6 +619,38 @@ std::string FramesCommand(const Handlers& h, std::string_view argument) {
     return MainThreadJson("frames", outcome);
 }
 
+// ui find SEL [all] [limit=N] / ui tree [SEL] [depth=N] [limit=N] [all]: the selector is
+// checked on the pipe thread, the tree is read on the main thread, and the answer is
+// built back on the pipe thread.
+std::string UiCommand(const Handlers& h, std::string_view argument) {
+    UiRequest request;
+    const std::string parse_error = ParseUiRequest(argument, request);
+    const std::string_view verb = argument.substr(0, argument.find_first_of(" 	"));
+    const std::string command = verb == "find" || verb == "tree" ? "ui " + std::string(verb) : "ui";
+    if (!parse_error.empty()) return "{\"ok\":false" + parse_error + ",\"command\":\"" + command + "\"}";
+    if (!h.dispatcher || !h.read_ui || !h.now_ms) return Error(kNoDispatch);
+    UiTree tree;
+    std::string read_error;
+    const auto& read = h.read_ui;
+    const Dispatcher::Outcome outcome = h.dispatcher->Run(
+        Dispatcher::Kind::Read,
+        [&tree, &read_error, &read] {
+            read_error = read(tree);
+            return std::string();
+        },
+        request.timeout_ms > 0 ? request.timeout_ms : h.dispatch_timeout_ms);
+    if (!outcome.ran) return MainThreadJson(command, outcome);
+    bool found = true;
+    const std::string members = read_error.empty() ? UiAnswer(tree, request, found) : std::string();
+    std::string out = std::string("{\"ok\":") + Bool(read_error.empty() && found);
+    if (!read_error.empty()) out += ",\"error\":\"" + JsonEscape(read_error) + "\"";
+    if (!found) out += ",\"error\":\"not_found\"";
+    out += ",\"command\":\"" + command + "\"" + members;
+    out += ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + ",\"run_ms\":" + std::to_string(outcome.run_ms) +
+           ",\"frame\":" + std::to_string(outcome.frame);
+    return out + "}";
+}
+
 constexpr char kInputDisabled[] = "input commands are disabled (set input = true in anvil/data/tongs/config.toml)";
 
 }  // namespace
@@ -682,7 +714,7 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers) {
         return "{\"ok\":true," + WindowFields(handlers.read_window()) + "}";
     }
     if (command == "help" && argument.empty()) {
-        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"frames\",\"help\",") +
+        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"frames\",\"ui\",\"help\",") +
                "\"wait_until\",\"cancel\",\"key\",\"text\",\"move\",\"click\",\"scroll\",\"release\",\"pause\",\"resume\",\"speed\"," +
                "\"run_until\"],\"input\":" + Bool(InputReady(handlers)) + ",\"main_thread\":" +
                Bool(handlers.dispatcher != nullptr) + "}";
@@ -693,6 +725,7 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers) {
         return "{\"ok\":true,\"command\":\"cancel\",\"withdrawn\":" + std::to_string(withdrawn) + "}";
     }
     if (command == "frames") return FramesCommand(handlers, argument);
+    if (command == "ui") return UiCommand(handlers, argument);
     if (command == "wait_until") {
         if (!handlers.read_state || !handlers.sleep_ms || !handlers.now_ms) return Error("state reader unavailable");
         return WaitUntil(handlers, argument);

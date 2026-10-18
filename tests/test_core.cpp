@@ -1,6 +1,7 @@
 #include "config.hpp"
 #include "game_date.hpp"
 #include "protocol.hpp"
+#include "ui_tree.hpp"
 
 #include <atomic>
 #include <cassert>
@@ -171,6 +172,210 @@ static void TestFramesCommand() {
     assert(Contains(out, "\"longest_gap_ms\":") && Contains(out, "\"outer_total\":1") && Contains(out, "\"run_ms\":"));
     assert(Contains(out, "\"frame\":") && Contains(out, "\"queued_ms\":") && Contains(out, "\"thread_id\":4242"));
     assert(Contains(HandleRequest("cancel", h), "\"withdrawn\":0"));
+}
+
+// A small screen like the game's: the speed controls, a hidden timeline and an event.
+static UiTree SampleTree() {
+    UiTree t;
+    const auto add = [&t](const char* name, UiType type, bool shown, UiRect rect, int parent = -1) {
+        UiWidget w;
+        w.name = name;
+        w.type = type;
+        w.shown = shown;
+        w.rect = rect;
+        if (type == UiType::Button) {
+            w.has_enabled = true;
+            w.enabled = true;
+        }
+        t.widgets.push_back(w);
+        const int id = static_cast<int>(t.widgets.size()) - 1;
+        if (parent == -1) {
+            t.roots.push_back(id);
+        } else {
+            t.widgets[parent].children.push_back(id);
+        }
+        return id;
+    };
+    const int speed = add("speed_controls", UiType::Window, true, {3180, 0, 260, 90});
+    add("icon_date_bg", UiType::Icon, true, {3186, 0, 240, 60}, speed);
+    const int date = add("DateText", UiType::Text, true, {3213, 13, 120, 20}, speed);
+    t.widgets[date].has_text = true;
+    t.widgets[date].text = "17 March 1719";
+    add("button_speedup", UiType::Button, true, {3338, 20, 24, 24}, speed);
+    const int down = add("button_speeddown", UiType::Button, true, {3338, 50, 24, 24}, speed);
+    t.widgets[down].enabled = false;
+    const int timeline = add("timeline_controls", UiType::Window, false, {3180, 90, 260, 90});
+    add("icon_date_bg", UiType::Icon, true, {3180, 90, 240, 60}, timeline);
+    add("timeline_pause", UiType::Button, true, {3249, 143, 24, 24}, timeline);
+    const int ev = add("EventWindow", UiType::Window, true, {1300, 300, 700, 800});
+    const int list = add("event_option_listbox", UiType::Listbox, true, {1376, 900, 547, 180}, ev);
+    const char* options[] = {"Accept the tariffs", "Refuse them", "Ask the merchants"};
+    for (int i = 0; i < 3; ++i) {
+        const int entry = add("event_option_entry", UiType::Window, true, {1376, 900 + i * 60, 547, 56}, list);
+        const int button = add("event_option_button", UiType::Button, true, {1376, 900 + i * 60, 500, 56}, entry);
+        t.widgets[button].has_text = true;
+        t.widgets[button].text = options[i];
+        t.widgets[button].enabled = i != 2;
+    }
+    add("", UiType::Other, true, {0, 0, 1, 1}, ev);  // no name: a positional step
+    add("EventWindow", UiType::Window, false, {0, 0, 10, 10});  // a second, hidden one
+    return t;
+}
+
+static std::vector<std::string> Paths(const UiTree& t, const char* selector, bool all = false) {
+    UiSelector sel;
+    const std::string error = ParseUiSelector(selector, sel);
+    if (!error.empty()) return {"error: " + error};
+    const UiView view(t, all);
+    std::vector<std::string> out;
+    for (const int w : view.Resolve(sel)) out.push_back(view.PathOf(w));
+    return out;
+}
+
+static void TestUiSelectors() {
+    UiSelector sel;
+    for (const char* bad : {"", "  ", "/a", "a/", "a//", "a/[0]", "a[x=1]", "a[type=frame]", "a[type~=button]",
+                            "a[text=]", "a[1][2]", "a[", "a]b", "a[1]x"}) {
+        assert(!ParseUiSelector(bad, sel).empty());
+    }
+    assert(ParseUiSelector("a/[0]", sel) == "[n] counts from 1");
+    assert(ParseUiSelector("speed_controls/[type=button]", sel).empty() && sel.steps.size() == 2 &&
+           sel.steps[1].name == "*" && sel.steps[1].axis == UiSelector::Axis::Child);
+    assert(ParseUiSelector("//x[text^=\"Accept [the]\"][2]", sel).empty() &&
+           sel.steps[0].axis == UiSelector::Axis::Descendant && sel.steps[0].index == 2 &&
+           sel.steps[0].filters[0].value == "accept [the]");
+
+    const UiTree t = SampleTree();
+    using V = std::vector<std::string>;
+    // Anchored at the top-level windows; names ignore case and take * and ?.
+    assert(Paths(t, "speed_controls/button_speedup") == V{"speed_controls/button_speedup"});
+    assert(Paths(t, "SPEED_CONTROLS/button_speed*") ==
+           V({"speed_controls/button_speedup", "speed_controls/button_speeddown"}));
+    assert(Paths(t, "speed_controls/button_speed?p") == V{"speed_controls/button_speedup"});
+    assert(Paths(t, "button_speedup").empty());  // not a top-level window
+    assert(Paths(t, "//button_speedup") == V{"speed_controls/button_speedup"});
+    // Filters.
+    assert(Paths(t, "speed_controls/[type=button]") ==
+           V({"speed_controls/button_speedup", "speed_controls/button_speeddown"}));
+    assert(Paths(t, "speed_controls/*[disabled]") == V{"speed_controls/button_speeddown"});
+    assert(Paths(t, "speed_controls/[type=button][enabled]") == V{"speed_controls/button_speedup"});
+    assert(Paths(t, "speed_controls/[2]") == V{"speed_controls/DateText"});
+    assert(Paths(t, "//[text~=MARCH]") == V{"speed_controls/DateText"});
+    assert(Paths(t, "//*[text=\"17 march 1719\"]") == V{"speed_controls/DateText"});
+    assert(Paths(t, "//[text^=17 m]") == V{"speed_controls/DateText"});
+    assert(Paths(t, "//[text^=march]").empty());
+    // Repeated names get [n]; the path finds the widget again.
+    const V options = Paths(t, "EventWindow//event_option_button");
+    assert(options == V({"EventWindow/event_option_listbox/event_option_entry[1]/event_option_button",
+                         "EventWindow/event_option_listbox/event_option_entry[2]/event_option_button",
+                         "EventWindow/event_option_listbox/event_option_entry[3]/event_option_button"}));
+    for (const auto& path : options) assert(Paths(t, path.c_str()) == V{path});
+    assert(Paths(t, "//event_option_button[text^=refuse]") == V{options[1]});
+    assert(Paths(t, "//event_option_button[2]") == V{options[1]});
+    assert(Paths(t, "EventWindow/event_option_listbox/[2]/[1]") == V{options[1]});
+    assert(Paths(t, "EventWindow/[2]") == V{"EventWindow/[2]"});  // the widget without a name
+    // Hidden widgets and everything in a hidden window only with `all`; then paths count them too.
+    assert(Paths(t, "//timeline_pause").empty());
+    assert(Paths(t, "//timeline_pause", true) == V{"timeline_controls/timeline_pause"});
+    assert(Paths(t, "//icon_date_bg") == V{"speed_controls/icon_date_bg"});
+    assert(Paths(t, "EventWindow") == V{"EventWindow"});
+    assert(Paths(t, "EventWindow", true) == V({"EventWindow[1]", "EventWindow[2]"}));
+    assert(Paths(t, "EventWindow[2]", true) == V{"EventWindow[2]"});
+
+    const UiView view(t, false);
+    assert(view.Visible(0) && !view.Visible(5) && !view.Visible(6));  // timeline_controls and its child
+    assert(GameTextToUtf8("Krak\xF3w \x80 \x81") == "Krak\xC3\xB3w \xE2\x82\xAC \xC2\x81");
+    // Colour codes are not displayed; the ducat sign is.
+    assert(GameTextToUtf8("\xA7GM\xFCnster\xA7! \xA4") == "M\xC3\xBCnster \xC2\xA4" && GameTextToUtf8("x\xA7") == "x");
+}
+
+static void TestUiRequests() {
+    UiRequest r;
+    assert(ParseUiRequest("find //x[text=\"a b\"] all limit=3", r).empty() && r.verb == UiRequest::Verb::Find &&
+           r.selector_text == "//x[text=\"a b\"]" && r.all && r.limit == 3);
+    assert(ParseUiRequest("find //x[text^=a b]", r).empty() && r.selector_text == "//x[text^=a b]" &&
+           r.limit == kUiFindLimit);
+    assert(ParseUiRequest("tree", r).empty() && r.selector.steps.empty() && r.limit == kUiTreeLimit && r.depth == -1);
+    assert(ParseUiRequest("tree depth=1 all", r).empty() && r.depth == 1 && r.all && r.selector_text.empty());
+    assert(ParseUiRequest("tree speed_controls depth=0 timeout=2", r).empty() && r.depth == 0 && r.timeout_ms == 2000);
+    assert(Contains(ParseUiRequest("find", r), "\"error\":\"bad_selector\""));
+    assert(Contains(ParseUiRequest("find a//", r), "\"error\":\"bad_selector\""));
+    assert(Contains(ParseUiRequest("find a depth=1", r), "\"error\":\"bad_command\""));
+    assert(Contains(ParseUiRequest("tree limit=0", r), "\"error\":\"bad_command\""));
+    assert(Contains(ParseUiRequest("tree a b", r), "\"error\":\"bad_command\""));
+    assert(Contains(ParseUiRequest("click a", r), "\"error\":\"bad_command\""));
+
+    const UiTree t = SampleTree();
+    bool found = false;
+    assert(ParseUiRequest("find speed_controls/[type=button] limit=1", r).empty());
+    std::string out = UiAnswer(t, r, found);
+    assert(found &&
+           Contains(out, "\"count\":2,\"truncated\":true,\"matches\":[{\"path\":\"speed_controls/button_speedup\"") &&
+           Contains(out, "\"type\":\"button\",\"visible\":true,\"rect\":{\"x\":3338,\"y\":20,\"w\":24,\"h\":24}") &&
+           Contains(out, "\"click_point\":{\"x\":3350,\"y\":32},\"enabled\":true}]"));
+    assert(ParseUiRequest("find //DateText", r).empty());
+    out = UiAnswer(t, r, found);
+    assert(Contains(out, "\"text\":\"17 March 1719\"") && !Contains(out, "\"enabled\""));
+    assert(ParseUiRequest("find //nothing", r).empty());
+    assert(Contains(UiAnswer(t, r, found), "\"count\":0,\"truncated\":false,\"matches\":[]") && found);
+
+    // The whole tree: visible windows only, nested.
+    assert(ParseUiRequest("tree", r).empty());
+    out = UiAnswer(t, r, found);
+    assert(Contains(out, "\"count\":14,\"truncated\":false") && !Contains(out, "timeline") &&
+           Contains(out, "{\"name\":\"speed_controls\",\"path\":\"speed_controls\"") && Contains(out, "\"children\":[{"));
+    assert(ParseUiRequest("tree all", r).empty());
+    out = UiAnswer(t, r, found);
+    assert(Contains(out, "\"count\":18,") && Contains(out, "\"visible\":false"));
+    // depth=N replaces deeper levels with children_count.
+    assert(ParseUiRequest("tree depth=0", r).empty());
+    out = UiAnswer(t, r, found);
+    assert(Contains(out, "\"count\":2,") && Contains(out, "\"children_count\":4") && Contains(out, "\"children_count\":2") &&
+           !Contains(out, "\"children\":"));
+    assert(ParseUiRequest("tree limit=3", r).empty());
+    assert(Contains(UiAnswer(t, r, found), "\"count\":3,\"truncated\":true"));
+    // From a selector; a match inside another match is shown once.
+    assert(ParseUiRequest("tree //event_option_entry[2]", r).empty());
+    out = UiAnswer(t, r, found);
+    assert(Contains(out, "\"selector\":\"//event_option_entry[2]\",\"count\":2,") && Contains(out, "Refuse them"));
+    assert(ParseUiRequest("tree EventWindow//*", r).empty());
+    assert(Contains(UiAnswer(t, r, found), "\"count\":8,"));
+    assert(ParseUiRequest("tree //nothing", r).empty());
+    UiAnswer(t, r, found);
+    assert(!found);
+}
+
+static void TestUiCommand() {
+    Handlers h;
+    h.now_ms = SteadyMs;
+    assert(Contains(HandleRequest("ui tree", h), "frame hook is not installed"));
+    std::string out = HandleRequest("ui find a//", h);  // a bad selector never reaches the main thread
+    assert(Contains(out, "\"ok\":false,\"error\":\"bad_selector\"") && Contains(out, "\"command\":\"ui find\""));
+    assert(Contains(HandleRequest("ui", h), "\"command\":\"ui\""));
+
+    Dispatcher d(SteadyMs);
+    h.dispatcher = &d;
+    std::thread::id reader;
+    h.read_ui = [&reader](UiTree& tree) {
+        reader = std::this_thread::get_id();
+        tree = SampleTree();
+        return std::string();
+    };
+    out = HandleRequest("ui find //button_speedup timeout=1", h);  // no frame comes
+    assert(Contains(out, "\"error\":\"main thread busy\"") && Contains(out, "\"command\":\"ui find\""));
+    {
+        FakeMainThread main(d);
+        out = HandleRequest("ui find //button_speedup", h);
+        assert(Contains(out, "{\"ok\":true,\"command\":\"ui find\",\"selector\":\"//button_speedup\",\"count\":1,") &&
+               Contains(out, "\"queued_ms\":") && Contains(out, "\"run_ms\":") && Contains(out, "\"frame\":"));
+        assert(reader != std::this_thread::get_id());  // read on the "main thread"
+        out = HandleRequest("ui tree //nothing", h);
+        assert(Contains(out, "{\"ok\":false,\"error\":\"not_found\",\"command\":\"ui tree\""));
+        h.read_ui = [](UiTree&) { return std::string("access violation while reading the widget tree"); };
+        out = HandleRequest("ui tree", h);
+        assert(Contains(out, "{\"ok\":false,\"error\":\"access violation") && Contains(out, "\"frame\":"));
+    }
+    assert(Contains(HandleRequest("help", h), "\"ui\""));
 }
 
 static void TestDate() {
@@ -681,6 +886,9 @@ int main() {
     TestDispatcher();
     TestFrameStats();
     TestFramesCommand();
+    TestUiSelectors();
+    TestUiRequests();
+    TestUiCommand();
     std::puts("ok");
     return 0;
 }

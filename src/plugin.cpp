@@ -5,6 +5,7 @@
 #include "game_input.hpp"
 #include "game_state.hpp"
 #include "game_threads.hpp"
+#include "game_ui.hpp"
 #include "game_window.hpp"
 #include "pipe_server.hpp"
 #include "screenshot.hpp"
@@ -82,6 +83,7 @@ extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* ho
         handlers.dispatcher = &dispatcher;
         handlers.frame_stats = &frame_stats;
         handlers.current_thread_id = [] { return static_cast<std::uint32_t>(GetCurrentThreadId()); };
+        handlers.read_ui = [image_base](tongs::UiTree& tree) { return tongs::ReadUiTree(image_base, tongs::UiLayout{}, tree); };
     } else {
         Log(ANVIL_LOG_WARNING, error + "; main-thread commands disabled");
     }
