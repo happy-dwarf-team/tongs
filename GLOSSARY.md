@@ -39,7 +39,12 @@ _Avoid_: DOM, UI tree
 
 **Selector**:
 A text that names one or more widgets in the widget tree.
-_Avoid_: query, path, XPath
+_Avoid_: query, XPath
+
+**Widget path**:
+The selector that names exactly one widget by the names of its ancestors,
+with a position where siblings share a name; Tongs gives it in every answer.
+_Avoid_: canonical selector, full name
 
 **Input**:
 A key, text or mouse event that Tongs gives the game the way a player's
