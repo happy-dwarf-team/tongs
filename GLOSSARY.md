@@ -46,6 +46,16 @@ The selector that names exactly one widget by the names of its ancestors,
 with a position where siblings share a name; Tongs gives it in every answer.
 _Avoid_: canonical selector, full name
 
+**Event**:
+A situation from the game's scripts that the game shows in an event window
+with options for the player to choose; only the game's own events.
+_Avoid_: pop-up (for the event itself), notification
+
+**Notification**:
+A message Tongs sends to a subscribed client on its own, not as the answer to
+a request.
+_Avoid_: event, push, callback
+
 **Input**:
 A key, text or mouse event that Tongs gives the game the way a player's
 keyboard and mouse would.
