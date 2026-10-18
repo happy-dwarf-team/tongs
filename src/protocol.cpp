@@ -575,6 +575,50 @@ std::string TextCommand(const Handlers& h, std::string_view text) {
 
 bool InputReady(const Handlers& h) { return h.send_input && h.read_state && h.sleep_ms && h.now_ms; }
 
+constexpr char kNoDispatch[] = "main-thread commands are unavailable (the frame hook is not installed)";
+constexpr int kMaxDispatchTimeoutS = 600;
+
+// Answer of a main-thread job: the job's own members, then when and where it ran.
+std::string MainThreadJson(std::string_view command, const Dispatcher::Outcome& o) {
+    std::string out = std::string("{\"ok\":") + Bool(o.ran);
+    if (!o.ran) out += ",\"error\":\"" + JsonEscape(o.error) + "\"";
+    out += ",\"command\":\"" + JsonEscape(command) + "\"";
+    if (o.ran) out += o.answer;
+    out += ",\"queued_ms\":" + std::to_string(o.queued_ms);
+    if (o.ran) out += ",\"run_ms\":" + std::to_string(o.run_ms) + ",\"frame\":" + std::to_string(o.frame);
+    return out + "}";
+}
+
+// frames [timeout=SECONDS]: frame counts, read on the main thread after an outer frame.
+std::string FramesCommand(const Handlers& h, std::string_view argument) {
+    if (!h.dispatcher || !h.frame_stats || !h.now_ms) return Error(kNoDispatch);
+    int timeout_ms = h.dispatch_timeout_ms;
+    if (!argument.empty()) {
+        int seconds = 0;
+        if (!argument.starts_with("timeout=") || !ParseInt(argument.substr(8), seconds) || seconds < 1 ||
+            seconds > kMaxDispatchTimeoutS) {
+            return Error("frames takes an optional timeout=SECONDS (1-600)");
+        }
+        timeout_ms = seconds * 1000;
+    }
+    FrameStats& stats = *h.frame_stats;
+    const auto& now = h.now_ms;
+    const auto& thread_id = h.current_thread_id;
+    const Dispatcher::Outcome outcome = h.dispatcher->Run(
+        Dispatcher::Kind::Read,
+        [&stats, &now, &thread_id] {
+            const FrameStats::Snapshot s = stats.Take(now());
+            const std::string thread = thread_id ? ",\"thread_id\":" + std::to_string(thread_id()) : std::string();
+            return thread + ",\"outer_per_s\":" + std::to_string(s.outer_per_s) + ",\"nested_per_s\":" +
+                   std::to_string(s.nested_per_s) + ",\"outer_since\":" + std::to_string(s.outer_since) +
+                   ",\"nested_since\":" + std::to_string(s.nested_since) + ",\"since_ms\":" + std::to_string(s.since_ms) +
+                   ",\"longest_gap_ms\":" + std::to_string(s.longest_gap_ms) + ",\"outer_total\":" +
+                   std::to_string(s.outer_total) + ",\"nested_total\":" + std::to_string(s.nested_total);
+        },
+        timeout_ms);
+    return MainThreadJson("frames", outcome);
+}
+
 constexpr char kInputDisabled[] = "input commands are disabled (set input = true in anvil/data/tongs/config.toml)";
 
 }  // namespace
@@ -638,14 +682,17 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers) {
         return "{\"ok\":true," + WindowFields(handlers.read_window()) + "}";
     }
     if (command == "help" && argument.empty()) {
-        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"help\",\"wait_until\",") +
-               "\"cancel\",\"key\",\"text\",\"move\",\"click\",\"scroll\",\"release\",\"pause\",\"resume\",\"speed\"," +
-               "\"run_until\"],\"input\":" + Bool(InputReady(handlers)) + "}";
+        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"frames\",\"help\",") +
+               "\"wait_until\",\"cancel\",\"key\",\"text\",\"move\",\"click\",\"scroll\",\"release\",\"pause\",\"resume\",\"speed\"," +
+               "\"run_until\"],\"input\":" + Bool(InputReady(handlers)) + ",\"main_thread\":" +
+               Bool(handlers.dispatcher != nullptr) + "}";
     }
     if (command == "cancel" && argument.empty()) {
         g_cancel_generation.fetch_add(1);
-        return "{\"ok\":true,\"command\":\"cancel\"}";
+        const int withdrawn = handlers.dispatcher ? handlers.dispatcher->CancelQueued() : 0;
+        return "{\"ok\":true,\"command\":\"cancel\",\"withdrawn\":" + std::to_string(withdrawn) + "}";
     }
+    if (command == "frames") return FramesCommand(handlers, argument);
     if (command == "wait_until") {
         if (!handlers.read_state || !handlers.sleep_ms || !handlers.now_ms) return Error("state reader unavailable");
         return WaitUntil(handlers, argument);

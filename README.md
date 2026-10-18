@@ -26,8 +26,9 @@ can wait in `run_until` while another reads `state` or sends `cancel`.
 | `window` | the game window: client `width` / `height`, `screen_x` / `screen_y`, `focused`, `minimized`, `thread_id` (the game's main thread), `dpi` |
 | `threads` | worker threads in each of the game's two pools, the `threads` option, process and main-thread CPU masks, ideal CPU and priority of the main thread, number of threads |
 | `screenshot [NAME]` | writes a PNG of the game window to `anvil/data/tongs/screenshots/` (keeps the newest 100) and answers with its `path`, size and capture `method`; works while the window is covered |
+| `frames [timeout=S]` | read on the game's main thread after a frame of its main loop: frames per second (`outer_per_s`, and `nested_per_s` for frames drawn inside a game update or a save load), counts and the longest gap between main-loop frames since the previous `frames`, and the main thread's `thread_id`; with `queued_ms`, `run_ms` and the game's `frame` counter. Waits up to 10 s (`timeout=` up to 600) for a frame; while a save loads none comes, and the answer is `main thread busy` |
 | `wait_until DATE [timeout=S] [max_pause=S]` | waits (without touching the game) until the date reaches `DATE` (`1720.1.1` or `1720.1.1.12`); answers with the timing below |
-| `cancel` | ends every `wait_until` / `run_until` in progress |
+| `cancel` | ends every `wait_until` / `run_until` in progress and withdraws main-thread jobs still waiting for a frame (`withdrawn`) |
 | `help` | list of commands and whether input commands are enabled |
 
 With `input = true` in the config, also:
@@ -102,10 +103,12 @@ game.
 - Local clients of the Windows user running the game only (pipe DACL, remote
   clients rejected). No network listener.
 - Game state is never written. Keys, text and mouse buttons go into the
-  game's SDL event queue, as a player's would. With `input = true` the plugin
-  hooks one function, the interface's cursor query, to answer with the pointer
-  set by the mouse commands; without it, no game code is patched.
-  `affects_gameplay = false`.
+  game's SDL event queue, as a player's would.
+- Patches: with `enabled = true` the plugin hooks the game's frame function
+  to run main-thread reads such as `frames` after a frame of the main loop
+  (the frame itself runs unchanged). With `input = true` it also hooks the
+  interface's cursor query to answer with the pointer set by the mouse
+  commands. `affects_gameplay = false`.
 - Screenshots are written only to the plugin's data folder.
 
 ## Install / uninstall
