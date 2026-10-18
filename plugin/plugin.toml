@@ -87,3 +87,42 @@ build = "eu4-1.37.5-steam-win64"
 rva = 0x876999
 bytes = "89 05 0D BA 74 01"
 name = "start-up: threads option stored at 0x1FC23AC"
+
+# Frame function and the dispatcher (docs/design.md, "Dispatcher"). The hook
+# itself checks the 26-byte prologue at 0x14C25A0; these entries check the rest.
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x14C25BA
+bytes = "0F 29 74 24 60 44 0F B6 F2 48 8B F9"
+name = "frame function: outer flag from dl kept in r14d, app in rdi"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x14C2E0E
+bytes = "B2 01 48 8B CE E8 88 F7 FF FF 44 38 B6 83 00 00 00"
+name = "main loop: frame(app, outer = 1), then the quit flag app+0x83"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x769FA6
+bytes = "48 8B BF 30 03 00 00 33 D2 48 8B CF E8 E9 85 D5 00"
+name = "nested frame from a game update or a save load: frame(app, outer = 0)"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x2006D0
+bytes = "B2 01 48 8B CF E8 C6 1E 2C 01"
+name = "first-start language loop: frame(app, outer = 1)"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x14C2A23
+bytes = "48 FF 87 20 03 00 00"
+name = "frame function: frame counter app+0x320"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x813F95
+bytes = "45 84 FF 74 27"
+name = "session update: the game update runs only in an outer frame (one level of nesting)"

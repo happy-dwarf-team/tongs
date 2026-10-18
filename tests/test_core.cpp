@@ -2,17 +2,176 @@
 #include "game_date.hpp"
 #include "protocol.hpp"
 
+#include <atomic>
 #include <cassert>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <functional>
+#include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
 using namespace tongs;
 
 static bool Contains(const std::string& text, const char* part) { return text.find(part) != std::string::npos; }
+
+static std::uint64_t SteadyMs() {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+            .count());
+}
+
+static void SleepMs(int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
+
+// Plays the game's main thread: an outer frame every few milliseconds.
+class FakeMainThread {
+public:
+    explicit FakeMainThread(Dispatcher& d) : thread_([this, &d] {
+        std::uint64_t frame = 0;
+        while (!stop_) {
+            d.RunBatch(++frame);
+            SleepMs(2);
+        }
+    }) {}
+    ~FakeMainThread() {
+        stop_ = true;
+        thread_.join();
+    }
+
+private:
+    std::atomic<bool> stop_{false};
+    std::thread thread_;
+};
+
+static void TestDispatcher() {
+    Dispatcher d(SteadyMs);
+
+    // No frame: the job is withdrawn at its limit and never runs, even if a frame comes later.
+    bool ran = false;
+    Dispatcher::Outcome o = d.Run(Dispatcher::Kind::Read, [&] { ran = true; return std::string("x"); }, 30);
+    assert(!o.ran && o.error == "main thread busy" && o.queued_ms >= 25);
+    d.RunBatch(1);
+    assert(!ran);
+
+    // Frames run: the answer comes back with the frame that ran it.
+    {
+        FakeMainThread main(d);
+        o = d.Run(Dispatcher::Kind::Read, [] { return std::string(",\"a\":1"); }, 5000);
+        assert(o.ran && o.answer == ",\"a\":1" && o.frame > 0 && o.error.empty());
+    }
+
+    // A started job finishes past its limit.
+    {
+        FakeMainThread main(d);
+        o = d.Run(Dispatcher::Kind::Read, [] { SleepMs(80); return std::string("late"); }, 20);
+        assert(o.ran && o.answer == "late" && o.run_ms >= 70);
+    }
+
+    // A job that throws does not unwind into the frame.
+    {
+        FakeMainThread main(d);
+        o = d.Run(Dispatcher::Kind::Read, []() -> std::string { throw std::runtime_error("x"); }, 5000);
+        assert(!o.ran && o.error == "the job failed");
+    }
+
+    // cancel withdraws queued jobs.
+    {
+        std::atomic<bool> cancelled_ran{false};
+        Dispatcher::Outcome out;
+        std::thread client([&] {
+            out = d.Run(Dispatcher::Kind::Read, [&] { cancelled_ran = true; return std::string(); }, 5000);
+        });
+        SleepMs(30);
+        assert(d.CancelQueued() == 1);
+        client.join();
+        d.RunBatch(2);
+        assert(!out.ran && out.error == "cancelled" && !cancelled_ran);
+        assert(d.CancelQueued() == 0);
+    }
+
+    // FIFO; a game call ends the batch, so the read queued after it waits for the next frame.
+    {
+        std::vector<int> order;
+        Dispatcher::Outcome call, read;
+        std::thread a([&] {
+            call = d.Run(Dispatcher::Kind::GameCall, [&] { order.push_back(1); return std::string(); }, 5000);
+        });
+        SleepMs(30);
+        std::thread b([&] { read = d.Run(Dispatcher::Kind::Read, [&] { order.push_back(2); return std::string(); }, 5000); });
+        SleepMs(30);
+        d.RunBatch(10);
+        assert(order.size() == 1 && order[0] == 1);
+        d.RunBatch(11);
+        a.join();
+        b.join();
+        assert(order.size() == 2 && order[1] == 2 && call.frame == 10 && read.frame == 11);
+    }
+
+    // Reads share one batch.
+    {
+        std::atomic<int> count{0};
+        std::vector<std::thread> clients;
+        for (int i = 0; i < 3; ++i) {
+            clients.emplace_back([&] { d.Run(Dispatcher::Kind::Read, [&] { ++count; return std::string(); }, 5000); });
+        }
+        SleepMs(50);
+        d.RunBatch(20);
+        for (auto& c : clients) c.join();
+        assert(count == 3);
+    }
+}
+
+static void TestFrameStats() {
+    FrameStats s;
+    for (std::uint64_t t = 0; t < 1000; t += 10) s.OnOuter(t);  // 100 frames in the first second
+    s.OnNested(500);
+    s.OnNested(510);
+    s.OnOuter(1000);  // closes the first second
+    FrameStats::Snapshot snap = s.Take(1005);
+    assert(snap.outer_per_s == 100 && snap.nested_per_s == 2);
+    assert(snap.outer_since == 101 && snap.nested_since == 2 && snap.since_ms == 1005);
+    assert(snap.longest_gap_ms == 10 && snap.outer_total == 101);
+
+    s.OnOuter(3000);  // two seconds without a frame, e.g. a save loading
+    snap = s.Take(3000);
+    assert(snap.outer_per_s == 0 && snap.longest_gap_ms == 2000 && snap.outer_since == 1 && snap.since_ms == 1995);
+
+    snap = s.Take(3500);  // the open gap counts too
+    assert(snap.longest_gap_ms == 500 && snap.outer_since == 0);
+
+    FrameStats empty;
+    assert(empty.Take(100).longest_gap_ms == 0);
+}
+
+static void TestFramesCommand() {
+    Handlers h;
+    h.now_ms = SteadyMs;
+    assert(Contains(HandleRequest("frames", h), "frame hook is not installed"));
+    Dispatcher d(SteadyMs);
+    FrameStats stats;
+    h.dispatcher = &d;
+    h.frame_stats = &stats;
+    assert(Contains(HandleRequest("help", h), "\"frames\"") && Contains(HandleRequest("help", h), "\"main_thread\":true"));
+    for (const char* bad : {"frames timeout=0", "frames timeout=601", "frames timeout=x", "frames 5"}) {
+        assert(Contains(HandleRequest(bad, h), "optional timeout"));
+    }
+
+    std::string out = HandleRequest("frames timeout=1", h);  // no frame comes
+    assert(Contains(out, "\"ok\":false") && Contains(out, "\"error\":\"main thread busy\"") &&
+           Contains(out, "\"command\":\"frames\"") && Contains(out, "\"queued_ms\":"));
+
+    stats.OnOuter(SteadyMs());
+    h.current_thread_id = [] { return 4242u; };
+    FakeMainThread main(d);
+    out = HandleRequest("frames", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"command\":\"frames\"") && Contains(out, "\"outer_per_s\":"));
+    assert(Contains(out, "\"longest_gap_ms\":") && Contains(out, "\"outer_total\":1") && Contains(out, "\"run_ms\":"));
+    assert(Contains(out, "\"frame\":") && Contains(out, "\"queued_ms\":") && Contains(out, "\"thread_id\":4242"));
+    assert(Contains(HandleRequest("cancel", h), "\"withdrawn\":0"));
+}
 
 static void TestDate() {
     // 1719.3.17 0:00: (1719 + 5000) years * 365 + 75 days, in hours.
@@ -519,6 +678,9 @@ int main() {
     TestPauseResume();
     TestPauseTimeoutAndErrors();
     TestSpeed();
+    TestDispatcher();
+    TestFrameStats();
+    TestFramesCommand();
     std::puts("ok");
     return 0;
 }

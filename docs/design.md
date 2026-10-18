@@ -327,9 +327,8 @@ queue only when all three hold:
 The research proposes six `[[expect]]` entries: the prologue, the three call
 sites, the counter and the session gate `0x813F95`.
 
-The hook is installed whenever `enabled = true`. The 0.4.0 PR measures its
-cost (below). If the date advance at speed 5 changes beyond the lab's noise,
-the release adds an opt-out.
+The hook is installed whenever `enabled = true`. The 0.4.0 `SIMULATION` A/B
+(below) showed no cost, so there is no opt-out.
 
 **Contract** (from "What does a call dispatched to the main thread
 promise?"):
@@ -377,6 +376,76 @@ Live checks in the 0.4.0 PR, through the lab's launcher rules:
 - the longest gap between outer frames at speed 5 over a simulated month;
 - the date advance per second at speed 5 with a no-op job in every outer
   frame, against the same run without the hook.
+
+### Live check (2026-10-18)
+
+Setup:
+- the original `eu4.exe` (`9AD3EFE1…771A`), Anvil 0.2.0 and the 0.4.0 branch;
+- the Russia save of 17 March 1719, loaded with `continue=`;
+- the lab's `anvil-play.ps1 -Scenario tongs -TongsInput` (`tongs-dispatch-1`) under Process Lasso's `1-7`;
+- a script sent `frames` and the input commands.
+
+Anvil reported "18 expected byte range(s) match" and "2 patch(es)" (the frame hook and the cursor hook). Afterwards:
+- the game was closed by the script after the PID, path and start-time check;
+- the save was unchanged;
+- `settings.txt` differed only in `graceful_exit` and was restored.
+
+Findings:
+
+- **Start-up and loading.** For 79 s after start (start-up with the save
+  loading inside it), `frames timeout=1` answered `main thread busy` every
+  time, also for the first 6 s in which `state` already said `in_game: true`.
+  When the first answer came, `outer_total` was 4. Outer frames do not run
+  during start-up and loading, as the static analysis said.
+- **Main thread.** `thread_id` was 62956 in every answer, the same as
+  `threads` → `main_thread_id` and the window's thread.
+- **Frame rates** (the window had focus; frames per second over the last
+  complete second, and the longest gap between outer frames):
+
+  | Situation | Outer/s | Nested/s | Longest gap | `queued_ms` |
+  | --- | --- | --- | --- | --- |
+  | 3 s after loading | 84 | 0 | 406 ms | 0 |
+  | paused, 5 s | 63 | 0 | 107 ms | 12 |
+  | speed 1, 5 s | 74 | 3 | 147 ms | 4 |
+  | speed 5, 5 s | 9 | 13 | 564 ms | 82 |
+  | speed 5, `run_until` one month | 9 | 13 | 386 ms | 320 |
+
+  At speed 5 the game update fills most frames, nested frames keep the
+  screen moving, and a main-thread job waits up to about half a second.
+- **Jobs every frame.** A second client sent `frames` back to back during
+  `run_until` 1719.5.12 → 1719.6.1: 21 jobs in 1.6 s, about one per outer
+  frame, none failed. That stretch ran at 12.6 days/s; the next month without
+  jobs ran at 11.9 days/s; 0.3.0 had 12.4 days/s for 17 March → 1 June in
+  `tongs-stack-1`. No cost is visible at this resolution. This is not a
+  `SIMULATION` measurement (CPU 1–7, no fixed main-thread pinning, one run
+  each).
+- **Cancel.** `cancel` answered `withdrawn: 0` (nothing queued).
+
+**Cost under `SIMULATION` conditions** (2026-10-18). Runs `sim-hook-ab-1` …
+`-8` used the lab's `measure-year-tongs.ps1` with these conditions:
+- the original EXE;
+- 8 workers in both pools;
+- the process on CPU 0–15 (`0xFFFF`) and the main thread on CPU4 (`0x10`);
+- the restricted broker;
+- the Russia save, warm-up to 1720.1.1, then 1720.1.1 → 1721.1.1 at speed 5
+  (365 days), measured by `run_until`.
+
+Runs alternated 0.3.0 (no frame hook) and this branch, one trial per run. Two
+trials were rejected because an event paused the game during the stretch
+(`max_pause` 5 s), one of each build, and one more run of each replaced them.
+
+| Build | Valid trials (s) | Mean | Days/s |
+| --- | --- | --- | --- |
+| 0.3.0 | 27.08, 30.82, 28.39 | 28.76 s | 12.7 |
+| 0.4.0 branch | 25.89, 26.08, 26.79 | 26.25 s | 13.9 |
+
+The branch was not slower; the difference lies within the spread between
+runs that the lab has seen before (27.6–28.4 s for the same stretch). The
+hook gets no opt-out. The Process Lasso rule `eu4.exe,0,1-7` was back after
+every run, and the broker was stopped after the batch.
+
+Not checked yet: the main menu (`continue=` skips it), an unfocused and a
+minimized window, and a save loaded from the menu.
 
 ## Widget tree (0.5.0)
 

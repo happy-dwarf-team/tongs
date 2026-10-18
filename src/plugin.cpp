@@ -1,6 +1,7 @@
 // Tongs — Anvil plugin entry point.
 #include "config.hpp"
 #include "game_cursor.hpp"
+#include "game_frame.hpp"
 #include "game_input.hpp"
 #include "game_state.hpp"
 #include "game_threads.hpp"
@@ -73,6 +74,17 @@ extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* ho
                                               std::chrono::steady_clock::now().time_since_epoch())
                                               .count());
     };
+    // Main-thread jobs: they live as long as the process, like the hook that runs them.
+    static tongs::Dispatcher dispatcher(handlers.now_ms);
+    static tongs::FrameStats frame_stats;
+    if (const std::string error = tongs::InstallFrameHook(host, self, tongs::FrameLayout{}, &dispatcher, &frame_stats);
+        error.empty()) {
+        handlers.dispatcher = &dispatcher;
+        handlers.frame_stats = &frame_stats;
+        handlers.current_thread_id = [] { return static_cast<std::uint32_t>(GetCurrentThreadId()); };
+    } else {
+        Log(ANVIL_LOG_WARNING, error + "; main-thread commands disabled");
+    }
     if (config.input) {
         handlers.send_input = [image_base](const std::vector<tongs::InputEvent>& events) {
             return tongs::PushInput(image_base, tongs::InputLayout{}, events);
