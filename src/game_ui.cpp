@@ -10,7 +10,7 @@ namespace {
 
 constexpr std::size_t kMaxWidgets = 200000;  // the registry reserves 64 000
 constexpr std::size_t kMaxChildren = 20000;  // per container
-constexpr std::size_t kMaxText = 4096;
+constexpr std::size_t kMaxText = 65536;  // longer strings are taken as garbage
 constexpr int kMaxNodeClimb = 8;
 constexpr int kMaxDepth = 256;
 
