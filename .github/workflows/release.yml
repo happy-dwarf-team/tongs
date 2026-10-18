@@ -75,3 +75,24 @@ jobs:
       - name: Upload release assets
         working-directory: dist
         run: gh release upload "$TAG" tongs-windows-x64.zip SHA256SUMS.txt --clobber
+
+  # Rebuilds anvil.happydwarf.dev so the plugin page shows the new version. Needs a
+  # WEBSITE_DISPATCH_TOKEN secret allowed to dispatch to happy-dwarf-team/anvil-website.
+  notify-website:
+    needs: [release-please, publish]
+    runs-on: ubuntu-24.04
+    permissions: {}
+    env:
+      DISPATCH_TOKEN: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}
+    steps:
+      - name: Trigger website rebuild
+        if: env.DISPATCH_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ env.DISPATCH_TOKEN }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          gh api repos/happy-dwarf-team/anvil-website/dispatches             -f event_type=plugin-release             -f "client_payload[repository]=${GITHUB_REPOSITORY}"             -f "client_payload[tag]=${TAG}"
+
+      - name: Skip website rebuild (no WEBSITE_DISPATCH_TOKEN)
+        if: env.DISPATCH_TOKEN == ''
+        run: echo "::notice::WEBSITE_DISPATCH_TOKEN is not set; website rebuild not triggered"
