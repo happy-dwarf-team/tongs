@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tongs selectors prototype</title>
+<style>
+  :root {
+    --bg: #f7f6f3; --panel: #ffffff; --ink: #1f2328; --muted: #656d76;
+    --line: #d8dde3; --accent: #9a4d12; --accent-soft: #f6e7da;
+    --ok: #1a7f37; --bad: #b42318; --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16181c; --panel: #1f2328; --ink: #e6e8eb; --muted: #9aa3ad;
+      --line: #343a42; --accent: #f0a868; --accent-soft: #3a2a1d; --ok: #4ac26b; --bad: #ff7b72;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  p { margin: 0 0 10px; }
+  .muted { color: var(--muted); }
+  .note { background: var(--accent-soft); border-radius: 8px; padding: 10px 14px; margin: 14px 0 20px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; }
+  code, .mono { font-family: var(--mono); font-size: 13px; }
+  pre { font-family: var(--mono); font-size: 12.5px; background: var(--bg); border: 1px solid var(--line);
+        border-radius: 8px; padding: 10px; overflow: auto; max-height: 420px; margin: 8px 0 0; white-space: pre; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+           border-radius: 7px; padding: 6px 11px; cursor: pointer; margin: 0 6px 6px 0; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.cmd { font-family: var(--mono); font-size: 13px; text-align: left; }
+  button.done { opacity: .55; }
+  button.next { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input[type=text] { font-family: var(--mono); font-size: 14px; flex: 1; min-width: 220px; padding: 7px 10px;
+                     border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--ink); }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; }
+  .changed { background: var(--accent-soft); border-radius: 4px; padding: 0 4px; }
+  .verdict { font-weight: 600; }
+  .verdict.ok { color: var(--ok); }
+  .verdict.bad { color: var(--bad); }
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+  .tab { border: none; border-bottom: 2px solid transparent; border-radius: 0; margin: 0; background: none; }
+  .tab.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  td, th { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  section { margin-top: 16px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Tongs selectors: prototype</h1>
+  <p class="muted">Throwaway prototype for the planning ticket "What do selectors and the ui tree answer look like?" (happy-dwarf-team/tongs#21).</p>
+
+  <div class="note">
+    <p><strong>Question.</strong> Does this selector grammar let an agent name the widget it means, and do the answers of
+      <code>ui find</code>, <code>ui tree</code> and <code>ui click</code> tell it enough to act or to know why it can't?
+      Look especially at repeated names, event options, hidden widgets, a covered button and a disabled option.</p>
+    <p><strong>The screen.</strong> The widget names and nesting come from the game's own <code>speed_controls.gui</code> and
+      <code>eventwindow.gui</code>. The pixel rectangles are invented, except the three speed buttons, which use the
+      points that worked in the live check (3350,32 / 3350,62 / 3407,27). <code>ProtoOverlay</code> is a made-up window
+      that covers the speed buttons.</p>
+    <p><strong>Grammar.</strong> <code>a/b</code> means b is a child of a, and <code>a//b</code> means b is anywhere inside a.
+      A selector that starts with a name is anchored at the top-level windows; one that starts with <code>//</code> searches everywhere.
+      Names ignore case and allow <code>*</code> and <code>?</code>. Filters in brackets:
+      <code>[2]</code> (the 2nd match, counting from 1), <code>[type=button]</code>, <code>[text="…"]</code>,
+      <code>[text~="…"]</code> (contains), <code>[text^="…"]</code> (starts with), <code>[enabled]</code>, <code>[disabled]</code>.
+      Hidden widgets, and everything inside a hidden window, are left out unless the command ends with <code>all</code>.</p>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>Game and screen now</h2>
+      <dl id="state"></dl>
+      <section>
+        <h2>Top-level windows (bottom to top)</h2>
+        <table><thead><tr><th>Window</th><th>Shown</th><th>Rectangle</th></tr></thead><tbody id="windows"></tbody></table>
+      </section>
+    </div>
+    <div class="panel">
+      <h2>Last answer</h2>
+      <p id="verdict" class="verdict muted">No command sent yet.</p>
+      <p id="summary" class="muted"></p>
+      <pre id="answer">{}</pre>
+    </div>
+  </div>
+
+  <section class="panel">
+    <h2>Free play</h2>
+    <p class="muted">Type a command the way a client would send it on the pipe, for example
+      <code>ui find //event_option_button</code>, <code>ui tree speed_controls depth=1</code>, <code>ui click speed_controls/button_pause</code>.</p>
+    <div class="row">
+      <input type="text" id="line" value="ui find speed_controls/button_*" spellcheck="false">
+      <button class="primary" id="run">Send</button>
+    </div>
+    <p class="muted" style="margin-top:12px">Change the screen:</p>
+    <div class="row" id="world"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Guided walkthroughs</h2>
+    <div class="tabs" id="tabs"></div>
+    <p id="scenario-text"></p>
+    <div id="steps"></div>
+  </section>
+</main>
+
+<script>
+// ---------------------------------------------------------------------------
+// Portable logic: a selector engine and the three ui commands over a plain
+// screen value. No DOM in here; the page below only calls these functions.
+// ---------------------------------------------------------------------------
+const TongsUi = (() => {
+  const W = (name, type, rect, extra = {}) =>
+    ({ name, type, rect, visible: true, children: [], ...extra });
+
+  function initialScreen() {
+    const speed = W("speed_controls", "window", { x: 3180, y: 0, w: 260, h: 90 });
+    speed.children = [
+      W("icon_date_bg", "icon", { x: 3186, y: 0, w: 240, h: 60 }),
+      W("button_pause", "button", { x: 3395, y: 15, w: 24, h: 24 }, { enabled: true, action: "pause" }),
+      W("icon_score", "icon", { x: 3254, y: 43, w: 20, h: 20 }),
+      W("text_score", "text", { x: 3222, y: 42, w: 30, h: 16 }, { text: "512" }),
+      W("text_score_rank", "text", { x: 3294, y: 42, w: 30, h: 16 }, { text: "#3" }),
+      W("DateText", "text", { x: 3213, y: 13, w: 120, h: 20 }, { text: "17 March 1719" }),
+      W("speed_indicator", "button", { x: 3373, y: 10, w: 20, h: 40 }, { enabled: true }),
+      W("button_speedup", "button", { x: 3338, y: 20, w: 24, h: 24 }, { enabled: true, action: "speedup" }),
+      W("button_speeddown", "button", { x: 3338, y: 50, w: 24, h: 24 }, { enabled: true, action: "speeddown" }),
+      W("button_nextsong", "button", { x: 3193, y: 42, w: 18, h: 18 }, { enabled: true }),
+      W("button_timeline", "button", { x: 3188, y: 18, w: 22, h: 22 }, { enabled: true }),
+      W("button_achievements", "button", { x: 3379, y: 57, w: 26, h: 26 }, { enabled: true }),
+      W("button_outliner", "button", { x: 3409, y: 64, w: 26, h: 22 }, { enabled: true }),
+    ];
+    const timeline = W("timeline_controls", "window", { x: 3180, y: 90, w: 260, h: 90 }, { visible: false });
+    timeline.children = [
+      W("icon_date_bg", "icon", { x: 3180, y: 90, w: 240, h: 60 }),
+      W("timeline_title", "text", { x: 3258, y: 100, w: 100, h: 18 }, { text: "Timeline" }),
+      W("timeline_pause", "button", { x: 3249, y: 143, w: 24, h: 24 }, { enabled: true }),
+    ];
+    return { game: { date: "1719.3.17", speed: 3, paused: true, last_event_choice: null },
+             windows: [speed, timeline] };
+  }
+
+  function eventWindow() {
+    const ev = W("EventWindow", "window", { x: 1300, y: 300, w: 700, h: 800 });
+    const option = (i, text, enabled) => {
+      const entry = W("event_option_entry", "window", { x: 1376, y: 900 + i * 60, w: 547, h: 56 });
+      entry.children = [
+        W("event_option_button", "button", { x: 1376, y: 900 + i * 60, w: 500, h: 56 },
+          { text, enabled, action: "choose" }),
+        W("event_option_goto_button", "button", { x: 1880, y: 910 + i * 60, w: 36, h: 36 }, { enabled: true }),
+      ];
+      return entry;
+    };
+    const list = W("event_option_listbox", "listbox", { x: 1376, y: 900, w: 547, h: 180 });
+    list.children = [
+      option(0, "Accept the tariffs", true),
+      option(1, "Refuse them", true),
+      option(2, "Ask the merchants (needs 50 ducats)", false),
+    ];
+    ev.children = [
+      W("Background", "button", { x: 1300, y: 300, w: 700, h: 800 }, { enabled: true }),
+      W("event_bg_top", "icon", { x: 1300, y: 300, w: 700, h: 120 }),
+      W("event_picture", "icon", { x: 1340, y: 420, w: 620, h: 200 }),
+      W("event_bg_middle", "icon", { x: 1300, y: 420, w: 700, h: 500 }),
+      W("event_bg_bottom", "icon", { x: 1300, y: 920, w: 700, h: 180 }),
+      W("Title", "text", { x: 1350, y: 320, w: 600, h: 30 }, { text: "Tariffs on Fish" }),
+      W("event_goto_province", "button", { x: 1930, y: 320, w: 36, h: 36 }, { enabled: true }),
+      W("Description", "text", { x: 1350, y: 640, w: 600, h: 240 },
+        { text: "The fishermen of the coast demand protection from foreign catches." }),
+      list,
+    ];
+    return ev;
+  }
+
+  function overlayWindow() {
+    const o = W("ProtoOverlay", "window", { x: 3300, y: 0, w: 140, h: 120 });
+    o.children = [W("overlay_bg", "icon", { x: 3300, y: 0, w: 140, h: 120 })];
+    return o;
+  }
+
+  const clone = (v) => JSON.parse(JSON.stringify(v));
+
+  // ---- tree helpers -------------------------------------------------------
+  // Walks every widget in paint order (parents before children, later
+  // siblings on top), with its parent chain.
+  function walk(screen, fn) {
+    const visit = (node, parents) => {
+      fn(node, parents);
+      node.children.forEach((c) => visit(c, parents.concat([node])));
+    };
+    screen.windows.forEach((w) => visit(w, []));
+  }
+  const effectivelyVisible = (node, parents) => node.visible && parents.every((p) => p.visible);
+
+  // Canonical path: names joined by "/", with [n] when siblings share a name.
+  function pathOf(node, parents, screen) {
+    const chain = parents.concat([node]);
+    let siblings = screen.windows;
+    return chain.map((n) => {
+      const same = siblings.filter((s) => s.name.toLowerCase() === n.name.toLowerCase());
+      const part = same.length > 1 ? `${n.name}[${same.indexOf(n) + 1}]` : n.name;
+      siblings = n.children;
+      return part;
+    }).join("/");
+  }
+
+  // ---- selector parsing ---------------------------------------------------
+  function parseSelector(text) {
+    let i = 0;
+    const s = text.trim();
+    if (!s) throw new Error("empty selector");
+    const steps = [];
+    let axis = "top";
+    if (s.startsWith("//")) { axis = "desc"; i = 2; }
+    else if (s.startsWith("/")) { throw new Error("a selector starts with a name or with //"); }
+    while (i < s.length) {
+      let name = "";
+      while (i < s.length && s[i] !== "[" && s[i] !== "/") name += s[i++];
+      name = name.trim();
+      if (!name) throw new Error(`missing name at position ${i + 1}`);
+      const filters = [];
+      while (s[i] === "[") {
+        let j = i + 1, inQuote = false, body = "";
+        while (j < s.length && (inQuote || s[j] !== "]")) {
+          if (s[j] === '"') inQuote = !inQuote;
+          body += s[j++];
+        }
+        if (j >= s.length) throw new Error("unclosed [");
+        filters.push(parseFilter(body.trim()));
+        i = j + 1;
+      }
+      steps.push({ axis, name, filters });
+      if (i >= s.length) break;
+      if (s.startsWith("//", i)) { axis = "desc"; i += 2; }
+      else if (s[i] === "/") { axis = "child"; i += 1; }
+      else throw new Error(`unexpected "${s[i]}" at position ${i + 1}`);
+      if (i >= s.length) throw new Error("selector ends with /");
+    }
+    return steps;
+  }
+
+  const TYPES = ["window", "button", "icon", "text", "listbox", "checkbox", "editbox"];
+  function parseFilter(body) {
+    if (/^\d+$/.test(body)) {
+      const n = Number(body);
+      if (n < 1) throw new Error("[n] counts from 1");
+      return { kind: "index", n };
+    }
+    if (body === "enabled" || body === "disabled") return { kind: "flag", flag: body };
+    const m = body.match(/^(type|text)\s*(=|~=|\^=)\s*(.+)$/);
+    if (!m) throw new Error(`unknown filter [${body}]`);
+    let value = m[3].trim();
+    if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) value = value.slice(1, -1);
+    if (m[1] === "type" && !TYPES.includes(value)) throw new Error(`unknown type "${value}" (${TYPES.join(", ")})`);
+    if (m[1] === "type" && m[2] !== "=") throw new Error("type takes only =");
+    return { kind: m[1], op: m[2], value };
+  }
+
+  const globToRegex = (g) =>
+    new RegExp("^" + g.replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$", "i");
+
+  function stepMatches(node, step) {
+    if (!globToRegex(step.name).test(node.name)) return false;
+    return step.filters.every((f) => {
+      if (f.kind === "type") return node.type === f.value;
+      if (f.kind === "flag") return node.type === "button" && (f.flag === "enabled" ? node.enabled : !node.enabled);
+      if (f.kind === "text") {
+        const t = (node.text || "").toLowerCase(), v = f.value.toLowerCase();
+        return f.op === "=" ? t === v : f.op === "~=" ? t.includes(v) : t.startsWith(v);
+      }
+      return true;
+    });
+  }
+
+  // Resolves a selector to widgets in paint order. includeHidden = the "all" flag.
+  function resolve(screen, steps, includeHidden) {
+    const info = new Map();
+    walk(screen, (n, parents) => info.set(n, { parents, visible: effectivelyVisible(n, parents) }));
+    const usable = (n) => includeHidden || info.get(n).visible;
+    const descendants = (n) => { const out = []; const go = (x) => x.children.forEach((c) => { out.push(c); go(c); }); go(n); return out; };
+    let context = [null]; // null = the screen itself
+    for (const step of steps) {
+      const next = [];
+      for (const ctx of context) {
+        let pool;
+        if (step.axis === "top") pool = screen.windows;
+        else if (step.axis === "child") pool = ctx.children;
+        else pool = ctx === null ? [...info.keys()] : descendants(ctx);
+        let hits = pool.filter((n) => usable(n) && stepMatches(n, step));
+        const idx = step.filters.find((f) => f.kind === "index");
+        if (idx) hits = hits[idx.n - 1] ? [hits[idx.n - 1]] : [];
+        hits.forEach((h) => { if (!next.includes(h)) next.push(h); });
+      }
+      context = next;
+      if (!context.length) break;
+    }
+    const order = [...info.keys()];
+    return context.sort((a, b) => order.indexOf(a) - order.indexOf(b)).map((n) => ({ node: n, ...info.get(n) }));
+  }
+
+  const center = (r) => ({ x: Math.round(r.x + r.w / 2), y: Math.round(r.y + r.h / 2) });
+  const inside = (p, r) => p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h;
+
+  function describe(hit, screen) {
+    const n = hit.node;
+    const d = { path: pathOf(n, hit.parents, screen), type: n.type, visible: hit.visible, rect: n.rect, click_point: center(n.rect) };
+    if (n.text !== undefined) d.text = n.text;
+    if (n.type === "button") d.enabled = !!n.enabled;
+    return d;
+  }
+
+  // The widget the game would pick at a point: the last visible widget in paint order.
+  function topmostAt(screen, point) {
+    let top = null;
+    walk(screen, (n, parents) => {
+      if (effectivelyVisible(n, parents) && inside(point, n.rect)) top = { node: n, parents };
+    });
+    return top;
+  }
+
+  // ---- commands -----------------------------------------------------------
+  function parseLine(line) {
+    const words = line.trim().split(/\s+/);
+    if (words[0] !== "ui" || !["find", "tree", "click"].includes(words[1]))
+      throw new Error('commands are "ui find SEL [all]", "ui tree [SEL] [depth=N] [limit=N] [all]", "ui click SEL"');
+    const verb = words[1];
+    const rest = line.trim().split(/\s+/).slice(2);
+    const opts = { all: false, depth: null, limit: verb === "tree" ? 200 : 50 };
+    const sel = [];
+    rest.forEach((w) => {
+      let m;
+      if (w === "all") opts.all = true;
+      else if ((m = w.match(/^depth=(\d+)$/))) opts.depth = Number(m[1]);
+      else if ((m = w.match(/^limit=(\d+)$/))) opts.limit = Number(m[1]);
+      else sel.push(w);
+    });
+    return { verb, selector: sel.join(" "), opts };
+  }
+
+  function run(screen, line) {
+    let cmd;
+    try { cmd = parseLine(line); } catch (e) { return { screen, answer: { ok: false, error: "bad_command", detail: e.message } }; }
+    let steps = null;
+    if (cmd.selector) {
+      try { steps = parseSelector(cmd.selector); }
+      catch (e) { return { screen, answer: { ok: false, command: `ui ${cmd.verb}`, error: "bad_selector", detail: e.message } }; }
+    }
+    if (cmd.verb === "find") return { screen, answer: find(screen, cmd, steps) };
+    if (cmd.verb === "tree") return { screen, answer: tree(screen, cmd, steps) };
+    return click(screen, cmd, steps);
+  }
+
+  function find(screen, cmd, steps) {
+    if (!steps) return { ok: false, command: "ui find", error: "bad_selector", detail: "ui find needs a selector" };
+    const hits = resolve(screen, steps, cmd.opts.all);
+    return { ok: true, command: "ui find", selector: cmd.selector, count: hits.length,
+             truncated: hits.length > cmd.opts.limit,
+             matches: hits.slice(0, cmd.opts.limit).map((h) => describe(h, screen)) };
+  }
+
+  function tree(screen, cmd, steps) {
+    let roots;
+    if (steps) {
+      roots = resolve(screen, steps, cmd.opts.all);
+      if (!roots.length) return { ok: false, command: "ui tree", selector: cmd.selector, error: "not_found" };
+    } else {
+      roots = screen.windows.map((w) => ({ node: w, parents: [], visible: w.visible }))
+        .filter((r) => cmd.opts.all || r.visible);
+    }
+    let count = 0, truncated = false;
+    const build = (n, parents, depth) => {
+      if (count >= cmd.opts.limit) { truncated = true; return null; }
+      count++;
+      const vis = effectivelyVisible(n, parents);
+      const d = { name: n.name, type: n.type, path: pathOf(n, parents, screen), visible: vis, rect: n.rect };
+      if (n.text !== undefined) d.text = n.text;
+      if (n.type === "button") d.enabled = !!n.enabled;
+      const kids = n.children.filter((c) => cmd.opts.all || c.visible);
+      if (cmd.opts.depth !== null && depth >= cmd.opts.depth) { if (kids.length) d.children_count = kids.length; return d; }
+      const built = kids.map((c) => build(c, parents.concat([n]), depth + 1)).filter(Boolean);
+      if (built.length) d.children = built;
+      return d;
+    };
+    const out = roots.map((r) => build(r.node, r.parents, 0)).filter(Boolean);
+    return { ok: true, command: "ui tree", selector: cmd.selector || null, count, truncated, widgets: out };
+  }
+
+  function click(screen, cmd, steps) {
+    const base = { command: "ui click", selector: cmd.selector };
+    if (!steps) return { screen, answer: { ok: false, ...base, error: "bad_selector", detail: "ui click needs a selector" } };
+    if (cmd.opts.all) return { screen, answer: { ok: false, ...base, error: "bad_command", detail: "hidden widgets cannot be clicked" } };
+    const hits = resolve(screen, steps, false);
+    if (!hits.length) {
+      const hidden = resolve(screen, steps, true);
+      return { screen, answer: { ok: false, ...base, error: hidden.length ? "not_visible" : "not_found",
+               ...(hidden.length ? { matches: hidden.slice(0, 10).map((h) => describe(h, screen)) } : {}) } };
+    }
+    if (hits.length > 1)
+      return { screen, answer: { ok: false, ...base, error: "ambiguous", count: hits.length,
+               matches: hits.slice(0, 10).map((h) => describe(h, screen)) } };
+    const target = hits[0];
+    const t = describe(target, screen);
+    if (target.node.type === "button" && !target.node.enabled)
+      return { screen, answer: { ok: false, ...base, error: "disabled", widget: t } };
+    const point = center(target.node.rect);
+    const top = topmostAt(screen, point);
+    const isTargetOrInside = top && (top.node === target.node || top.parents.includes(target.node));
+    if (!isTargetOrInside)
+      return { screen, answer: { ok: false, ...base, error: "covered", widget: t,
+               covered_by: top ? pathOf(top.node, top.parents, screen) : null } };
+    const next = applyClick(screen, target.node);
+    return { screen: next, answer: { ok: true, ...base, clicked: t.path, point,
+             hovered_after_move: t.path, game: next.game } };
+  }
+
+  // What the game does on a click in this toy screen.
+  function applyClick(screen, node) {
+    const next = clone(screen);
+    const g = next.game;
+    if (node.action === "pause") g.paused = !g.paused;
+    if (node.action === "speedup") g.speed = Math.min(5, g.speed + 1);
+    if (node.action === "speeddown") g.speed = Math.max(1, g.speed - 1);
+    if (node.action === "choose") {
+      g.last_event_choice = `Tariffs on Fish: ${node.text}`;
+      next.windows = next.windows.filter((w) => w.name !== "EventWindow");
+    }
+    return next;
+  }
+
+  // Changes to the screen that the player or the game would make.
+  const world = {
+    openEvent: (s) => { const n = clone(s); if (!n.windows.some((w) => w.name === "EventWindow")) n.windows.push(eventWindow()); return n; },
+    closeEvent: (s) => { const n = clone(s); n.windows = n.windows.filter((w) => w.name !== "EventWindow"); return n; },
+    openOverlay: (s) => { const n = clone(s); if (!n.windows.some((w) => w.name === "ProtoOverlay")) n.windows.push(overlayWindow()); return n; },
+    closeOverlay: (s) => { const n = clone(s); n.windows = n.windows.filter((w) => w.name !== "ProtoOverlay"); return n; },
+    toggleTimeline: (s) => { const n = clone(s); const t = n.windows.find((w) => w.name === "timeline_controls"); t.visible = !t.visible; return n; },
+  };
+
+  return { initialScreen, run, world, parseSelector };
+})();
+
+// ---------------------------------------------------------------------------
+// Page shell (throwaway).
+// ---------------------------------------------------------------------------
+let screen = TongsUi.initialScreen();
+let previous = null;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function render(answer) {
+  const g = screen.game, p = previous ? previous.game : g;
+  const mark = (now, before) => (previous && JSON.stringify(now) !== JSON.stringify(before) ? ' class="changed"' : "");
+  $("state").innerHTML = `
+    <dt>Date</dt><dd>${esc(g.date)}</dd>
+    <dt>Speed</dt><dd${mark(g.speed, p.speed)}>${g.speed}</dd>
+    <dt>Paused</dt><dd${mark(g.paused, p.paused)}>${g.paused ? "yes" : "no"}</dd>
+    <dt>Event choice</dt><dd${mark(g.last_event_choice, p.last_event_choice)}>${esc(g.last_event_choice || "none yet")}</dd>`;
+  const before = previous ? previous.windows.map((w) => w.name + w.visible).join() : "";
+  $("windows").innerHTML = screen.windows.map((w) =>
+    `<tr${previous && !before.includes(w.name + w.visible) ? ' class="changed"' : ""}><td class="mono">${esc(w.name)}</td><td>${w.visible ? "shown" : "hidden"}</td>
+     <td class="mono">${w.rect.x},${w.rect.y} ${w.rect.w}×${w.rect.h}</td></tr>`).join("");
+  if (answer) {
+    const v = $("verdict");
+    v.className = "verdict " + (answer.ok ? "ok" : "bad");
+    v.textContent = answer.ok ? "ok: true" : `ok: false (${answer.error})`;
+    $("summary").textContent = summarize(answer);
+    $("answer").textContent = JSON.stringify(answer, null, 2);
+  }
+}
+
+function summarize(a) {
+  if (!a.ok) {
+    const why = {
+      bad_command: "The command line is not understood.",
+      bad_selector: "The selector is not valid.",
+      not_found: "No widget matches.",
+      not_visible: "Matches exist, but they are hidden; a hidden widget cannot be clicked.",
+      ambiguous: `The selector matches ${a.count} widgets; a click needs exactly one. The answer lists them with paths to use instead.`,
+      disabled: "The button exists and is shown, but it is disabled.",
+      covered: `The widget is shown, but ${a.covered_by} lies on top at its centre, so the click would hit that instead.`,
+    }[a.error] || "";
+    return why + (a.detail ? " " + a.detail : "");
+  }
+  if (a.command === "ui find") return `${a.count} widget(s) match.`;
+  if (a.command === "ui tree") return `${a.count} widget(s) in the answer${a.truncated ? ", cut at the limit" : ""}.`;
+  return `Clicked ${a.clicked} at ${a.point.x},${a.point.y}. The game state above is read after the click.`;
+}
+
+function send(line) {
+  previous = screen;
+  const r = TongsUi.run(screen, line);
+  screen = r.screen;
+  $("line").value = line;
+  render(r.answer);
+}
+
+function change(fnName) {
+  previous = screen;
+  screen = TongsUi.world[fnName](screen);
+  render(null);
+}
+
+$("run").onclick = () => send($("line").value);
+$("line").addEventListener("keydown", (e) => { if (e.key === "Enter") send($("line").value); });
+
+const worldButtons = [
+  ["Open the event pop-up", "openEvent"], ["Close the event pop-up", "closeEvent"],
+  ["Open a window over the speed buttons", "openOverlay"], ["Close that window", "closeOverlay"],
+  ["Show / hide the timeline controls", "toggleTimeline"],
+];
+$("world").innerHTML = worldButtons.map(([label, fn]) => `<button data-fn="${fn}">${label}</button>`).join("") +
+  `<button id="reset">Reset everything</button>`;
+$("world").querySelectorAll("button[data-fn]").forEach((b) => (b.onclick = () => change(b.dataset.fn)));
+$("reset").onclick = () => { previous = null; screen = TongsUi.initialScreen(); render(null); $("verdict").textContent = "Reset."; $("verdict").className = "verdict muted"; $("summary").textContent = ""; $("answer").textContent = "{}"; };
+
+// Each step is either a command line ("ui …") or a screen change ({world: fn, label}).
+const scenarios = [
+  { title: "Happy path", text: "Name a button by its window and its own name, look at what find returns, then click it. Watch Paused change after the click; the answer carries the game state read after it.",
+    steps: ["ui find speed_controls/button_pause", "ui click speed_controls/button_pause", "ui click speed_controls/button_speedup", "ui find speed_controls/button_speed*"] },
+  { title: "Repeated names", text: "icon_date_bg exists in both speed_controls and timeline_controls. While the timeline is hidden, //icon_date_bg finds one; with all, both. Show the timeline and the path alone is no longer enough.",
+    steps: ["ui find //icon_date_bg", "ui find //icon_date_bg all", { world: "toggleTimeline", label: "Show the timeline controls" }, "ui find //icon_date_bg", "ui find timeline_controls/icon_date_bg"] },
+  { title: "Event options", text: "An event pop-up has three option entries, all called event_option_entry. A click on //event_option_button is ambiguous; the answer lists the paths with [n]. Text filters name an option by what it says. The third option is disabled.",
+    steps: [{ world: "openEvent", label: "Open the event pop-up" }, "ui tree EventWindow depth=1", "ui find EventWindow//event_option_button", "ui click EventWindow//event_option_button",
+            "ui click EventWindow//event_option_button[3]", "ui click EventWindow//event_option_button[text^=\"Refuse\"]"] },
+  { title: "Covered button", text: "A window lies over the speed buttons. find still sees the button, but click refuses: the game would give the click to whatever is on top at the button's centre.",
+    steps: [{ world: "openOverlay", label: "Open a window over the speed buttons" }, "ui find speed_controls/button_speedup", "ui click speed_controls/button_speedup", { world: "closeOverlay", label: "Close that window" }, "ui click speed_controls/button_speedup"] },
+  { title: "Hidden and missing", text: "timeline_pause is inside the hidden timeline window. Without all it seems absent; click explains that it exists but is hidden. A typo gives not_found; a broken selector gives bad_selector.",
+    steps: ["ui find //timeline_pause", "ui click //timeline_pause", "ui find //timeline_pause all", "ui click //timline_pause", "ui find speed_controls/[type=button]"] },
+  { title: "Size of the tree", text: "The whole tree can be large. A limit cuts it and says so; depth shows a window's direct children and how many each has below.",
+    steps: [{ world: "openEvent", label: "Open the event pop-up" }, "ui tree", "ui tree limit=10", "ui tree EventWindow depth=1", "ui tree all depth=0"] },
+];
+
+let current = 0, stepIndex = 0;
+function showScenario(i) {
+  current = i; stepIndex = 0;
+  previous = null; screen = TongsUi.initialScreen(); render(null);
+  $("verdict").textContent = "Walkthrough started from a fresh screen."; $("verdict").className = "verdict muted";
+  $("summary").textContent = ""; $("answer").textContent = "{}";
+  $("tabs").innerHTML = scenarios.map((s, k) => `<button class="tab${k === i ? " active" : ""}" data-k="${k}">${esc(s.title)}</button>`).join("");
+  $("tabs").querySelectorAll("button").forEach((b) => (b.onclick = () => showScenario(Number(b.dataset.k))));
+  $("scenario-text").textContent = scenarios[i].text;
+  drawSteps();
+}
+function drawSteps() {
+  const s = scenarios[current];
+  $("steps").innerHTML = s.steps.map((st, k) => {
+    const label = typeof st === "string" ? esc(st) : esc(st.label) + " (screen change)";
+    const cls = (typeof st === "string" ? "cmd" : "") + (k < stepIndex ? " done" : "") + (k === stepIndex ? " next" : "");
+    return `<div><button class="${cls}" data-k="${k}">${k + 1}. ${label}</button></div>`;
+  }).join("");
+  $("steps").querySelectorAll("button").forEach((b) => (b.onclick = () => {
+    const k = Number(b.dataset.k), st = s.steps[k];
+    if (typeof st === "string") send(st); else change(st.world);
+    stepIndex = k + 1; drawSteps();
+  }));
+}
+
+render(null);
+showScenario(0);
+</script>
+</body>
+</html>
