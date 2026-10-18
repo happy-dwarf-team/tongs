@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/happy-dwarf-team/tongs/compare/v0.4.0...v0.5.0) (2026-10-18)
+
+
+### Features
+
+* widget tree with ui tree and ui find ([#35](https://github.com/happy-dwarf-team/tongs/issues/35)) ([ff66091](https://github.com/happy-dwarf-team/tongs/commit/ff660918573c96fada5f4058f7a2ec8f3586396c))
+
 ## [0.4.0](https://github.com/happy-dwarf-team/tongs/compare/v0.3.0...v0.4.0) (2026-10-18)
 
 
