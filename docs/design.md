@@ -1,7 +1,21 @@
 # Tongs — design
 
-Status: draft 3 (2026-10-17): layers 1 and 2 implemented, plus timing
-(`run_until`), worker pools and screenshots for measurements.
+Status: draft 4 (2026-10-18). Layers 1 and 2 are implemented (0.3.0), together
+with timing (`run_until`), worker pools and screenshots for measurements.
+Layers 3 and 4 and notifications are planned for releases 0.4.0–0.8.0 (see
+"Releases"). The decisions behind them are on the planning map
+[Map: game calls and the widget tree](https://github.com/happy-dwarf-team/tongs/issues/15).
+Words such as game call, main-thread read, outer frame, widget path, event,
+notification and marked run are defined in [`GLOSSARY.md`](../GLOSSARY.md).
+
+Addresses marked **static** were found by static analysis only. Each release
+PR checks them on a running game before it merges. Details, the method behind
+each claim and the full `[[expect]]` bytes are on the research branches
+(never merged):
+[`research/main-thread-dispatch`](https://github.com/happy-dwarf-team/tongs/blob/research/main-thread-dispatch/docs/research/main-thread-dispatch.md),
+[`research/widget-tree`](https://github.com/happy-dwarf-team/tongs/blob/research/widget-tree/docs/research/widget-tree.md),
+[`research/console-commands`](https://github.com/happy-dwarf-team/tongs/blob/research/console-commands/docs/research/console-commands.md),
+[`research/event-ids`](https://github.com/happy-dwarf-team/tongs/blob/research/event-ids/docs/research/event-ids.md).
 
 ## Goal
 
@@ -12,16 +26,26 @@ returns the state read from the game after it ran.
 Layers, cheapest first:
 
 1. **State (0.1.0):** date, speed, pause. Read-only.
-2. **Input:** inject keyboard/mouse events into the game's own SDL event queue
-   (`SDL_PushEvent` is linked statically into `eu4.exe`), so shortcuts work
-   without focusing the window. Commands such as `pause`, `resume`, `speed N`,
-   `key`, `text`, `click`, each answered with the state after the action.
-   Mouse positions also need the cursor hook (see "Mouse").
-3. **Widgets by name:** find GUI elements by their `.gui` names, click them and
-   read their text. Only if layer 2 is not enough.
+2. **Input (0.2.0):** inject keyboard/mouse events into the game's own SDL
+   event queue (`SDL_PushEvent` is linked statically into `eu4.exe`), so
+   shortcuts work without focusing the window. Commands such as `pause`,
+   `resume`, `speed N`, `key`, `text`, `click`, each answered with the state
+   after the action. Mouse positions also need the cursor hook (see "Mouse").
+3. **Widgets by name (0.4.0–0.6.0):** a dispatcher runs work on the game's
+   main thread after each outer frame. On top of it, main-thread reads give
+   the widget tree, found by selectors. Widgets are clicked through layer 2,
+   and events are chosen the same way.
+4. **Game calls (0.7.0):** console commands run on the main thread, behind
+   their own switch and the refusals of ADR 0001.
 
-Actions go through the same path as a player's input, never by writing game
-state directly, so the game behaves as it would for a human player.
+Beside the layers, **notifications (0.8.0)** report changes to a subscribed
+client without being asked.
+
+Actions in layers 2 and 3 go through the same path as a player's input, never
+by writing game state directly, so the game behaves as it would for a human
+player. Only layer 4 changes game state by running game code. It is off unless
+`game_calls = true`, and every game call is counted, so a measurement can
+reject a marked run.
 
 Beside the layers, for measurements: `run_until` / `wait_until` time the
 game between two dates, `threads` reads the worker pools and CPU masks the
@@ -39,7 +63,11 @@ window for agents that need to look.
   single-line JSON. Input commands take turns through one lock, so presses of
   two clients never interleave; `run_until` holds it only while pressing.
 - Off unless `enabled = true` in `anvil/data/tongs/config.toml`; the input
-  commands also need `input = true`.
+  commands also need `input = true`, and game calls (0.7.0) need
+  `game_calls = true`.
+- From 0.8.0: 8 instances. A connection that sends `subscribe KINDS` carries
+  only notifications from then on (see "Notifications"). The server stays
+  blocking, with one thread per instance.
 
 ## State reading (EU4 1.37.5)
 
@@ -73,6 +101,10 @@ or a read error rather than crashing. Calling `0x7E01B0` from the pipe thread
 is read-only (it reads the pause byte and the session's multiplayer state).
 Input commands also run on the pipe thread: they only queue SDL events
 (see "Input"), and the main thread handles them.
+
+Anything that walks the game's object graphs, such as the widget tree and
+event lists, or that runs game code (game calls), runs on the main thread
+through the dispatcher instead (0.4.0, see "Dispatcher").
 
 ## Live check (2026-10-16)
 
@@ -173,6 +205,24 @@ simulation series an event with a choice ("Tariffs on Fish", 3 October 1720)
 paused the game with the player pause flag set; without `max_pause` the trial
 waited for the whole timeout.
 
+### Marked runs and events during a run (0.6.0, 0.7.0)
+
+`wait_until` and `run_until` also report `inputs` (0.6.0) and `game_calls`
+(0.7.0): how many inputs and game calls any client sent during the measured
+stretch. The presses `run_until` makes itself before and after the wait do
+not count. A stretch with either count above 0 is a marked run, and a
+measurement rejects it. `state` reports `game_calls_total` since the save was
+loaded.
+
+`run_until DATE events=first` (0.6.0) chooses the first enabled option of each
+event that opens during the run, topmost window first, through `event choose`
+(see "Events"). Each choice counts as an input, so the run is marked. The
+answer lists the choices in `events`, each with the game date, `id`, title,
+option number and text, `option_index`, `option_key` and widget path. The
+default `events=stop` keeps today's behaviour, with `max_pause`. When an event
+has no enabled option, the run ends with `no_enabled_option` and the event's
+data.
+
 ## Mouse
 
 The game's event loop (`0x1569C70`) passes SDL mouse events to the interface:
@@ -246,8 +296,370 @@ start-time check; save unchanged, `settings.txt` differed only in
   showed the province tooltip at that point; `scroll -6 1500 800` zoomed the
   map out.
 
+## Dispatcher (0.4.0)
+
+Main-thread reads and game calls run on the game's main thread, after an
+outer frame. Static findings:
+
+- The frame function `0x14C25A0(app, outer)` has three callers:
+  - the main loop `0x14C2D00`, with `outer` = 1;
+  - the first-start language loop `0x2003D0`, with `outer` = 1;
+  - `0x769EA0`, with `outer` = 0. It draws nested frames from inside game
+    updates and while a save loads. Nesting goes at most one level deep.
+- The event loop `0x1569C70` and the cursor query `0x14E5E50` also run in
+  nested frames, and nothing there tells the two kinds apart, so neither is
+  used as the dispatch point.
+- Outer frames run in the main menu, while paused and while minimized. They do
+  **not** run while a save loads, because the whole load happens inside one
+  outer frame, nor during start-up before "Running application...".
+- The frame counter `app+0x320` is incremented at `0x14C2A23`.
+
+Tongs hooks `0x14C25A0` with `hook_function`. The 26-byte prologue is
+`48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 70`,
+with nothing RIP-relative in it. The detour calls the original, then runs the
+queue only when all three hold:
+
+- `outer` is non-zero;
+- the call is on the main thread (its id is recorded on the first outer
+  frame);
+- the quit flags `app+0x83` and `app+0x2F8` are both 0.
+
+The research proposes six `[[expect]]` entries: the prologue, the three call
+sites, the counter and the session gate `0x813F95`.
+
+The hook is installed whenever `enabled = true`. The 0.4.0 PR measures its
+cost (below). If the date advance at speed 5 changes beyond the lab's noise,
+the release adds an opt-out.
+
+**Contract** (from "What does a call dispatched to the main thread
+promise?"):
+
+- **Synchronous.** The pipe thread queues a job and waits for its answer:
+  one request line, one answer. The default limit is 10 s, and `timeout=S`
+  changes it. Only that connection waits; other clients can still read
+  `state` or send `cancel`.
+- **Withdrawal.**
+  - A job not started before its limit is withdrawn and never runs. The
+    answer is `ok: false`, error `main thread busy`, with `queued_ms`.
+  - `cancel` withdraws every queued job that has not started; their clients
+    get `cancelled`.
+  - A job that has started always finishes, and its answer waits for it.
+- **Order.**
+  - One FIFO queue for all clients.
+  - After each outer frame, all queued main-thread reads run. A game call ends
+    the batch, so the next job waits for the next outer frame and sees the
+    call's effect.
+  - Game calls take the input lock; main-thread reads do not.
+- **Where.**
+  - Never in nested frames.
+  - Main-thread reads run wherever outer frames run.
+  - Game calls run only with `in_game: true`.
+  - While a save loads, jobs wait, and their limit applies.
+- **Faults.**
+  - Main-thread reads are guarded by SEH and answer `ok: false` on a fault.
+  - A game call that faults answers an error and trips game calls until the
+    game exits: later ones answer `game_calls_tripped`, while reads keep
+    working.
+- **Fields.** Every main-thread answer carries `queued_ms`, `run_ms` and
+  `frame` (`app+0x320`).
+
+`frames` (0.4.0, a main-thread read) answers with the counts of outer and
+nested frames per second over the last second, the longest gap between outer
+frames since the previous `frames`, and `frame`.
+
+Live checks in the 0.4.0 PR, through the lab's launcher rules:
+
+- outer and nested frames per second in each situation: the main menu, a save
+  loading from the menu, in game paused, speed 1, speed 5, unfocused,
+  minimized;
+- the thread of every call compared with the main thread from `threads`;
+- that no outer frame runs before "Running application...";
+- the longest gap between outer frames at speed 5 over a simulated month;
+- the date advance per second at speed 5 with a no-op job in every outer
+  frame, against the same run without the hook.
+
+## Widget tree (0.5.0)
+
+`ui tree` and `ui find` are main-thread reads. Static findings:
+
+- The GUI manager pointer is at `0x23494F0` (constructor `0x14E8640`, vtable
+  `0x1D8DC40`).
+  - `mgr+0x110/+0x118` is a vector of every live widget.
+  - `0x14E9FA0` deletes the entries marked dead (`+0xC4`) from that vector,
+    which is why the tree is read only on the main thread.
+  - `mgr+0x130` is the topmost widget under the pointer, and `mgr+0x140` the
+    keyboard focus.
+- Widget fields (offsets from the pointer the registry holds):
+
+  | Field | Where |
+  | --- | --- |
+  | `.gui` definition | `+0xB0`; its name, case kept, is the `std::string` at `type+0x10`, with the file at `type+0x30` and the line at `type+0xA0` |
+  | Visible | `+0xC5` |
+  | Dead | `+0xC4` |
+  | Hovered this frame | `+0x8F` |
+  | Position | vtable slot `0x98`, two int32, probably relative to the parent |
+  | Size | slots `0xD8` (render) and `0xE0` (layout) |
+  | Button text | `+0x200` |
+  | Instant text box text | `+0x170` |
+  | Button state | `+0x124`; 3 = disabled |
+- GUI classes have no RTTI, so a widget's kind is told by its vtable:
+
+  | Kind | Vtable |
+  | --- | --- |
+  | `windowType` | `0x1D929D0`, widget part at `+0x30` |
+  | container window | `0x1DA4090` |
+  | button | `0x1D9A340` |
+  | checkbox | `0x1D8FFC8` |
+  | icon | `0x1D96D00` |
+  | instant text box | `0x1D8FD10` |
+  | edit box | `0x1D91358` |
+  | grid box | `0x1D98288` |
+  | extended scrollbar | `0x1DA4CF8` |
+  | drop-down | `0x1D9E0A8` |
+- There is no generic child list:
+  - `windowType` windows hold ten vector pairs (`+0x5B8`…`+0x768`), seven
+    named maps (`+0x798`…`+0x918`) and a sub-window vector (`+0x958`);
+  - container windows hold fifteen vector pairs (`+0x680`…`+0x920`).
+
+  Find-by-name (slot `0x1E8`) skips icons and text boxes, so Tongs walks the
+  containers itself. Top-level windows are the registry minus every widget
+  that appears as a child.
+
+**Selectors** (from "What do selectors and the ui tree answer look like?",
+with a throwaway prototype on `prototype/ui-selectors`):
+
+- **Paths.**
+  - `a/b`: `b` is a child of `a`.
+  - `a//b`: `b` is anywhere below `a`.
+  - A selector that starts with a name is anchored at the top-level windows;
+    one that starts with `//` searches everywhere.
+  - Names ignore case and allow `*` and `?`. A step made only of filters means
+    any name.
+- **Filters:**
+  - `[n]`: the n-th match, counted from 1; `[0]` is an error;
+  - `[type=…]`, with `window`, `button`, `icon`, `text`, `listbox`,
+    `checkbox` or `editbox`;
+  - `[text=…]`, `[text~=…]` (contains) and `[text^=…]` (starts with), which
+    ignore case and compare the displayed text, so they depend on the game's
+    language; names and `[n]` come first;
+  - `[enabled]`, `[disabled]`.
+- **Hidden widgets**, and everything inside a hidden window, are left out
+  unless the command ends with `all`.
+
+**Answers.**
+
+- Each widget has:
+  - `path`: its widget path, which can be sent back as a selector;
+  - `type`, `visible`;
+  - `rect` (client pixels of the game window) and `click_point`;
+  - `text` and `enabled` where they apply.
+- `ui find SEL [all] [limit=N]` returns `count`, `matches` (50 by default) and
+  `truncated`.
+- `ui tree [SEL] [depth=N] [limit=N] [all]` returns nested `widgets`, up to
+  200 by default. `depth=N` replaces deeper levels with `children_count`.
+
+Live checks in the 0.5.0 PR:
+
+- read the tree in the menu and in game;
+- calibrate the scale from GUI units to client pixels and decide which size
+  is the clickable rectangle, against the speed buttons that work today
+  (3350,32 / 3350,62 / 3407,27);
+- find the top-level windows;
+- whether children of hidden windows keep `+0xC5`;
+- text encoding.
+
+## Clicking widgets (0.6.0)
+
+`ui click SEL` resolves the selector as a main-thread read, then clicks the
+centre of the widget through the input path ("Mouse"). It refuses rather than
+guess:
+
+- `ambiguous`, with up to 10 matching paths, when the selector matches more
+  than one widget;
+- `disabled`;
+- `not_visible`, when the widget exists but is hidden;
+- `not_found`;
+- `covered`, with `covered_by`. After `move`, Tongs reads `mgr+0x130` on the
+  main thread; when it is neither the target nor inside it, the click is not
+  sent.
+
+The game delivers a click to the topmost visible owner under the pointer, and
+a button reacts only when `+0x8F` (hovered this frame) is set, which is why
+the cursor hook is needed. On success the answer has `clicked`, `point` and the
+state after the click. `ui click` needs `input = true` and counts as an input.
+
+## Events (0.6.0)
+
+An event is chosen by clicking its option, as a player does. This is input,
+not a game call: it works in ironman and needs `input = true` but not
+`game_calls`. Static findings:
+
+- **Open events.** Each event window has its own controller (constructor
+  `0x10B9A50`, vtable `0x1D590F8`).
+  - The session `*(root+0x1E00)` lists every open pop-up at `+0x78`, so event
+    controllers are filtered by vtable.
+  - Filled event windows are also listed as `{event, scope, window}` at
+    `+0x498`.
+- **Controller fields:** window `+0x38`, event `+0x48`, "waiting for a
+  choice" `+0x124`, option buttons `+0x208`.
+- **Event.** The script id as written in the file (e.g. `flavor_xxx.1`) is
+  the `std::string` at `event+0x20`. The numeric id at `+0x14` is assigned at
+  load and is not reported.
+- **Options** are a vector at `event+0x790`/`+0x798`, in file order. The
+  option `name` is at `option+0x88`.
+- **Button to option.** Each option button stores `"<numeric id>_<index>"`
+  in its widget at `+0x38`, and the click handler `0x10BC220` reads the index
+  back from that string. Options hidden by their trigger get no button but
+  still use up an index.
+- **Option names are not unique:** 26 base-game events repeat a name, and 64
+  options have none. Options are therefore keyed by (event id, option
+  index).
+- **Click delay.** The game keeps option buttons disabled for a short time
+  (a float setting at `0x233E854`). Clicking respects that delay; calling the
+  handler directly would skip it.
+
+Commands:
+
+- `event list` returns the open events, each with:
+  - `id`, title, description;
+  - its options: number on screen (from 1), text, `enabled`, `option_index`,
+    `option_key` (may be empty or repeated) and widget path.
+- `event choose N` or `event choose text^="…"` clicks one option.
+  - With several events open, it needs `event=N` or `event=title^="…"`;
+    without one it refuses `ambiguous` and lists the events.
+  - A disabled option is refused with `disabled`.
+  - The answer carries the game date, event and option, and the state after
+    the click.
+
+Live checks in the 0.6.0 PR:
+
+- open an event with the console command `event <id>`, which is not
+  developer-only;
+- `mgr+0x130` after `move`;
+- how fast a chosen event leaves both session lists;
+- whether `+0x498` holds exactly the windows on screen;
+- the length of the click delay.
+
+## Game calls (0.7.0)
+
+The first and only kind in draft 4 is a console command. Static findings:
+
+- **Entry point:** `0x1721320(manager, result, tokens)`.
+  - `manager` is the pointer at `0x2357B58`. A null manager, or one with an
+    empty entry vector, is refused. Tongs does not call the getter `0x6E74C0`,
+    because it would create a manager with its gate unset.
+  - `tokens` is a `std::vector<std::string>` of the line split on spaces, which
+    Tongs builds itself.
+  - `result` is 0x28 bytes: a success byte and a `std::string` at `+8`, freed
+    with `0x95660`. The success byte is not reliable (`speed` never sets
+    it), so the answer carries the text and the state read afterwards.
+- **No console window needed.** `run_commands`, `runyear`, `auto_run` and map
+  clicks call the dispatcher the same way. History, `console_history.txt` and
+  the log line are added only by the window path `0x166DE20`.
+- **Registry.** A static table of 378 records of `0xA0` bytes at
+  `0x1FC23E0`, registered by `0x6E90F0`, plus 8 engine commands.
+- **Gates inside the dispatcher:**
+  - manager `+0x18`, the developer gate on 54 commands, which only
+    `enable_all_commands` opens;
+  - manager `+0x19`, the multiplayer/ironman gate, computed at registration.
+- `run <file>` (`0xE4F1D0`) runs script effects from a file the game itself
+  resolves. Tongs does not write script files.
+
+`console LINE` is a game call. The safety model is
+[ADR 0001](adr/0001-game-calls-in-tongs.md):
+
+- **Switches.**
+  - Game calls need `game_calls = true`; main-thread reads need only
+    `enabled`.
+  - `plugin.toml` declares `affects_gameplay = true`.
+- **Always refused:**
+  - `enable_all_commands`;
+  - commands that act on the user's account: `debug_achievements_clear`,
+    `test_achievement`, `debug_achievements`, `social_*`,
+    `CrashReporter.UploadCrash`.
+- **Refused by default:** the other `danger` commands, which
+  `console_allow = [...]` allows by name.
+- **Ironman and multiplayer.**
+  - Tongs refuses every game call in either mode, checked before each call.
+  - `game_calls_ironman` and `game_calls_multiplayer` lift that refusal;
+    both are off by default.
+  - With either on, the answer carries `mode`.
+- **Logging.** Every game call and every refusal is logged with the command,
+  the pipe instance, the game date and the result.
+- **Counts.** Game calls are counted in `game_calls` and `game_calls_total`.
+
+Live checks in the 0.7.0 PR:
+
+- `echo x` as a harmless round trip;
+- that handlers run correctly on the main thread, and what they do in the
+  frontend (refused) and while loading;
+- manager `+0x18` = 1 and `+0x19` = 0 on the lab's single-player save;
+- what the pre-command hook `0x8740B0` writes in ironman;
+- that a direct call leaves no line in the console window or its history.
+
+## Notifications (0.8.0)
+
+`subscribe KINDS [date=day|month|year]` turns the connection into a stream of
+notifications. The connection still accepts `unsubscribe` and `ping`.
+
+- **Format.** Each notification is one JSON line with:
+  - `"notification": "<kind>"`;
+  - `seq` (from 1 per connection);
+  - the game `date`;
+  - `wall_ms` since the subscription.
+
+  Answers keep `"command"`.
+- **Kinds:**
+
+  | Kind | What | Source |
+  | --- | --- | --- |
+  | `state` | entering or leaving the game, pause, resume, speed | the state read every 10 ms from a Tongs thread, as in `wait_until`; works while a save loads |
+  | `date` | a new day, month (default) or year | same |
+  | `event` | an event opened or closed, with `id`, title and the chosen option when known | the event list compared as a main-thread read after outer frames |
+  | `error_log` | new lines of `error.log` | a thread that follows the end of the file |
+  | `activity` | every game call and input from any client | Tongs itself |
+- **Back-pressure.** Each subscription has a bounded queue of about 1000
+  notifications. On overflow the oldest are dropped and
+  `{"notification": "overflow", "dropped": N}` follows. Nothing waits for a
+  slow reader.
+
+Live checks in the 0.8.0 PR:
+
+- every kind on a running game;
+- overflow with a client that stops reading;
+- `error_log` while a mod writes errors;
+- 8 clients at once.
+
+## Releases
+
+Each release is one PR with its live checks done before it merges; the order
+is read-only first, then input, then game state.
+
+| Release | Content | Live checks |
+| --- | --- | --- |
+| 0.4.0 | dispatcher after the outer frame, `frames`, `queued_ms` / `run_ms` / `frame` | outer frames, gaps at speed 5, hook cost; decides the opt-out |
+| 0.5.0 | `ui tree`, `ui find`: selectors, widget paths | coordinates and scale, top-level windows, text encoding |
+| 0.6.0 | `ui click SEL`, `event list` / `event choose`, `run_until events=first`, `inputs` | hover check, event lists, option click delay |
+| 0.7.0 | `console` game calls with ADR 0001, `game_calls`, `affects_gameplay = true` | handlers on the main thread, frontend, ironman/cheated flags |
+| 0.8.0 | `subscribe` with five kinds, 8 pipe instances | every kind, overflow, `error_log`, 8 clients |
+
+Not in draft 4:
+
+- direct calls of game functions other than the console;
+- scripts supplied by clients for `run`;
+- text fields and focus beyond `ui click` + `text`;
+- the map and provinces;
+- notifications for arbitrary windows;
+- `nowait` for main-thread jobs;
+- an MCP adapter;
+- a per-day tick profile;
+- state queries through scripted triggers;
+- screenshots of single widgets.
+
 ## Not verified yet
 
+- Every static finding in the sections for 0.4.0–0.8.0; each section lists the
+  live checks of its release.
 - `paused` for pauses not caused by the pause button (event popups that pause,
   menus, multiplayer); `paused_flag` alone was confirmed for the button.
 - Behaviour in the main menu and during save loading beyond "not in game".
