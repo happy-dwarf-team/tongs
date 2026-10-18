@@ -1,0 +1,68 @@
+name: Bug report
+description: A command that fails or answers wrongly, a crash, or a different game behaviour with Tongs installed.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Security problems go through [private reporting](https://github.com/happy-dwarf-team/tongs/security/advisories/new).
+        Please narrow it down first: does the problem go away with `enabled = false` in `anvil/data/tongs/config.toml`, or with `input = false` when it involves keys or the mouse?
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: commands
+    attributes:
+      label: Commands and answers
+      description: The commands you sent, in order, and the JSON answers. Say which client you used (`tongs.ps1`, `tongs.py` or your own).
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Plugin and Anvil versions
+      description: "From `anvil/anvil.log`, e.g. `Anvil 0.2.0` and `tongs 0.3.0: loaded`, or the `ping` answer."
+    validations:
+      required: true
+  - type: input
+    id: game-build
+    attributes:
+      label: Game build
+      description: The `game build:` line of `anvil/anvil.log`, and the game version shown in the launcher.
+    validations:
+      required: true
+  - type: dropdown
+    id: screen
+    attributes:
+      label: Where in the game
+      options:
+        - Loaded game
+        - Main menu
+        - Event or other pop-up
+        - Other (describe above)
+    validations:
+      required: true
+  - type: input
+    id: layout
+    attributes:
+      label: Keyboard layout
+      description: Only for key and text commands, e.g. US, German, Polish.
+  - type: textarea
+    id: config
+    attributes:
+      label: config.toml
+      description: Contents of `anvil/data/tongs/config.toml`.
+      render: toml
+  - type: textarea
+    id: log
+    attributes:
+      label: anvil/anvil.log
+      description: The whole file from the start where the problem happened. Check it for anything you do not want to share, such as your Windows user name in paths.
+      render: text
+    validations:
+      required: true

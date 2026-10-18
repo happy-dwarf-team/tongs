@@ -1,0 +1,22 @@
+name: Feature request
+description: A new command, or a change to an existing one.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to do
+      description: The script or agent task, and what Tongs cannot do for it today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: The command and its answer as you imagine them. Tongs never writes game state, and input stays behind `input = true`; say how a script could check that the command took effect.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

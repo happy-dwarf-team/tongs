@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/happy-dwarf-team/tongs/security/advisories/new
+    about: Report privately; see SECURITY.md.
+  - name: Anvil (loader) issues
+    url: https://github.com/happy-dwarf-team/anvil/issues/new/choose
+    about: Problems that also happen without this plugin belong to Anvil.
+  - name: Install guide and commands
+    url: https://anvil.happydwarf.dev/plugins/tongs/
+    about: How to install and enable the plugin, and what each command does.
