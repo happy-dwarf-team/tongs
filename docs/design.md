@@ -1,9 +1,10 @@
 # Tongs — design
 
 Status: draft 4 (2026-10-18). Layers 1 and 2 are implemented (0.3.0), together
-with timing (`run_until`), worker pools and screenshots for measurements.
-Layers 3 and 4 and notifications are planned for releases 0.4.0–0.8.0 (see
-"Releases"). The decisions behind them are on the planning map
+with timing (`run_until`), worker pools and screenshots for measurements. Of
+layer 3, the dispatcher (0.4.0) and the widget tree (0.5.0) are implemented;
+the rest of layers 3 and 4 and notifications are planned for releases
+0.6.0–0.8.0 (see "Releases"). The decisions behind them are on the planning map
 [Map: game calls and the widget tree](https://github.com/happy-dwarf-team/tongs/issues/15).
 Words such as game call, main-thread read, outer frame, widget path, event,
 notification and marked run are defined in [`GLOSSARY.md`](../GLOSSARY.md).
@@ -449,50 +450,84 @@ minimized window, and a save loaded from the menu.
 
 ## Widget tree (0.5.0)
 
-`ui tree` and `ui find` are main-thread reads. Static findings:
+`ui tree` and `ui find` are main-thread reads: `src/game_ui.cpp` copies the
+tree on the main thread, and `src/ui_tree.cpp` matches selectors and builds
+the answer on the pipe thread. The research found the layout statically; the
+0.5.0 live check (below) corrected it where the running game differed, and
+this section describes what holds.
 
-- The GUI manager pointer is at `0x23494F0` (constructor `0x14E8640`, vtable
-  `0x1D8DC40`).
-  - `mgr+0x110/+0x118` is a vector of every live widget.
+- **Registry.** The GUI manager pointer is at `0x23494F0` (constructor
+  `0x14E8640`, vtable `0x1D8DC40`).
+  - `mgr+0x110/+0x118` is a vector of every live widget, about 16 000 in the
+    lab's save.
   - `0x14E9FA0` deletes the entries marked dead (`+0xC4`) from that vector,
     which is why the tree is read only on the main thread.
   - `mgr+0x130` is the topmost widget under the pointer, and `mgr+0x140` the
-    keyboard focus.
-- Widget fields (offsets from the pointer the registry holds):
+    keyboard focus (not read in 0.5.0).
+- **Widget fields** (offsets from the pointer the registry holds):
 
   | Field | Where |
   | --- | --- |
-  | `.gui` definition | `+0xB0`; its name, case kept, is the `std::string` at `type+0x10`, with the file at `type+0x30` and the line at `type+0xA0` |
+  | Name | vtable slot `0xA0`, a `std::string*`: the `.gui` name, case kept (`type+0x10` of the definition at `+0xB0`, or a window's own name) |
   | Visible | `+0xC5` |
   | Dead | `+0xC4` |
-  | Hovered this frame | `+0x8F` |
-  | Position | vtable slot `0x98`, two int32, probably relative to the parent |
-  | Size | slots `0xD8` (render) and `0xE0` (layout) |
-  | Button text | `+0x200` |
-  | Instant text box text | `+0x170` |
+  | Position | slot `0xD8`: two int32 in client pixels, read from the widget's render node |
+  | Size | slot `0xE0` |
+  | Text | button `+0x200`, instant text box `+0x170`, text box `+0x178`; Windows-1252 |
   | Button state | `+0x124`; 3 = disabled |
-- GUI classes have no RTTI, so a widget's kind is told by its vtable:
+  | Render node | per kind (table below); the node holds its owner at `+0x118` and its parent node at `+0x110` |
 
-  | Kind | Vtable |
-  | --- | --- |
-  | `windowType` | `0x1D929D0`, widget part at `+0x30` |
-  | container window | `0x1DA4090` |
-  | button | `0x1D9A340` |
-  | checkbox | `0x1D8FFC8` |
-  | icon | `0x1D96D00` |
-  | instant text box | `0x1D8FD10` |
-  | edit box | `0x1D91358` |
-  | grid box | `0x1D98288` |
-  | extended scrollbar | `0x1DA4CF8` |
-  | drop-down | `0x1D9E0A8` |
-- There is no generic child list:
-  - `windowType` windows hold ten vector pairs (`+0x5B8`…`+0x768`), seven
-    named maps (`+0x798`…`+0x918`) and a sub-window vector (`+0x958`);
-  - container windows hold fifteen vector pairs (`+0x680`…`+0x920`).
+  Slot `0x98`, which the research proposed for the position, gives the
+  position relative to the parent and is not used.
+- **Kinds.** GUI classes have no RTTI, so a widget's kind is told by its
+  vtable. The live game showed that most buttons and icons are of the game's
+  own classes (`guiButtonType`, `iconType`); the vtables the research gave for
+  them belong to the older `buttonType` and to three icons of the music
+  player.
 
-  Find-by-name (slot `0x1E8`) skips icons and text boxes, so Tongs walks the
-  containers itself. Top-level windows are the registry minus every widget
-  that appears as a child.
+  | Kind | Vtable | `type` | Node | Children |
+  | --- | --- | --- | --- | --- |
+  | `windowType` | `0x1D929D0` | `window` | `+0xA00` | window lists |
+  | `eu3dialogtype` | `0x1D57510` | `window` | `+0xA00` | window lists |
+  | `containerWindowType` | `0x1DA4090` | `window` | `+0xA50` | container lists |
+  | `guiButtonType` | `0x1D58218` | `button` | `+0x290` | — |
+  | `buttonType` | `0x1D9A340` | `button` | `+0x290` | — |
+  | scroll bar slider / track button | `0x1D954B0` / `0x1DA2940` | `button` | `+0x168` / `+0x180` | — |
+  | `iconType` and music player icons | `0x1D585C8`, `0x1D96D00` | `icon` | `+0x168` | — |
+  | `instantTextBoxType` | `0x1D8FD10` | `text` | `+0x118` | — |
+  | `textBoxType` | `0x1D99230` | `text` | `+0xD0` | — |
+  | `editBoxType` | `0x1D91358` | `editbox` | `+0x1E8` | — |
+  | `checkboxType` | `0x1D8FFC8` | `checkbox` | `+0x110` | — |
+  | `listboxType` | `0x1D90FD8` | `listbox` | `+0x180` | items, scroll bar |
+  | `smoothListboxType` | `0x1D96578` | `listbox` | `+0x218` | items, scroll bar |
+  | `gridBoxType` | `0x1D97EF0` | `listbox` | — | not known |
+  | `scrollbarType` | `0x1D93748` | `other` | — | its four buttons |
+
+  Every other class (overlapping elements boxes, extended scroll bars, the
+  minimap) answers `type: "other"`.
+- **Children.** There is no generic child list; each class keeps its own
+  containers. Tongs reads them in this order:
+  - `windowType` windows (offsets from the full object, `0x30` before the
+    widget pointer): ten vector pairs (`+0x5B8`…`+0x768`), seven named maps
+    (`+0x798`…`+0x918`, an insertion list at `map+0x20`) and the sub-windows
+    (`+0x958`, `{std::string name; window*}`);
+  - container windows: fifteen vector pairs (`+0x680`…`+0x920`);
+  - list boxes: an insertion list of items at `+0x100` (nodes
+    `{item, prev, next}`, as in the named maps); the item holds the full
+    object of its window at `+0x40` (`listboxType`) or `+0x60`
+    (`smoothListboxType`); the scroll bar is at `+0x1E0` or `+0x228`;
+  - scroll bars: the slider `+0x158`, track `+0x2F0`, down `+0x2F8` and up
+    `+0x3E0` buttons.
+
+  A pointer counts only when it is a live widget of the registry (as the
+  widget pointer or as the full object of a window); the first holder wins.
+- **Top-level windows.** Some widgets are held by the game's own code, not by
+  a window: the court view's `abilities_listbox`, the menu bar's
+  `chat_list`, the text scroll bars of tooltips. Tongs places each of them
+  under the owner of the parent of its render node (climbing past nodes
+  without an owner); a scroll bar, which has no node, goes where its
+  buttons' nodes point. Whatever is left are the top-level windows, in
+  registry order.
 
 **Selectors** (from "What do selectors and the ui tree answer look like?",
 with a throwaway prototype on `prototype/ui-selectors`):
@@ -502,40 +537,108 @@ with a throwaway prototype on `prototype/ui-selectors`):
   - `a//b`: `b` is anywhere below `a`.
   - A selector that starts with a name is anchored at the top-level windows;
     one that starts with `//` searches everywhere.
-  - Names ignore case and allow `*` and `?`. A step made only of filters means
-    any name.
+  - Names ignore case (ASCII letters) and allow `*` and `?`. A step made only
+    of filters means any name.
 - **Filters:**
   - `[n]`: the n-th match, counted from 1; `[0]` is an error;
   - `[type=…]`, with `window`, `button`, `icon`, `text`, `listbox`,
-    `checkbox` or `editbox`;
+    `checkbox`, `editbox` or `other`;
   - `[text=…]`, `[text~=…]` (contains) and `[text^=…]` (starts with), which
     ignore case and compare the displayed text, so they depend on the game's
-    language; names and `[n]` come first;
-  - `[enabled]`, `[disabled]`.
+    language; names and `[n]` come first. Values may be quoted
+    (`[text^="Accept the"]`); a widget without text never matches;
+  - `[enabled]`, `[disabled]` (buttons only).
 - **Hidden widgets**, and everything inside a hidden window, are left out
   unless the command ends with `all`.
 
 **Answers.**
 
 - Each widget has:
-  - `path`: its widget path, which can be sent back as a selector;
-  - `type`, `visible`;
-  - `rect` (client pixels of the game window) and `click_point`;
-  - `text` and `enabled` where they apply.
+  - `path`: its widget path, which can be sent back as a selector with the
+    same `all`. Siblings that share a name get `[n]`, counted among the
+    widgets the command sees; a widget without a usable name gets a
+    positional step such as `[3]`;
+  - `type`, `visible` (the widget and all its ancestors);
+  - `rect` (client pixels of the game window) and `click_point` (its centre);
+  - `text` (displayed text: UTF-8, without the colour codes `§X`; icons stay
+    as `£name`) and `enabled` where they apply.
 - `ui find SEL [all] [limit=N]` returns `count`, `matches` (50 by default) and
   `truncated`.
-- `ui tree [SEL] [depth=N] [limit=N] [all]` returns nested `widgets`, up to
-  200 by default. `depth=N` replaces deeper levels with `children_count`.
+- `ui tree [SEL] [depth=N] [limit=N] [all]` returns nested `widgets` (each
+  with its `name`), up to 200 by default. `depth=N` replaces deeper levels
+  with `children_count`. With a selector, each match is a root; a match inside
+  another match is shown once, inside it.
+- Limits go up to 5000, `depth` up to 64; both commands take `timeout=S` like
+  `frames`.
+- Errors: `bad_selector` and `bad_command` (with `detail`) before anything
+  runs on the main thread, `not_found` when `ui tree SEL` matches nothing,
+  and the dispatcher's own (`main thread busy`, `cancelled`).
 
-Live checks in the 0.5.0 PR:
+### Live check (2026-10-19)
 
-- read the tree in the menu and in game;
-- calibrate the scale from GUI units to client pixels and decide which size
-  is the clickable rectangle, against the speed buttons that work today
-  (3350,32 / 3350,62 / 3407,27);
-- find the top-level windows;
-- whether children of hidden windows keep `+0xC5`;
-- text encoding.
+Setup:
+- the original `eu4.exe` (`9AD3EFE1…771A`), Anvil 0.2.0 and the 0.5.0 branch;
+- the Russia save of 17 March 1719, loaded with `continue=`; a 3440×1440
+  window at DPI 96;
+- the lab's `anvil-play.ps1 -Scenario tongs -TongsInput` under Process
+  Lasso's `1-7`: `tongs-ui-1` with a temporary build that dumped the raw
+  registry (not shipped), `tongs-ui-2` and `tongs-ui-3` with this branch;
+- scripts sent `ui`, `state`, `click`, `key f1` and `screenshot`; read-only
+  reads of the game's memory from outside (`ReadProcessMemory`) helped find
+  the list box and render node layout during `tongs-ui-1`.
+
+Anvil reported "66 expected byte range(s) match" and "2 patch(es)". Every
+session was closed by the script after the PID, path and start-time check;
+the save was unchanged, and `settings.txt` differed only in `graceful_exit`
+and was restored.
+
+Findings:
+
+- **Registry and cost.** 16 111–16 210 live widgets; reading the whole tree
+  took 6–7 ms (`run_ms`) on the main thread, with the game paused.
+- **Coordinates.** Slot `0xD8` gives client pixels directly; the scale is 1
+  (the render context's two floats `ctx+0x4D8/+0x4DC` were 1.0).
+  - The speed controls report `button_speedup` at (3335, 18) 30×30,
+    `button_speeddown` (3347, 49) 30×30 and `speed_indicator` (3359, 12)
+    75×75; the clicks that worked in 0.3.0 (3350,32 / 3350,62 / 3407,27) lie
+    inside them.
+  - Clicking the reported `click_point` changed the speed 2 → 3 → 4
+    ((3350, 33)) and back to 3 ((3362, 64)), and (3396, 49) paused and
+    resumed. The corners (3336, 19) and (3364, 47) of `button_speedup` also
+    worked, so the whole rectangle of slots `0xD8` + `0xE0` is clickable for
+    this button.
+  - In screenshots, `DateText` (3104, 27) 228×38 is centred on the drawn
+    date, and the court view's close and abdicate buttons sit exactly in
+    their rectangles.
+  - Window positions are right, but window sizes come from the `.gui` size
+    and need not cover the drawn panel: `countryview` and `countrycourtview`
+    report 1229×120.
+- **Top-level windows.** The first dump left 3 744 widgets without a holder
+  (list items, scroll bars, check boxes); reading list boxes and scroll bars
+  left 1 081, and render-node parents 394. Visible among them: `outliner`,
+  `message_icons`, `topbar`, `speed_controls`, `menubar`, `minimap_panel`,
+  `diplomessageicons_window` and map icons (`unit_mapicon`, `fort_mapicon`,
+  …). F1 added `countryview` and `countrycourtview`, with
+  `abilities_listbox` and its three advisor entries inside the latter.
+- **Render nodes.** For 413 of 414 drawn nodes, the owner of the parent node
+  (`+0x110`) was the parent known from the containers. A list box's own node
+  has no owner set.
+- **Hidden windows.** Of 11 254 children of hidden windows in the first
+  dump, 878 still had `+0xC5` set, so `visible` takes the ancestors into
+  account.
+- **Text.** Windows-1252: "Münster", "Içel" and "Hüdavendigar" came through
+  as UTF-8. The game's colour codes (`§G…§!`) are dropped, icons stay as
+  `£attrition`, and `DateText` read "17 March 1719" as `state` did.
+  Button labels are at `+0x200` for `guiButtonType` too ("Cancel", "Start
+  Ironman"); 393 of 4 755 buttons had state 3 (e.g. `button_achievements`,
+  `abdicate_ruler_button`).
+- **Paths.** 150 random paths of visible widgets each resolved back to the
+  same widget. Map icons come and go as the map moves, so their `[n]`
+  changes between reads.
+
+Not checked: the main menu (`continue=` skips it), a save loaded from the
+menu, the children of grid boxes and overlapping elements boxes, edit box
+text, check box state, `+0x8F` and `mgr+0x130` (0.6.0).
 
 ## Clicking widgets (0.6.0)
 
@@ -727,7 +830,7 @@ Not in draft 4:
 
 ## Not verified yet
 
-- Every static finding in the sections for 0.4.0–0.8.0; each section lists the
+- Every static finding in the sections for 0.6.0–0.8.0; each section lists the
   live checks of its release.
 - `paused` for pauses not caused by the pause button (event popups that pause,
   menus, multiplayer); `paused_flag` alone was confirmed for the button.

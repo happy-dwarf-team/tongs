@@ -3,6 +3,7 @@
 #include "dispatcher.hpp"
 #include "frame_stats.hpp"
 #include "input.hpp"
+#include "ui_tree.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -70,7 +71,7 @@ struct ScreenshotResult {
 
 // Protocol: UTF-8 lines. A request is one command line; the answer is one
 // JSON object on one line. Commands: ping, state, window, threads, screenshot,
-// frames, help, wait_until, cancel, and with input enabled key, text, move, click,
+// frames, ui, help, wait_until, cancel, and with input enabled key, text, move, click,
 // scroll, release, pause, resume, speed, run_until. Input commands answer with
 // the state read after the action; they take turns across clients.
 struct Handlers {
@@ -96,6 +97,9 @@ struct Handlers {
     FrameStats* frame_stats = nullptr;
     int dispatch_timeout_ms = 10000;  // default limit of a main-thread job; timeout=S changes it
     std::function<std::uint32_t()> current_thread_id;  // optional: reported by `frames` from the main thread
+    // Reads the widget tree (game_ui.cpp); called on the main thread through the
+    // dispatcher. Returns an error text, or an empty string on success.
+    std::function<std::string(UiTree&)> read_ui;
     std::uint32_t process_id = 0;
     // How long pause/resume/speed wait for the game to react. Right after a save
     // loads, the main loop handled a key press only 2-7 s later.

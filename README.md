@@ -6,10 +6,10 @@ and scripts talk to a running game through a local named pipe, instead of
 reading pixels from screenshots. Like a smith's tongs, it holds the work from
 outside the forge.
 
-> Status: early. It reads game state, takes screenshots and, when you allow
-> it, uses the keyboard and mouse in the game (pause, speed, run to a date,
-> keys, text, clicks) through the game's own SDL input, so the window does not
-> need focus. It never writes game state. Supported game build: EU4 1.37.5
+> Status: early. It reads game state and the interface's widget tree, takes
+> screenshots and, when you allow it, uses the keyboard and mouse in the game
+> (pause, speed, run to a date, keys, text, clicks) through the game's own SDL
+> input, so the window does not need focus. It never writes game state. Supported game build: EU4 1.37.5
 > (Steam, Windows 64-bit); Anvil skips it on other builds. Design and the
 > addresses it relies on: [docs/design.md](docs/design.md).
 
@@ -27,6 +27,8 @@ can wait in `run_until` while another reads `state` or sends `cancel`.
 | `threads` | worker threads in each of the game's two pools, the `threads` option, process and main-thread CPU masks, ideal CPU and priority of the main thread, number of threads |
 | `screenshot [NAME]` | writes a PNG of the game window to `anvil/data/tongs/screenshots/` (keeps the newest 100) and answers with its `path`, size and capture `method`; works while the window is covered |
 | `frames [timeout=S]` | read on the game's main thread after a frame of its main loop: frames per second (`outer_per_s`, and `nested_per_s` for frames drawn inside a game update or a save load), counts and the longest gap between main-loop frames since the previous `frames`, and the main thread's `thread_id`; with `queued_ms`, `run_ms` and the game's `frame` counter. Waits up to 10 s (`timeout=` up to 600) for a frame; while a save loads none comes, and the answer is `main thread busy` |
+| `ui find SEL [all] [limit=N]` | widgets that match the selector `SEL` (see "Widgets"): `count`, `truncated` and up to 50 `matches` (`limit=` up to 5000), each with `path`, `type`, `visible`, `rect` and `click_point` in client pixels, and `text` / `enabled` where they apply. Read on the main thread, like `frames` |
+| `ui tree [SEL] [depth=N] [limit=N] [all]` | the widget tree from the top-level windows, or from the matches of `SEL`, as nested `widgets` (up to 200, `limit=` up to 5000); `depth=N` gives deeper levels only as `children_count` |
 | `wait_until DATE [timeout=S] [max_pause=S]` | waits (without touching the game) until the date reaches `DATE` (`1720.1.1` or `1720.1.1.12`); answers with the timing below |
 | `cancel` | ends every `wait_until` / `run_until` in progress and withdraws main-thread jobs still waiting for a frame (`withdrawn`) |
 | `help` | list of commands and whether input commands are enabled |
@@ -81,6 +83,38 @@ Right after a save loads, the game handles input only seconds later; the
 commands wait for it. While the Esc menu is open, Space does not resume the
 game.
 
+## Widgets
+
+`ui find` and `ui tree` read the game's interface: windows, buttons, icons,
+text, list boxes, check boxes and edit boxes, by their names in the game's
+`.gui` files. A selector is a path of names:
+
+- `speed_controls/button_speedup`: a child of a top-level window;
+  `EventWindow//event_option_button`: anywhere below it; `//DateText`:
+  anywhere.
+- Names ignore case and take `*` and `?`.
+- Filters in brackets: `[2]` (the second match, from 1), `[type=button]`
+  (`window`, `button`, `icon`, `text`, `listbox`, `checkbox`,
+  `editbox`, `other`), `[text=...]`, `[text~=...]` (contains),
+  `[text^=...]` (starts with), `[enabled]`, `[disabled]`. A step made only
+  of filters means any name: `speed_controls/[type=button]`.
+- Hidden widgets are left out unless the command ends with `all`.
+
+Every widget in an answer has a `path` that finds it again, with `[n]`
+where siblings share a name. `text` is what the game displays, in UTF-8
+without its colour codes, so text filters depend on the game's language;
+prefer names and `[n]`. `click_point` is the centre of `rect` and can be
+passed to `click`. Window sizes may not cover the drawn panel; positions are
+right.
+
+```powershell
+.\scripts\tongs.ps1 'ui find speed_controls/button_speedup'
+# {"ok":true,"command":"ui find","selector":"speed_controls/button_speedup","count":1,"truncated":false,
+#  "matches":[{"path":"speed_controls/button_speedup","type":"button","visible":true,
+#  "rect":{"x":3335,"y":18,"w":30,"h":30},"click_point":{"x":3350,"y":33},"enabled":true}],...}
+.\scripts\tongs.ps1 'ui tree depth=0'
+```
+
 ## Clients
 
 - `scripts/tongs.ps1 CMD [CMD ...] [-AsObject] [-StopOnError]`: sends the
@@ -105,7 +139,7 @@ game.
 - Game state is never written. Keys, text and mouse buttons go into the
   game's SDL event queue, as a player's would.
 - Patches: with `enabled = true` the plugin hooks the game's frame function
-  to run main-thread reads such as `frames` after a frame of the main loop
+  to run main-thread reads such as `frames` and `ui` after a frame of the main loop
   (the frame itself runs unchanged). With `input = true` it also hooks the
   interface's cursor query to answer with the pointer set by the mouse
   commands. `affects_gameplay = false`.
