@@ -306,6 +306,13 @@ def paused_game(pipe: FakePipe, release, ping=lambda: {"ok": True, "command": "p
     pipe.handler = handler
 
 
+async def sent(pipe: FakePipe, line: str) -> None:
+    """Waits until `line` has been sent."""
+    with anyio.fail_after(5):
+        while line not in pipe.sent:
+            await anyio.sleep(0.01)
+
+
 async def wait_with_progress(pipe: FakePipe, on_progress):
     return await call(
         pipe, "tongs_wait_until", {"date": "1719.4.16"}, progress_callback=on_progress, meta={"progress_token": "t"}
@@ -356,6 +363,7 @@ async def test_a_new_day_after_heartbeats_reports_the_game_days(monkeypatch):
 
 async def test_heartbeat_stops_when_the_plugin_does_not_answer_ping(monkeypatch):
     monkeypatch.setattr(server, "HEARTBEAT_S", 0.1)
+    monkeypatch.setattr(server, "PROGRESS_POLL_S", 0.05)
     pipe = FakePipe()
     released = threading.Event()
     paused_game(pipe, released, ping=lambda: {"ok": False, "command": "ping", "error": "subscribed"})
@@ -366,7 +374,8 @@ async def test_heartbeat_stops_when_the_plugin_does_not_answer_ping(monkeypatch)
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(wait_with_progress, pipe, on_progress)
-        await anyio.sleep(0.6)
+        await sent(pipe, "ping")
+        await anyio.sleep(0.5)  # a few more heartbeat periods
         released.set()
     assert seen == []
     assert pipe.sent.count("ping") == 1
@@ -374,6 +383,7 @@ async def test_heartbeat_stops_when_the_plugin_does_not_answer_ping(monkeypatch)
 
 async def test_no_heartbeat_when_turned_off(monkeypatch):
     monkeypatch.setattr(server, "HEARTBEAT_S", 0)
+    monkeypatch.setattr(server, "PROGRESS_POLL_S", 0.05)
     pipe = FakePipe()
     released = threading.Event()
     paused_game(pipe, released)
@@ -384,7 +394,8 @@ async def test_no_heartbeat_when_turned_off(monkeypatch):
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(wait_with_progress, pipe, on_progress)
-        await anyio.sleep(0.6)
+        await sent(pipe, "subscribe date date=day")
+        await anyio.sleep(0.5)  # ten polls of the progress stream
         released.set()
     assert seen == []
     assert "ping" not in pipe.sent
