@@ -91,9 +91,18 @@ struct EventChoice {
     std::string members;  // JSON members of a refusal (starting with a comma)
     int event = -1;       // indices into the events and their options
     int option = -1;
+    int hidden_event = -1;   // with "not_visible": the event and option that were asked for
+    int hidden_option = -1;
 };
 
 EventChoice ChooseEvent(const std::vector<EventView>& events, const EventRequest& request);
+
+// The scroll bar button of the option list box that brings the hidden `option`
+// of `event` closer: "downButton" when a shown option comes before it, else
+// "upButton". -1 when the list box has no such button. The game creates a
+// button for every option and hides those outside the list box (live: the
+// seventh option of event 5060 with six rows).
+int OptionScrollButton(const UiTree& tree, const EventView& event, int option);
 
 // The first enabled, visible option of an event; -1 when there is none.
 int FirstEnabledOption(const EventView& event);

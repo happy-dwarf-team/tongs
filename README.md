@@ -136,6 +136,9 @@ pointer, and only then clicks. It refuses without clicking: `not_found`,
 `ambiguous` (with up to 10 `matches`), `not_visible` (only hidden widgets
 match), `disabled`, or `covered` (with `covered_by`, the widget that would get
 the click). The answer has `clicked`, `point` and the state after the click.
+When the game reports no widget at all under the pointer, the move is tried up
+to three times (`hover_attempts`). A click on an event's option button also
+answers `event_option` and counts as a choice Tongs knows (see "Events").
 
 ```powershell
 .\scripts\tongs.ps1 'ui find speed_controls/button_speedup'
@@ -159,7 +162,9 @@ option's `name`, which may be empty or repeated) and `path`.
 `text~=`). With several events open it needs `event=N` or
 `event=title^="..."`, and refuses `ambiguous` otherwise. The game keeps the
 options disabled for half a second after the window opens; meanwhile
-`event choose` refuses `disabled`. The answer has `choice_date` (the game date
+`event choose` refuses `disabled`. An option outside the event's list box
+(the box shows six rows) is scrolled in with the list's scroll bar buttons
+first (`scrolled`, the number of clicks). The answer has `choice_date` (the game date
 of the click), the `event` and `option`, `closed` (the event left the game's
 lists within 3 s; it took 3 frames in the live check) and the state after.
 
@@ -179,7 +184,7 @@ is `all` or a list such as `state,date,event`:
 | --- | --- |
 | `state` | the game is entered or left (`change`: `entered_game`, `left_game` with `reason`), paused or resumed (`paused`, `resumed`) or the speed changes (`speed`, with `previous_speed`); each with `speed`, `paused`, `paused_flag`. Also while a save loads |
 | `date` | a new day, month (the default) or year begins, with `unit` and `previous` |
-| `event` | an event window opens (`opened`, with `id`, `title` and `options`) or closes (`closed`, with `chosen`: the option when Tongs chose it with `event choose` or `run_until events=first`, otherwise `null`) |
+| `event` | an event window opens (`opened`, with `id`, `title` and `options`) or closes (`closed`, with `chosen`: the option when Tongs chose it with `event choose`, `run_until events=first` or `ui click` on the option button (`via: "ui click"`); `null` for the player's own mouse and the game's choice at the deadline) |
 | `error_log` | the game writes a `line` to its `error.log`; `restarted` when the file was replaced |
 | `activity` | any client sends an input command (`what: "input"`, `command`) or a game call (`what: "game_call"`, `line`, `name`), with the `client` (pipe instance) and the running count (`inputs`, `game_calls`), so a marked run shows as it happens |
 

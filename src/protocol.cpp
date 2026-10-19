@@ -867,6 +867,7 @@ std::string UiClick(const Handlers& handlers, const UiRequest& request) {
 }
 
 constexpr int kCloseLimitMs = 3000;   // how long a chosen event may take to close
+constexpr int kMaxOptionScrolls = 30;  // scroll bar clicks to bring a hidden option into its list box
 constexpr int kOptionWaitMs = 10000;  // how long events=first waits for an enabled option
 constexpr int kOptionPollMs = 100;
 constexpr int kEventLookMs = 250;     // events=first: between reads while the window list is not empty
@@ -973,9 +974,27 @@ std::string EventChoose(const Handlers& handlers, const EventRequest& r) {
     const std::uint64_t start = h.now_ms();
     Screen s;
     if (!ReadScreen(h, timeout_ms, true, s)) return ScreenFailure("event choose", s);
-    const EventChoice choice = ChooseEvent(s.events, r);
+    EventChoice choice = ChooseEvent(s.events, r);
+    // An option outside the list box: scroll it in with the list's own scroll bar buttons.
+    int scrolled = 0;
+    std::string scroll_error;
+    while (choice.error == "not_visible" && scrolled < kMaxOptionScrolls) {
+        const int b = OptionScrollButton(s.tree, s.events[choice.hidden_event], choice.hidden_option);
+        if (b == -1) break;
+        const ClickOutcome sc = ClickWidget(h, s.tree.widgets[b].address, s.tree.widgets[b].rect, timeout_ms, true);
+        if (!sc.ok) {
+            scroll_error = sc.error;
+            break;
+        }
+        ++scrolled;
+        if (!ReadScreen(h, timeout_ms, true, s)) return ScreenFailure("event choose", s);
+        choice = ChooseEvent(s.events, r);
+    }
+    const std::string scroll_members = (scrolled ? ",\"scrolled\":" + std::to_string(scrolled) : std::string()) +
+                                       (scroll_error.empty() ? std::string() : ",\"scroll_error\":" + Quote(scroll_error));
     if (!choice.error.empty()) {
-        return "{\"ok\":false,\"error\":\"" + choice.error + "\",\"command\":\"event choose\"" + choice.members + "}";
+        return "{\"ok\":false,\"error\":\"" + choice.error + "\",\"command\":\"event choose\"" + choice.members +
+               scroll_members + "}";
     }
     const EventView& e = s.events[choice.event];
     const EventOption& o = e.options[choice.option];
@@ -999,7 +1018,7 @@ std::string EventChoose(const Handlers& handlers, const EventRequest& r) {
     if (!error.empty()) out += ",\"error\":" + Quote(error);
     out += ",\"command\":\"event choose\"";
     if (before.in_game) out += ",\"choice_date\":\"" + DateText(before.date_raw) + "\"";
-    out += ChoiceMembers(e, o) + fields + ",\"waited_ms\":" + std::to_string(h.now_ms() - start);
+    out += ChoiceMembers(e, o) + scroll_members + fields + ",\"waited_ms\":" + std::to_string(h.now_ms() - start);
     return out + "," + StateFields(state) + "}";
 }
 
