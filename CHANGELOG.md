@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.0](https://github.com/happy-dwarf-team/tongs/compare/v0.11.0...v0.12.0) (2026-10-19)
+
+
+### Features
+
+* **state:** report the game process id and start time with the state ([#54](https://github.com/happy-dwarf-team/tongs/issues/54)) ([4dbdc4e](https://github.com/happy-dwarf-team/tongs/commit/4dbdc4ed7538a73796f71ec80ddd03e18b3a002e))
+
+
+### Bug Fixes
+
+* **mcp:** declare tool effects truthfully and report cancelled calls ([#55](https://github.com/happy-dwarf-team/tongs/issues/55)) ([dcd06b5](https://github.com/happy-dwarf-team/tongs/commit/dcd06b59dcd391cfc3ca4afa13d3251a52e62638))
+
 ## [0.11.0](https://github.com/happy-dwarf-team/tongs/compare/v0.10.0...v0.11.0) (2026-10-19)
 
 

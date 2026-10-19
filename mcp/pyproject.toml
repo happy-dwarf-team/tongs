@@ -1,7 +1,7 @@
 [project]
 name = "tongs-mcp"
 # Bumped by release-please together with version.txt (release-please-config.json).
-version = "0.11.0"
+version = "0.12.0"
 description = "MCP server (stdio) for the Tongs pipe: control Europa Universalis IV from agents"
 readme = "README.md"
 license = "MIT"
