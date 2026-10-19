@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.0](https://github.com/happy-dwarf-team/tongs/compare/v0.10.0...v0.11.0) (2026-10-19)
+
+
+### Features
+
+* check box state, edit box text, ui click choices and option scrolling ([#52](https://github.com/happy-dwarf-team/tongs/issues/52)) ([4aade21](https://github.com/happy-dwarf-team/tongs/commit/4aade2107d846f5908860b6e736ba369cfd0365e))
+
+
+### Bug Fixes
+
+* reset game_calls_total on a reloaded save and harden ui click ([#47](https://github.com/happy-dwarf-team/tongs/issues/47)) ([808ea25](https://github.com/happy-dwarf-team/tongs/commit/808ea259ba26b9dd6d14773977ab84def78505c9))
+
 ## [0.10.0](https://github.com/happy-dwarf-team/tongs/compare/v0.9.0...v0.10.0) (2026-10-19)
 
 
