@@ -102,8 +102,8 @@ struct Handlers {
     std::function<void()> release_cursor;
     std::function<void(int ms)> sleep_ms;
     std::function<std::uint64_t()> now_ms;  // monotonic clock
-    // Main-thread jobs (game_frame.cpp): both null when the frame hook is not
-    // installed, and main-thread commands answer an error.
+    // Main-thread jobs (game_frame.cpp): both null when anvil-game's outer
+    // frames are not available, and main-thread commands answer an error.
     Dispatcher* dispatcher = nullptr;
     FrameStats* frame_stats = nullptr;
     int dispatch_timeout_ms = 10000;  // default limit of a main-thread job; timeout=S changes it
@@ -118,7 +118,11 @@ struct Handlers {
     // Pipe thread, one word: entries in the session's event window list; -1 = unreadable.
     // run_until events=first reads the events on the main thread only while it is above 0.
     std::function<int()> count_event_windows;
-    // Game calls (ADR 0001): the config switches, and two main-thread functions
+    // True while Anvil keeps Tongs suspended (anvil.suspended): an ironman or
+    // multiplayer game that the player did not allow Tongs in (anvil.toml).
+    // Input commands and game calls then answer an error; reads go on. Optional.
+    std::function<bool()> suspended;
+    // Game calls (ADR 0001): the settings, and two main-thread functions
     // (game_console.cpp). read_console returns an error text, or empty;
     // call_console runs one tokenised console line and reports a fault instead
     // of raising it.

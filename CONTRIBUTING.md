@@ -29,9 +29,14 @@ the description. Breaking changes (a command or answer field renamed or
 removed, a config key renamed, a different Anvil requirement) take `!` and a
 `BREAKING CHANGE:` paragraph; before 1.0.0 they bump the minor version.
 
-A change to the addresses or code patterns the plugin relies on updates the
-`[[expect]]` entries in `plugin/plugin.toml` and [docs/design.md](docs/design.md),
-and says how it was checked in the game.
+A change to the addresses or code patterns the plugin relies on updates
+`plugin/symbols.toml` (an address, its bytes and the offsets in them as
+`values`; the code takes every number from there) and
+[docs/design.md](docs/design.md), and says how it was checked in the game.
+Run `anvil check plugin --exe <eu4.exe>` (or build `tongs-check` with
+`-DEU4_EXE=<eu4.exe>`) to verify the symbols against the game and rewrite
+`plugin/symbols.lock`, and commit the lock with the change: CI cannot read the
+game and fails when the lock does not match `symbols.toml`.
 
 ## Versions and releases
 

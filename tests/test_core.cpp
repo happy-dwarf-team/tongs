@@ -153,7 +153,7 @@ static void TestFrameStats() {
 static void TestFramesCommand() {
     Handlers h;
     h.now_ms = SteadyMs;
-    assert(Contains(HandleRequest("frames", h), "frame hook is not installed"));
+    assert(Contains(HandleRequest("frames", h), "outer frames are not available"));
     Dispatcher d(SteadyMs);
     FrameStats stats;
     h.dispatcher = &d;
@@ -378,7 +378,7 @@ static void TestUiRequests() {
 static void TestUiCommand() {
     Handlers h;
     h.now_ms = SteadyMs;
-    assert(Contains(HandleRequest("ui tree", h), "frame hook is not installed"));
+    assert(Contains(HandleRequest("ui tree", h), "outer frames are not available"));
     std::string out = HandleRequest("ui find a//", h);  // a bad selector never reaches the main thread
     assert(Contains(out, "\"ok\":false,\"error\":\"bad_selector\"") && Contains(out, "\"command\":\"ui find\""));
     assert(Contains(HandleRequest("ui", h), "\"command\":\"ui\""));
@@ -459,10 +459,21 @@ static void TestLoadWatch() {
     assert(read(true, 0x6000, "1719.3.1") != third);
 }
 
+// The 0.12 default config.toml, which a player may still have.
+constexpr char kOldDefaultConfig[] =
+    "# Tongs\n"
+    "enabled = false\n"
+    "input = false\n"
+    "game_calls = false\n"
+    "console_allow = []\n"
+    "game_calls_ironman = false\n"
+    "game_calls_multiplayer = false\n";
+
 static void TestConfig() {
+    // config.toml of Tongs 0.12 and older, read once to move it into settings.toml.
     assert(!ParseConfig("").enabled);
-    assert(ParseConfig(kDefaultConfig).notes.empty());
-    assert(!ParseConfig(kDefaultConfig).enabled);
+    assert(ParseConfig(kOldDefaultConfig).notes.empty());
+    assert(!ParseConfig(kOldDefaultConfig).enabled);
     assert(ParseConfig("enabled = true\r\n").enabled);
     assert(ParseConfig("  enabled=true # comment\n").enabled);
 
@@ -470,13 +481,13 @@ static void TestConfig() {
     assert(!bad.enabled);
     assert(bad.notes.size() == 3);
 
-    assert(!ParseConfig(kDefaultConfig).input);
+    assert(!ParseConfig(kOldDefaultConfig).input);
     const Config both = ParseConfig("enabled = true\ninput = true\n");
     assert(both.enabled && both.input && both.notes.empty());
     assert(ParseConfig("input = 1\n").notes.size() == 1);
 
     // Game calls: off by default, each switch on its own line.
-    const Config defaults = ParseConfig(kDefaultConfig);
+    const Config defaults = ParseConfig(kOldDefaultConfig);
     assert(!defaults.game_calls.enabled && !defaults.game_calls.ironman && !defaults.game_calls.multiplayer);
     assert(defaults.game_calls.allow.empty());
     const Config calls = ParseConfig(
@@ -489,6 +500,26 @@ static void TestConfig() {
     // Names that console_allow cannot lift, or that need no entry, are noted.
     const Config noted = ParseConfig("console_allow = [\"enable_all_commands\", \"speed\", \"leak\"]\n");
     assert(noted.notes.size() == 2 && noted.game_calls.allow.size() == 3);
+
+    // The player's settings.toml written from it: only what differs from the defaults (all false, "").
+    assert(SettingsFromConfig(defaults).empty());
+    assert(SettingsFromConfig(both) == "enabled = true\ninput = true\n");
+    assert(SettingsFromConfig(calls) ==
+           "game_calls = true\nconsole_allow = \"leak, oos\"\ngame_calls_ironman = true\n");
+
+    // console_allow in settings.toml: names separated by commas or white space.
+    std::vector<std::string> names;
+    std::vector<std::string> notes;
+    assert(ParseConsoleAllow("", names, notes) && names.empty() && notes.empty());
+    assert(ParseConsoleAllow("leak, oos", names, notes) && notes.empty());
+    assert(names == std::vector<std::string>({"leak", "oos"}));
+    assert(ParseConsoleAllow(" leak\toos,,", names, notes) && names.size() == 2 && notes.empty());
+    assert(!ParseConsoleAllow("leak; oos", names, notes) && names.empty() && notes.size() == 1);
+    notes.clear();
+    assert(ParseConsoleAllow("enable_all_commands speed leak", names, notes) && names.size() == 3 && notes.size() == 2);
+    // What SettingsFromConfig writes reads back as the same list.
+    notes.clear();
+    assert(ParseConsoleAllow("leak, oos", names, notes) && names == calls.game_calls.allow);
 }
 
 static void TestProtocol() {
@@ -629,6 +660,28 @@ static void TestInputDisabled() {
     }
     assert(Contains(HandleRequest("help", h), "\"input\":false"));
     assert(game.pressed.empty());
+}
+
+// While Anvil suspends Tongs (ironman or multiplayer without the player's opt-in),
+// input commands answer an error and send nothing; reads go on.
+static void TestSuspended() {
+    FakeGame game = LoadedGame();
+    Handlers h = game.Make();
+    bool suspended = true;
+    h.suspended = [&suspended] { return suspended; };
+    for (const char* command : {"key space", "pause", "resume", "speed 3", "text a", "move 1 1", "click 1 1",
+                                "scroll 1", "run_until 1719.4.1", "ui click button"}) {
+        const std::string out = HandleRequest(command, h);
+        assert(Contains(out, "\"ok\":false") && Contains(out, "Anvil suspended Tongs") && Contains(out, "allow_ironman"));
+    }
+    assert(game.pressed.empty() && game.events.empty());
+    // Handing the pointer back to the player changes nothing in the game.
+    assert(Contains(HandleRequest("release", h), "\"ok\":true"));
+    assert(Contains(HandleRequest("state", h), "\"ok\":true"));
+    assert(Contains(HandleRequest("help", h), "\"input\":true") && Contains(HandleRequest("help", h), "\"suspended\":true"));
+    suspended = false;
+    assert(Contains(HandleRequest("key space", h), "\"ok\":true") && game.pressed.size() == 1);
+    assert(Contains(HandleRequest("help", h), "\"suspended\":false"));
 }
 
 static void TestPauseResume() {
@@ -1342,7 +1395,7 @@ static void TestEventChooseScrolls() {
 static void TestEventCommands() {
     FakeScreen screen;
     const Handlers h = screen.Make();
-    assert(Contains(HandleRequest("event list", Handlers{}), "frame hook is not installed"));
+    assert(Contains(HandleRequest("event list", Handlers{}), "outer frames are not available"));
     assert(Contains(HandleRequest("event choose 0", h), "{\"ok\":false,\"error\":\"bad_command\""));
     FakeMainThread main(screen.dispatcher);
 
@@ -1564,6 +1617,12 @@ static void TestConsoleCommand() {
     assert(Contains(out, "{\"ok\":false,\"error\":\"game_calls_disabled\"") && console.calls.empty());
     assert(console.log.size() == 1 && console.log[0].first == 2 && Contains(console.log[0].second, "(pipe 2, 1719.3.17)"));
     assert(Contains(HandleRequest("help", h), "\"console\"") && Contains(HandleRequest("help", h), "\"game_calls\":true"));
+
+    // Suspended by Anvil: refused before the main thread, whatever Tongs' own switches say.
+    Handlers suspended = h;
+    suspended.suspended = [] { return true; };
+    out = HandleRequest("console echo x", suspended);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"suspended\"") && Contains(out, "allow_multiplayer") && console.calls.empty());
 
     // A harmless round trip: the text, the success byte as a hint, the state afterwards.
     out = HandleRequest("console echo x", h, 3);
@@ -2085,6 +2144,7 @@ int main() {
     TestProtocol();
     TestKeys();
     TestInputDisabled();
+    TestSuspended();
     TestPauseResume();
     TestPauseTimeoutAndErrors();
     TestSpeed();

@@ -225,7 +225,7 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         except FileNotFoundError:
             raise ToolError(
                 f"the pipe {PIPE} is not there: start EU4 with Anvil and Tongs, enabled = true in "
-                "anvil/data/tongs/config.toml"
+                "anvil/data/tongs/settings.toml"
             ) from None
         except ModuleNotFoundError:
             raise ToolError("the Tongs pipe client runs on Windows only") from None

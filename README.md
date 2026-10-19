@@ -15,8 +15,10 @@ outside the forge.
 > can also subscribe to notifications: state and date changes, events opening
 > and closing, new `error.log` lines and other clients' input and game calls.
 > Supported game build: EU4 1.37.5
-> (Steam, Windows 64-bit); Anvil skips it on other builds. Design and the
-> addresses it relies on: [docs/design.md](docs/design.md).
+> (Steam, Windows 64-bit); Anvil skips it on other builds. It needs Anvil
+> 1.0 or newer with its standard plugin `anvil-game`. Design and the
+> addresses it relies on: [docs/design.md](docs/design.md) and
+> [plugin/symbols.toml](plugin/symbols.toml).
 
 ## Commands
 
@@ -39,9 +41,9 @@ connection can instead carry notifications (see "Notifications").
 | `wait_until DATE [timeout=S] [max_pause=S]` | waits (without touching the game) until the date reaches `DATE` (`1720.1.1` or `1720.1.1.12`); answers with the timing below |
 | `cancel` | ends every `wait_until` / `run_until` in progress and withdraws main-thread jobs still waiting for a frame (`withdrawn`) |
 | `subscribe KINDS [date=day\|month\|year]` | turns the connection into a stream of notifications (see "Notifications"); `unsubscribe` ends it |
-| `help` | list of commands and whether input commands are enabled |
+| `help` | list of commands, whether input commands are enabled and whether Anvil suspended Tongs (`suspended`, see "Safety") |
 
-With `input = true` in the config, also:
+With `input = true` in the settings, also:
 
 | Command | What it does |
 | --- | --- |
@@ -58,7 +60,7 @@ With `input = true` in the config, also:
 | `ui click SEL [timeout=S]` | clicks the centre of the one widget the selector matches (see "Widgets") |
 | `event choose N\|text^="..." [event=N\|event=title^="..."] [timeout=S]` | clicks an option of an open event (see "Events") |
 
-With `game_calls = true` in the config, also (see "Console"):
+With `game_calls = true` in the settings, also (see "Console"):
 
 | Command | What it does |
 | --- | --- |
@@ -239,11 +241,13 @@ Tongs refuses, without calling the game:
   `test_achievement`, `debug_achievements`, `social_*` and
   `CrashReporter.UploadCrash`, always; the other dangerous commands (crashes,
   memory leaks, desyncs, rewriting the map or the world, install and save
-  rules, `run_commands` and `runyear`) unless the config lists them:
-  `console_allow = ["leak"]`;
+  rules, `run_commands` and `runyear`) unless the settings list them:
+  `console_allow = "leak"`;
 - `ironman`, `multiplayer`: every game call in an ironman or multiplayer game,
   unless `game_calls_ironman = true` or `game_calls_multiplayer = true`; with
   either switch on, answers carry `mode`;
+- `suspended`: Anvil suspended Tongs in this ironman or multiplayer game (see
+  "Safety"), before any of Tongs' own switches are asked;
 - `game_calls_disabled`, `not_in_game`, `unknown_command`, `bad_command`
   (printable ASCII only), `console_unavailable`;
 - `game_calls_tripped`: a game call that faulted answers `faulted`, and every
@@ -283,9 +287,9 @@ available only for developers." in `text`.
 ## Safety
 
 - Off by default. The pipe opens only with `enabled = true` in
-  `anvil/data/tongs/config.toml` (created on the first start), accepts
-  keyboard and mouse input only with `input = true` as well, and runs console
-  commands only with `game_calls = true`.
+  `anvil/data/tongs/settings.toml`, accepts keyboard and mouse input only with
+  `input = true` as well, and runs console commands only with
+  `game_calls = true` (see "Settings").
 - Local clients of the Windows user running the game only (pipe DACL, remote
   clients rejected). No network listener.
 - **Game state can change** with `game_calls = true`: `console` runs the
@@ -298,12 +302,21 @@ available only for developers." in `text`.
 - Without `game_calls`, game state is never written. Keys, text and mouse
   buttons go into the game's SDL event queue, as a player's would; widget
   clicks and event choices are mouse clicks too.
-- Patches: with `enabled = true` the plugin hooks the game's frame function
-  to run main-thread reads such as `frames`, `ui` and `event list` after a frame of the main loop
-  (the frame itself runs unchanged). With `input = true` it also hooks the
-  interface's cursor query to answer with the pointer set by the mouse
-  commands. `affects_gameplay = true`, because game calls can change the
-  simulation, even though they are off by default.
+- Changes to the game: with `enabled = true` main-thread reads such as
+  `frames`, `ui` and `event list` and game calls run after a frame of the main
+  loop, which Anvil's standard plugin `anvil-game` reports; Tongs adds a mid
+  hook that only counts the frames drawn inside a game update. With
+  `input = true` it also hooks the interface's cursor query to answer with the
+  pointer set by the mouse commands. Every address it uses is declared in
+  `plugin/symbols.toml`, which Anvil verifies against `eu4.exe` before it loads
+  Tongs.
+- **Ironman and multiplayer.** `affects_gameplay = true`, because input and
+  game calls can change the simulation, even though they are off by default.
+  In an ironman or multiplayer game Anvil suspends Tongs: its hooks are out of
+  the game, input commands (except `release`) and game calls answer an error,
+  reads go on. The player can allow Tongs there in `anvil/anvil.toml`
+  (`allow_ironman = ["tongs"]`, `allow_multiplayer = ["tongs"]`); game calls
+  then still need Tongs' own `game_calls_ironman` / `game_calls_multiplayer`.
 - Screenshots are written only to the plugin's data folder.
 - Notifications only read: the state, the event list (on the main thread,
   like `event list`) and the game's `error.log`, which is opened for each
@@ -313,24 +326,60 @@ available only for developers." in `text`.
 ## Install / uninstall
 
 Install [Anvil](https://github.com/happy-dwarf-team/anvil#install--uninstall)
-0.2.0 or newer first. Then download `tongs-windows-x64.zip` from the
+1.0.0 or newer first, with its standard plugin `anvil-game` (part of Anvil's
+package). Then download `tongs-windows-x64.zip` from the
 [latest release](https://github.com/happy-dwarf-team/tongs/releases/latest)
 and extract it into `<EU4>/anvil/plugins/`; it contains the `tongs` folder
-(`SHA256SUMS.txt` next to the archive holds its checksum). Start the game once
-to create `anvil/data/tongs/config.toml`, then set `enabled = true` (and
-`input = true` for the input commands, `game_calls = true` for `console`) and
-start the game again. Delete the
-`tongs` folder to uninstall.
+(`SHA256SUMS.txt` next to the archive holds its checksum). Turn it on in
+`anvil/data/tongs/settings.toml` (see "Settings") and start the game. Delete
+the `tongs` folder to uninstall.
+
+## Settings
+
+`plugin/settings.toml` (in the plugin folder) declares the switches and their
+defaults, all off. Your values go into `anvil/data/tongs/settings.toml`, one
+`name = value` per line, only those that differ from the default:
+
+```toml
+enabled = true      # open the pipe
+input = true        # keyboard and mouse commands
+game_calls = true   # console commands (they change game state)
+console_allow = "leak"          # danger commands game calls may run, separated by commas
+game_calls_ironman = false      # game calls in ironman (Anvil must also allow Tongs there)
+game_calls_multiplayer = false  # game calls in multiplayer (likewise)
+```
+
+Tongs reads them when the game starts. `ANVIL_TONGS_<NAME>` environment
+variables (e.g. `ANVIL_TONGS_ENABLED=true`) override a value for one start,
+without changing the file. An `anvil/data/tongs/config.toml` from Tongs 0.12
+or older is moved into `settings.toml` on the first start (and renamed to
+`config.toml.migrated`); its values apply already in that start.
 
 ## Building
 
-Visual Studio 2022 (or Build Tools) with the C++ workload, CMake ≥ 3.25.
+Visual Studio 2022 (or Build Tools) with the C++ workload, CMake ≥ 3.25, Git.
+Tongs builds with the [Anvil SDK](https://github.com/happy-dwarf-team/anvil/blob/main/sdk/README.md)
+(`anvil_add_plugin`, `anvil gen`, `anvil check`). Until Anvil 1.0 publishes the
+SDK archive, the first configure builds it from Anvil's sources at a pinned
+commit (`cmake/AnvilSdk.cmake`) into `build/anvil-sdk`; `-DTONGS_ANVIL_SDK=<sdk>`
+uses an unpacked SDK instead, and `-DFETCHCONTENT_SOURCE_DIR_ANVIL=<anvil>` a
+local Anvil checkout.
 
 ```powershell
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-ctest --test-dir build --output-on-failure
-cmake --install build --component plugin --prefix dist
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
+cmake --install build --config Release --component plugin --prefix dist
+```
+
+The plugin folder is `build/plugin/tongs/` (`plugin.toml`, `symbols.toml`,
+`settings.toml`, `tongs.dll`). `ctest` includes `anvil check plugin`, which
+fails when `plugin/symbols.lock` does not match `plugin/symbols.toml`; after a
+change of the symbols, verify them against the game and rewrite the lock:
+
+```powershell
+cmake -S . -B build -DEU4_EXE="C:/Program Files (x86)/Steam/steamapps/common/Europa Universalis IV/eu4.exe"
+cmake --build build --config Release --target tongs-check
 ```
 
 Contributions, the commit convention and the release process: see

@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         Thanks for reporting. Security problems go through [private reporting](https://github.com/happy-dwarf-team/tongs/security/advisories/new).
-        Please narrow it down first: does the problem go away with `enabled = false` in `anvil/data/tongs/config.toml`, or with `input = false` when it involves keys or the mouse?
+        Please narrow it down first: does the problem go away with `enabled = false` in `anvil/data/tongs/settings.toml`, or with `input = false` when it involves keys or the mouse?
   - type: textarea
     id: what-happened
     attributes:
@@ -26,7 +26,7 @@ body:
     id: versions
     attributes:
       label: Plugin and Anvil versions
-      description: "From `anvil/anvil.log`, e.g. `Anvil 0.2.0` and `tongs 0.3.0: loaded`, or the `ping` answer."
+      description: "From `anvil/anvil.log`, e.g. `Anvil 1.0.0` and `tongs 0.12.0: loaded`, or the `ping` answer."
     validations:
       required: true
   - type: input
@@ -55,8 +55,8 @@ body:
   - type: textarea
     id: config
     attributes:
-      label: config.toml
-      description: Contents of `anvil/data/tongs/config.toml`.
+      label: settings.toml
+      description: Contents of `anvil/data/tongs/settings.toml` (only the values you changed), and any `ANVIL_TONGS_*` environment variables.
       render: toml
   - type: textarea
     id: log

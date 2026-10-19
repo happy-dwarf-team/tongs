@@ -9,7 +9,7 @@ Please report security problems privately, not in public issues.
 Use GitHub's private vulnerability reporting:
 [Report a vulnerability](https://github.com/happy-dwarf-team/tongs/security/advisories/new).
 Include the plugin and Anvil versions (from `anvil/anvil.log`), your
-`anvil/data/tongs/config.toml`, how to reproduce the problem, and what an
+`anvil/data/tongs/settings.toml`, how to reproduce the problem, and what an
 attacker gains.
 
 This is a volunteer project; reports are handled on a best-effort basis. We

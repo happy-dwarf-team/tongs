@@ -645,8 +645,21 @@ std::string TextCommand(const Handlers& h, std::string_view text) {
 
 bool InputReady(const Handlers& h) { return h.send_input && h.read_state && h.sleep_ms && h.now_ms; }
 
-constexpr char kInputDisabled[] = "input commands are disabled (set input = true in anvil/data/tongs/config.toml)";
-constexpr char kNoDispatch[] = "main-thread commands are unavailable (the frame hook is not installed)";
+constexpr char kInputDisabled[] = "input commands are disabled (set input = true in anvil/data/tongs/settings.toml)";
+constexpr char kNoDispatch[] = "main-thread commands are unavailable (anvil-game's outer frames are not available)";
+constexpr char kSuspended[] =
+    "Anvil suspended Tongs in this ironman or multiplayer game; the player can allow it with allow_ironman or "
+    "allow_multiplayer = [\"tongs\"] in anvil/anvil.toml";
+
+bool Suspended(const Handlers& h) { return h.suspended && h.suspended(); }
+
+// Why input commands cannot run now, or empty.
+std::string InputUnavailable(const Handlers& h) {
+    if (!InputReady(h)) return kInputDisabled;
+    if (Suspended(h)) return kSuspended;
+    return {};
+}
+
 constexpr int kMaxDispatchTimeoutS = 600;
 
 // Answer of a main-thread job: the job's own members, then when and where it ran.
@@ -734,7 +747,7 @@ std::string ScreenFailure(std::string_view command, const Screen& s) {
 
 // What clicking a widget needs: input, the cursor hook and main-thread reads.
 std::string ClickUnavailable(const Handlers& h) {
-    if (!InputReady(h)) return kInputDisabled;
+    if (std::string error = InputUnavailable(h); !error.empty()) return error;
     if (!h.dispatcher || !h.read_ui || !h.read_hovered) return kNoDispatch;
     if (!h.set_cursor) return "clicking a widget needs the cursor hook, which is not installed";
     return {};
@@ -1221,8 +1234,9 @@ public:
     std::string Run() {
         if (!h_.game_calls.enabled) {
             return Refuse("game_calls_disabled",
-                          "game calls are disabled (set game_calls = true in anvil/data/tongs/config.toml)");
+                          "game calls are disabled (set game_calls = true in anvil/data/tongs/settings.toml)");
         }
+        if (Suspended(h_)) return Refuse("suspended", kSuspended);
         if (!h_.dispatcher || !h_.read_console || !h_.call_console || !h_.read_state || !h_.now_ms) {
             return Refuse("unavailable", kNoDispatch);
         }
@@ -1511,7 +1525,8 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
                "\"wait_until\",\"cancel\",\"key\",\"text\",\"move\",\"click\",\"scroll\",\"release\",\"pause\",\"resume\",\"speed\"," +
                "\"run_until\",\"console\",\"subscribe\",\"unsubscribe\"],\"input\":" + Bool(InputReady(handlers)) + ",\"main_thread\":" +
                Bool(handlers.dispatcher != nullptr) + ",\"game_calls\":" + Bool(handlers.game_calls.enabled) +
-               ",\"game_calls_tripped\":" + Bool(g_game_calls_tripped.load()) + "}";
+               ",\"game_calls_tripped\":" + Bool(g_game_calls_tripped.load()) +
+               ",\"suspended\":" + Bool(Suspended(handlers)) + "}";
     }
     if (command == "cancel" && argument.empty()) {
         g_cancel_generation.fetch_add(1);
@@ -1527,23 +1542,24 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
         return WaitUntil(handlers, argument);
     }
     if (command == "run_until") {
-        if (!InputReady(handlers)) return Error(kInputDisabled);
+        if (std::string error = InputUnavailable(handlers); !error.empty()) return Error(error);
         return RunUntil(handlers, argument);
     }
     if (command == "release" && argument.empty()) {
+        // Handing the pointer back changes nothing in the game, so it works while suspended too.
         if (!InputReady(handlers)) return Error(kInputDisabled);
         if (handlers.release_cursor) handlers.release_cursor();
         return "{\"ok\":true,\"command\":\"release\"}";
     }
     if (command == "text" || command == "move" || command == "click" || command == "scroll") {
-        if (!InputReady(handlers)) return Error(kInputDisabled);
+        if (std::string error = InputUnavailable(handlers); !error.empty()) return Error(error);
         std::lock_guard lock(g_input_mutex);
         const CountedInput counted(handlers, command);
         if (command == "text") return TextCommand(counted.handlers(), argument);
         return MouseCommand(counted.handlers(), command, argument);
     }
     if (command == "key" || command == "pause" || command == "resume" || command == "speed") {
-        if (!InputReady(handlers)) return Error(kInputDisabled);
+        if (std::string error = InputUnavailable(handlers); !error.empty()) return Error(error);
         std::lock_guard lock(g_input_mutex);
         const CountedInput counted(handlers, command);
         Actions actions(counted.handlers());

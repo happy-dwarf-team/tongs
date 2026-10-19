@@ -9,12 +9,12 @@ namespace tongs {
 namespace {
 
 // Reads one pool's worker vector; false on a fault or an implausible vector.
-bool ReadPool(std::uintptr_t pool, const ThreadsLayout& layout, std::int64_t& workers, std::int64_t& capacity) {
+bool ReadPool(std::uintptr_t vector, std::int64_t& workers, std::int64_t& capacity) {
     __try {
-        std::uint64_t begin = 0, end = 0, cap = 0;
-        std::memcpy(&begin, reinterpret_cast<const void*>(pool + layout.vector_begin), 8);
-        std::memcpy(&end, reinterpret_cast<const void*>(pool + layout.vector_end), 8);
-        std::memcpy(&cap, reinterpret_cast<const void*>(pool + layout.vector_capacity), 8);
+        std::uint64_t begin = 0, end = 0, cap = 0;  // MSVC std::vector: three pointers
+        std::memcpy(&begin, reinterpret_cast<const void*>(vector), 8);
+        std::memcpy(&end, reinterpret_cast<const void*>(vector + 8), 8);
+        std::memcpy(&cap, reinterpret_cast<const void*>(vector + 16), 8);
         if (end < begin || cap < end || (end - begin) % 8 != 0 || (cap - begin) % 8 != 0) return false;
         workers = static_cast<std::int64_t>((end - begin) / 8);
         capacity = static_cast<std::int64_t>((cap - begin) / 8);
@@ -46,7 +46,7 @@ ThreadsSnapshot ReadThreads(std::uintptr_t image_base, const ThreadsLayout& layo
     bool pools_ok = true;
     for (int i = 0; i < 2; ++i) {
         t.pools[i].rva = layout.pool_rvas[i];
-        if (!ReadPool(image_base + layout.pool_rvas[i], layout, t.pools[i].workers, t.pools[i].capacity)) {
+        if (!ReadPool(image_base + layout.vector_rvas[i], t.pools[i].workers, t.pools[i].capacity)) {
             t.pools[i].workers = t.pools[i].capacity = -1;
             pools_ok = false;
         }

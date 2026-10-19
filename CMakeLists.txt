@@ -5,6 +5,8 @@ if(NOT TONGS_VERSION_TEXT)
     message(FATAL_ERROR "version.txt must hold a MAJOR.MINOR.PATCH version")
 endif()
 file(STRINGS plugin/plugin.toml TONGS_MANIFEST_VERSION REGEX "^version = \"[^\"]*\"$")
+# The first one is the plugin's; [[dependencies]] tables below have their own.
+list(GET TONGS_MANIFEST_VERSION 0 TONGS_MANIFEST_VERSION)
 if(NOT TONGS_MANIFEST_VERSION STREQUAL "version = \"${TONGS_VERSION_TEXT}\"")
     message(FATAL_ERROR "plugin/plugin.toml (${TONGS_MANIFEST_VERSION}) does not match version.txt (${TONGS_VERSION_TEXT})")
 endif()
@@ -21,15 +23,24 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 option(TONGS_BUILD_TESTS "Build unit tests" ON)
 
-# Platform-independent parts (protocol, config, date, dispatcher, selectors), shared with the tests.
+# anvil_add_plugin and anvil.exe from the Anvil SDK (cmake/AnvilSdk.cmake).
+include(cmake/AnvilSdk.cmake)
+
+# Platform-independent parts (protocol, settings, date, dispatcher, selectors), shared with the tests.
 add_library(tongs_core STATIC src/protocol.cpp src/config.cpp src/game_date.cpp src/keys.cpp src/input.cpp src/dispatcher.cpp src/frame_stats.cpp src/ui_tree.cpp src/events.cpp src/console.cpp src/notifications.cpp src/notify_sources.cpp src/load_watch.cpp)
-target_include_directories(tongs_core PUBLIC third_party src)
+target_include_directories(tongs_core PUBLIC src)
 target_compile_definitions(tongs_core PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX TONGS_VERSION="${TONGS_VERSION_TEXT}")
 if(MSVC)
     target_compile_options(tongs_core PUBLIC /W4 /utf-8 /permissive- /EHsc)
 endif()
 
-add_library(tongs SHARED src/plugin.cpp src/game_state.cpp src/game_input.cpp src/game_window.cpp src/game_cursor.cpp src/game_frame.cpp src/game_threads.cpp src/game_ui.cpp src/game_events.cpp src/game_console.cpp src/game_files.cpp src/game_memory.cpp src/pipe_server.cpp src/screenshot.cpp)
+# The plugin folder <build>/plugin/tongs/{plugin.toml, symbols.toml, settings.toml, tongs.dll}:
+# anvil gen writes symbols.gen.hpp and settings.gen.hpp from plugin/, and
+# tongs-check runs `anvil check plugin` (with -DEU4_EXE=<eu4.exe> it also
+# verifies the symbols and rewrites plugin/symbols.lock).
+set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
+anvil_add_plugin(tongs PLUGIN_DIR plugin SOURCES src/plugin.cpp src/settings.cpp src/game_state.cpp src/game_input.cpp src/game_window.cpp src/game_cursor.cpp src/game_frame.cpp src/game_threads.cpp src/game_ui.cpp src/game_events.cpp src/game_console.cpp src/game_files.cpp src/game_memory.cpp src/pipe_server.cpp src/screenshot.cpp)
+unset(CMAKE_COMPILE_WARNING_AS_ERROR)
 target_link_libraries(tongs PRIVATE tongs_core advapi32 user32 gdi32 ole32 shell32 windowscodecs)
 
 if(TONGS_BUILD_TESTS)
@@ -41,8 +52,10 @@ if(TONGS_BUILD_TESTS)
         target_compile_options(test_core PRIVATE /UNDEBUG)
     endif()
     add_test(NAME core COMMAND test_core)
+    # symbols.lock matches symbols.toml and says "ok" (anvil check without the game).
+    add_test(NAME anvil_check COMMAND "${ANVIL_SDK_TOOL}" check "${CMAKE_CURRENT_SOURCE_DIR}/plugin")
 endif()
 
-# Plugin folder layout: <prefix>/tongs/{plugin.toml, tongs.dll, LICENSE}
-install(TARGETS tongs RUNTIME DESTINATION tongs COMPONENT plugin)
-install(FILES plugin/plugin.toml LICENSE DESTINATION tongs COMPONENT plugin)
+# Plugin folder layout: <prefix>/tongs/{plugin.toml, symbols.toml, settings.toml, tongs.dll, LICENSE}
+install(DIRECTORY ${CMAKE_BINARY_DIR}/plugin/tongs/ DESTINATION tongs COMPONENT plugin)
+install(FILES LICENSE DESTINATION tongs COMPONENT plugin)

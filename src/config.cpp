@@ -9,6 +9,10 @@ std::string_view Trim(std::string_view s) {
     return s;
 }
 
+bool IsNameCharacter(char c) {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '.';
+}
+
 // ["name", "name"] on one line; names of letters, digits, _ and .
 bool ParseNameList(std::string_view value, std::vector<std::string>& out) {
     if (value.size() < 2 || value.front() != '[' || value.back() != ']') return false;
@@ -19,8 +23,8 @@ bool ParseNameList(std::string_view value, std::vector<std::string>& out) {
         const std::size_t close = value.find('"', 1);
         if (close == std::string_view::npos || close == 1) return false;
         const std::string_view name = value.substr(1, close - 1);
-        if (name.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.") != std::string_view::npos) {
-            return false;
+        for (const char c : name) {
+            if (!IsNameCharacter(c)) return false;
         }
         out.emplace_back(name);
         value = Trim(value.substr(close + 1));
@@ -33,25 +37,32 @@ bool ParseNameList(std::string_view value, std::vector<std::string>& out) {
 
 }  // namespace
 
-const char kDefaultConfig[] =
-    "# Tongs\n"
-    "# enabled = true opens the local pipe \\\\.\\pipe\\tongs for the current Windows user.\n"
-    "enabled = false\n"
-    "# input = true also accepts the keyboard and mouse commands (pause, speed,\n"
-    "# run_until, key, text, click...): input queued in the game's own SDL input,\n"
-    "# as a player's would be, and a hook so the interface sees the mouse pointer.\n"
-    "input = false\n"
-    "# game_calls = true also accepts `console LINE`: console commands run by the\n"
-    "# game's own code on its main thread. They CHANGE GAME STATE; every call is\n"
-    "# counted and logged. enable_all_commands and the achievement and social\n"
-    "# commands are always refused; the other danger commands run only when listed\n"
-    "# in console_allow, e.g. console_allow = [\"leak\"]. Ironman and multiplayer\n"
-    "# games refuse every game call unless game_calls_ironman or\n"
-    "# game_calls_multiplayer is true.\n"
-    "game_calls = false\n"
-    "console_allow = []\n"
-    "game_calls_ironman = false\n"
-    "game_calls_multiplayer = false\n";
+bool ParseConsoleAllow(std::string_view text, std::vector<std::string>& out, std::vector<std::string>& notes) {
+    out.clear();
+    std::size_t at = 0;
+    while (at < text.size()) {
+        const char c = text[at];
+        if (c == ',' || c == ' ' || c == '\t') {
+            ++at;
+            continue;
+        }
+        std::size_t end = at;
+        while (end < text.size() && text[end] != ',' && text[end] != ' ' && text[end] != '\t') ++end;
+        const std::string_view name = text.substr(at, end - at);
+        for (const char n : name) {
+            if (!IsNameCharacter(n)) {
+                out.clear();
+                notes.push_back("console_allow must be command names separated by commas or spaces, e.g. \"leak\"; "
+                                "ignored");
+                return false;
+            }
+        }
+        out.emplace_back(name);
+        at = end;
+    }
+    for (const std::string& note : CheckConsoleAllow(out)) notes.push_back(note);
+    return true;
+}
 
 Config ParseConfig(std::string_view text) {
     Config config;
@@ -100,6 +111,24 @@ Config ParseConfig(std::string_view text) {
         }
     }
     return config;
+}
+
+std::string SettingsFromConfig(const Config& config) {
+    std::string out;
+    const auto flag = [&out](const char* name, bool value) {
+        if (value) out += std::string(name) + " = true\n";  // every default is false
+    };
+    flag("enabled", config.enabled);
+    flag("input", config.input);
+    flag("game_calls", config.game_calls.enabled);
+    if (!config.game_calls.allow.empty()) {
+        std::string names;
+        for (const std::string& name : config.game_calls.allow) names += (names.empty() ? "" : ", ") + name;
+        out += "console_allow = \"" + names + "\"\n";  // names hold no quote or backslash
+    }
+    flag("game_calls_ironman", config.game_calls.ironman);
+    flag("game_calls_multiplayer", config.game_calls.multiplayer);
+    return out;
 }
 
 }  // namespace tongs
