@@ -27,6 +27,12 @@ PIPE = r"\\.\pipe\tongs"
 # Screenshots larger than this are not inlined (base64 adds a third).
 MAX_IMAGE_BYTES = int(os.environ.get("TONGS_MCP_MAX_IMAGE_BYTES", 3_000_000))
 PROGRESS_POLL_S = 0.5  # how long the progress stream reads before reporting
+# With no new game day for this long, ping the plugin and report progress anyway, so clients
+# with an idle timeout (Claude Code: 30 minutes) keep a paused wait; 0 turns it off.
+HEARTBEAT_S = float(os.environ.get("TONGS_MCP_HEARTBEAT_S", "60"))
+# Progress values must increase (MCP spec), so each heartbeat adds this many days: well
+# under one day for the 240 heartbeats of the longest wait (4 hours at 60 s).
+HEARTBEAT_STEP = 0.001
 
 
 class Connection(Protocol):
@@ -107,7 +113,8 @@ JSON answer unchanged; "ok": false answers come back as errors with an "error" f
   state and is counted in "game_calls" (a marked run).
 - tongs_wait_until / tongs_run_until can take hours of wall time: the call returns when
   the date is reached, the timeout passes or tongs_cancel ends it. Progress
-  notifications report the game date when the client asks for progress.
+  notifications report the game date when the client asks for progress, and a heartbeat
+  while the game is paused; max_pause ends a wait the game keeps paused.
 """
 
 READ = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
@@ -222,7 +229,9 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         return _answer(await send(line))
 
     async def report_dates(ctx: Context, target: float | None) -> None:
-        """Reports the game date as progress until cancelled; quietly stops on any pipe trouble."""
+        """Reports the game date as progress until cancelled; quietly stops on any pipe trouble.
+        While no new day comes (the game is paused), a heartbeat every HEARTBEAT_S seconds pings
+        the plugin on the same connection and, if it answers, reports progress a tiny step on."""
         try:
             conn = await anyio.to_thread.run_sync(connect)
         except (OSError, ModuleNotFoundError):
@@ -233,15 +242,27 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
             if not first.get("ok") or start is None:
                 return
             total = target - start if target is not None and target > start else None
-            last = None
+            last = first["date"]
+            sent: float | None = None  # the last progress value reported
+            new_day_at = reported_at = anyio.current_time()
             while True:
                 notes = await anyio.to_thread.run_sync(lambda: list(conn.notifications(seconds=PROGRESS_POLL_S)))
                 dates = [n["date"] for n in notes if n.get("notification") == "date" and n.get("date")]
-                if dates and dates[-1] != last:
-                    last = dates[-1]
-                    done = game_days(last)
-                    if done is not None:
-                        await ctx.report_progress(done - start, total, f"game date {last}")
+                now = anyio.current_time()
+                if dates and dates[-1] != last and (done := game_days(dates[-1])) is not None:
+                    last, new_day_at = dates[-1], now
+                    value = done - start if sent is None else max(done - start, sent + HEARTBEAT_STEP)
+                    message = f"game date {last}"
+                elif HEARTBEAT_S > 0 and now - reported_at >= HEARTBEAT_S:
+                    # `ping` is one of the two requests a subscribed connection answers.
+                    if not json.loads(await anyio.to_thread.run_sync(conn.raw, "ping")).get("ok"):
+                        return
+                    value = 0.0 if sent is None else sent + HEARTBEAT_STEP
+                    message = f"game date {last}, no new day for {now - new_day_at:.0f} s"
+                else:
+                    continue
+                await ctx.report_progress(value, total, message)
+                sent, reported_at = value, now
         except (OSError, ConnectionError, ValueError):
             return
         finally:

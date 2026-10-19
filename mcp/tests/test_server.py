@@ -1,5 +1,6 @@
 """The MCP tools against a fake pipe: request lines, answers, refusals, progress, cancel."""
 
+import itertools
 import json
 import threading
 import time
@@ -9,6 +10,7 @@ import anyio
 import pytest
 from mcp import Client
 
+from tongs_mcp import server
 from tongs_mcp.server import build_server, game_days
 
 pytestmark = pytest.mark.anyio
@@ -288,6 +290,104 @@ async def test_run_until_reports_game_dates_as_progress():
     assert seen[-1] == (game_days("1719.4.1") - game_days("1719.3.17"), 76, "game date 1719.4.1")
     assert sorted(pipe.sent) == ["run_until 1719.6.1 speed=5", "subscribe date date=day"]
     assert pipe.closed == 2
+
+
+def paused_game(pipe: FakePipe, release, ping=lambda: {"ok": True, "command": "ping"}):
+    """A subscription answered at 1719.3.17 and a wait that blocks until `release` is set."""
+
+    def handler(line):
+        if line == "subscribe date date=day":
+            return {"ok": True, "command": "subscribe", "kinds": ["date"], "date": "1719.3.17"}
+        if line == "ping":
+            return ping()
+        release.wait(5)
+        return {"ok": True, "command": "wait_until", "reached": True}
+
+    pipe.handler = handler
+
+
+async def wait_with_progress(pipe: FakePipe, on_progress):
+    return await call(
+        pipe, "tongs_wait_until", {"date": "1719.4.16"}, progress_callback=on_progress, meta={"progress_token": "t"}
+    )
+
+
+async def test_paused_wait_sends_heartbeats_with_increasing_progress(monkeypatch):
+    monkeypatch.setattr(server, "HEARTBEAT_S", 0.2)
+    pipe = FakePipe()
+    released = threading.Event()
+    paused_game(pipe, released)
+    seen = []
+
+    async def on_progress(progress, total, message):
+        seen.append((progress, total, message))
+        if len(seen) == 3:
+            released.set()
+
+    result = await wait_with_progress(pipe, on_progress)
+    assert not result.is_error
+    values = [s[0] for s in seen]
+    assert values[0] == 0.0
+    assert all(b > a for a, b in itertools.pairwise(values))
+    assert all(s[1] == 30 and s[2].startswith("game date 1719.3.17, no new day for ") for s in seen)
+    assert pipe.sent.count("ping") >= 3
+
+
+async def test_a_new_day_after_heartbeats_reports_the_game_days(monkeypatch):
+    monkeypatch.setattr(server, "HEARTBEAT_S", 0.2)
+    pipe = FakePipe()
+    released = threading.Event()
+    paused_game(pipe, released)
+    seen = []
+
+    async def on_progress(progress, total, message):
+        seen.append((progress, message))
+        if len(seen) == 2:  # the game resumes after two heartbeats
+            with pipe.lock:
+                pipe.notes.append({"notification": "date", "seq": 1, "date": "1719.3.18", "unit": "day"})
+        if message == "game date 1719.3.18":
+            released.set()
+
+    await wait_with_progress(pipe, on_progress)
+    values = [s[0] for s in seen]
+    assert all(b > a for a, b in itertools.pairwise(values))
+    assert seen[2] == (1.0, "game date 1719.3.18")
+
+
+async def test_heartbeat_stops_when_the_plugin_does_not_answer_ping(monkeypatch):
+    monkeypatch.setattr(server, "HEARTBEAT_S", 0.1)
+    pipe = FakePipe()
+    released = threading.Event()
+    paused_game(pipe, released, ping=lambda: {"ok": False, "command": "ping", "error": "subscribed"})
+    seen = []
+
+    async def on_progress(*args):
+        seen.append(args)
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(wait_with_progress, pipe, on_progress)
+        await anyio.sleep(0.6)
+        released.set()
+    assert seen == []
+    assert pipe.sent.count("ping") == 1
+
+
+async def test_no_heartbeat_when_turned_off(monkeypatch):
+    monkeypatch.setattr(server, "HEARTBEAT_S", 0)
+    pipe = FakePipe()
+    released = threading.Event()
+    paused_game(pipe, released)
+    seen = []
+
+    async def on_progress(*args):
+        seen.append(args)
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(wait_with_progress, pipe, on_progress)
+        await anyio.sleep(0.6)
+        released.set()
+    assert seen == []
+    assert "ping" not in pipe.sent
 
 
 async def test_no_progress_stream_without_a_progress_request():
