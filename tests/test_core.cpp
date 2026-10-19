@@ -1,6 +1,7 @@
 #include "config.hpp"
 #include "console.hpp"
 #include "game_date.hpp"
+#include "load_watch.hpp"
 #include "notify_sources.hpp"
 #include "protocol.hpp"
 #include "ui_tree.hpp"
@@ -394,6 +395,33 @@ static void TestDate() {
 
     const GameDate before_zero = DecodeGameDate(43'800'000 - 24);  // the day before 0.1.1
     assert(before_zero.year == -1 && before_zero.month == 12 && before_zero.day == 31 && before_zero.hour == 0);
+
+    // While a save is read into the session, its date is 1.1.1.
+    assert(IsUnsetGameDate(43'800'000 + 365 * 24) && FormatGameDate(DecodeGameDate(43'800'000 + 365 * 24)) == "1.1.1");
+    assert(!IsUnsetGameDate(43'800'000 + 365 * 24 + 1) && !IsUnsetGameDate(58'860'240) && !IsUnsetGameDate(0));
+}
+
+static void TestLoadWatch() {
+    LoadWatch watch;
+    const auto read = [&watch](bool in_game, std::uintptr_t session, const char* date) {
+        StateSnapshot s;
+        s.in_game = in_game;
+        s.session = session;
+        if (in_game) s.date_raw = *ParseGameDate(date);
+        watch.Observe(s);
+        return s.load;
+    };
+    assert(read(false, 0, nullptr) == 0);              // main menu
+    const std::uint64_t first = read(true, 0x5000, "1719.3.17");
+    assert(first != 0 && read(true, 0x5000, "1719.3.17") == first && read(true, 0x5000, "1719.4.1") == first);
+    // The same save again: the session object stays, the date goes back to where the save is.
+    assert(read(false, 0, nullptr) == 0);
+    const std::uint64_t second = read(true, 0x5000, "1719.3.17");
+    assert(second != first && read(true, 0x5000, "1719.3.18") == second);
+    // Without a read in the gap: another session object, or an earlier date.
+    const std::uint64_t third = read(true, 0x6000, "1719.3.18");
+    assert(third != second);
+    assert(read(true, 0x6000, "1719.3.1") != third);
 }
 
 static void TestConfig() {
@@ -781,6 +809,8 @@ static void TestWindowAndMouse() {
 
     out = HandleRequest("move 100 200", h);
     assert(Contains(out, "\"ok\":true") && Contains(out, "\"x\":100") && Contains(out, "\"presses\":0"));
+    // No press, but the state afterwards is still read (it answered in_game false before).
+    assert(Contains(out, "\"in_game\":true") && Contains(out, "\"date\":"));
     assert(game.events.size() == 1 && game.events[0].type == InputEvent::Type::MouseMove);
 
     assert(game.cursor == std::make_pair(100, 200) && Contains(out, "\"cursor\":\"virtual\""));
@@ -1131,6 +1161,20 @@ struct FakeScreen {
     }
 };
 
+static void TestChildrenBounds() {
+    UiTree t;
+    // A scroll bar as read live: its own position relative, its buttons in client pixels.
+    const int bar = AddWidget(t, "standardlistbox_slider", UiType::Other, true, {425, 0, 15, 876});
+    assert(ChildrenBounds(t, bar).x == 425);  // no children: its own rect
+    AddWidget(t, "listboxSliderButton", UiType::Button, true, {444, 130, 19, 19}, bar);
+    AddWidget(t, "listboxTrackButton", UiType::Button, true, {446, 130, 15, 838}, bar);
+    AddWidget(t, "downButton", UiType::Button, true, {444, 968, 19, 19}, bar);
+    AddWidget(t, "upButton", UiType::Button, true, {444, 111, 19, 19}, bar);
+    AddWidget(t, "empty", UiType::Button, true, {0, 0, 0, 19}, bar);  // no size: left out
+    const UiRect r = ChildrenBounds(t, bar);
+    assert(r.x == 444 && r.y == 111 && r.w == 19 && r.h == 876);
+}
+
 static void TestUiClickCommand() {
     FakeScreen screen;
     // A tooltip over the speed-up button, drawn last.
@@ -1150,6 +1194,24 @@ static void TestUiClickCommand() {
            Contains(out, "\"hovered\":\"speed_controls/button_speedup\"") && Contains(out, "\"in_game\":true"));
     assert(screen.game.events.size() == 3 && screen.game.events[1].type == InputEvent::Type::MouseDown &&
            screen.game.events[1].x == 3350 && screen.game.events[2].type == InputEvent::Type::MouseUp);
+    // No hovered widget at first (seen live after a click on a scroll bar button): the move is sent again.
+    screen.game.events.clear();
+    int misses = 1;
+    Handlers flaky = h;
+    flaky.read_hovered = [&screen, &misses] { return misses-- > 0 ? std::uintptr_t{0} : screen.Hovered(); };
+    out = HandleRequest("ui click speed_controls/button_speedup", flaky);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"hover_attempts\":2"));
+    // The second try steps one pixel aside and back, so the game sees the pointer move.
+    assert(screen.game.events.size() == 5 && screen.game.events[1].type == InputEvent::Type::MouseMove &&
+           screen.game.events[1].x == 3351 && screen.game.events[2].x == 3350 &&
+           screen.game.events[3].type == InputEvent::Type::MouseDown && screen.game.cursor.first == 3350);
+    // Nothing under the pointer at all: three moves, then `covered` without a press.
+    screen.game.events.clear();
+    flaky.read_hovered = [] { return std::uintptr_t{0}; };
+    out = HandleRequest("ui click speed_controls/button_speedup", flaky);
+    assert(Contains(out, "\"error\":\"covered\"") && Contains(out, "\"hover_attempts\":3") &&
+           Contains(out, "\"covered_by\":null"));
+    assert(screen.game.events.size() == 5 && screen.game.events[4].type == InputEvent::Type::MouseMove);
     screen.game.events.clear();
     out = HandleRequest("ui click speed_controls/button_speeddown", h);
     assert(Contains(out, "{\"ok\":false,\"error\":\"disabled\"") && Contains(out, "\"path\":\"speed_controls/button_speeddown\""));
@@ -1483,6 +1545,12 @@ static void TestConsoleCommand() {
     assert(Contains(HandleRequest("console echo z", h), "\"game_calls_total\":1"));
     console.game.state.date_raw = *ParseGameDate("1719.1.1");
     assert(Contains(HandleRequest("state", h), "\"game_calls_total\":0"));
+    // Reloading the same save keeps the session object and the date; the load the state reads saw tells it.
+    assert(Contains(HandleRequest("console echo y", h), "\"game_calls_total\":1"));
+    assert(Contains(HandleRequest("state", h), "\"game_calls_total\":1"));
+    console.game.state.load = 7;
+    assert(Contains(HandleRequest("state", h), "\"game_calls_total\":0"));
+    assert(Contains(HandleRequest("console echo y", h), "\"game_calls_total\":1"));
 
     // A fault trips game calls until the game exits; reads keep working.
     console.fault = true;
@@ -1889,11 +1957,13 @@ int main() {
     TestSubscribeCommands();
     TestEvents();
     TestUiClickTarget();
+    TestChildrenBounds();
     TestUiClickCommand();
     TestEventCommands();
     TestInputsCount();
     TestRunUntilEventsFirst();
     TestDate();
+    TestLoadWatch();
     TestScreenshot();
     TestThreads();
     TestTextEvents();

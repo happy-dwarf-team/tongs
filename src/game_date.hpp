@@ -17,6 +17,9 @@ struct GameDate {
 };
 
 GameDate DecodeGameDate(std::int32_t raw);
+// 1 January of year 1, hour 0: the date a session holds while a save is still
+// being read into it (seen live when a save was reloaded); never a real date.
+bool IsUnsetGameDate(std::int32_t raw);
 std::string FormatGameDate(const GameDate& date);  // "1719.3.17", as the game writes it
 std::int64_t EncodeGameDate(const GameDate& date);
 

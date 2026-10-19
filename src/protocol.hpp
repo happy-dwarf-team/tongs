@@ -26,6 +26,7 @@ struct StateSnapshot {
     bool paused = false;         // the game's own "is paused" answer (0x7E01B0)
     bool paused_flag = false;    // the player pause byte (+0x48) alone
     std::uintptr_t session = 0;  // the session object (root+0x1E00); not reported, tells loaded saves apart
+    std::uint64_t load = 0;      // which load of a save the read saw (LoadWatch); 0 when not observed; not reported
 };
 
 // The game window (game_window.cpp). Mouse commands use client coordinates.

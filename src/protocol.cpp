@@ -43,9 +43,11 @@ void PublishActivity(const Handlers& h, const std::string& members) {
 }
 
 // Game calls since the save was loaded, for `game_calls_total` in `state`. A
-// loaded save is told by its session object, or by a date earlier than the last
-// call's. Guarded by g_total_mutex.
+// loaded save is told by the load the state reads saw (LoadWatch: a moment
+// without a game in between), its session object, or a date earlier than the
+// last call's. Guarded by g_total_mutex.
 struct TotalCalls {
+    std::uint64_t load = 0;
     std::uintptr_t session = 0;
     std::int32_t date_raw = 0;
     std::uint64_t count = 0;
@@ -53,19 +55,19 @@ struct TotalCalls {
 std::mutex g_total_mutex;
 TotalCalls g_total;
 
-bool SameSave(std::uintptr_t session, std::int32_t date_raw) {
-    return session == g_total.session && date_raw >= g_total.date_raw;
+bool SameSave(const StateSnapshot& s) {
+    return s.load == g_total.load && s.session == g_total.session && s.date_raw >= g_total.date_raw;
 }
 
-std::uint64_t TotalCallsFor(std::uintptr_t session, std::int32_t date_raw) {
+std::uint64_t TotalCallsFor(const StateSnapshot& s) {
     std::lock_guard lock(g_total_mutex);
-    return SameSave(session, date_raw) ? g_total.count : 0;
+    return SameSave(s) ? g_total.count : 0;
 }
 
-std::uint64_t AddTotalCall(std::uintptr_t session, std::int32_t date_raw) {
+std::uint64_t AddTotalCall(const StateSnapshot& s) {
     std::lock_guard lock(g_total_mutex);
-    if (!SameSave(session, date_raw)) g_total = {session, date_raw, 0};
-    g_total.date_raw = date_raw;
+    if (!SameSave(s)) g_total = {s.load, s.session, s.date_raw, 0};
+    g_total.date_raw = s.date_raw;
     return ++g_total.count;
 }
 
@@ -264,8 +266,9 @@ private:
         }
     }
 
+    // The state afterwards, also for commands that press nothing (`move`, a pause already on).
     ActionResult& Finish(ActionResult& r, std::uint64_t start) {
-        if (r.ok && r.presses > 0) r.state = h_.read_state();
+        if (r.ok) r.state = h_.read_state();
         r.waited_ms = h_.now_ms() - start;
         return r;
     }
@@ -540,6 +543,7 @@ std::string PointAt(const Handlers& h, int x, int y) {
 }
 
 constexpr int kClickMoveSettleMs = 50;  // a few frames between moving the pointer and pressing
+constexpr int kHoverAttempts = 3;       // moves before `covered` when the game reports no hovered widget
 constexpr int kMaxScrollSteps = 20;
 
 std::string MouseCommand(const Handlers& h, std::string_view command, std::string_view argument) {
@@ -752,28 +756,46 @@ ClickOutcome ClickWidget(const Handlers& h, std::uintptr_t target, const UiRect&
     };
     if (std::string error = CheckPoint(h, x, y); !error.empty()) return fail(error);
     h.set_cursor(x, y);
-    if (std::string error = h.send_input({MoveTo(x, y)}); !error.empty()) return fail(error);
-    h.sleep_ms(kClickMoveSettleMs);
-    // The game picks the widget under the pointer once per frame. A job may run
-    // after a frame that began before the move; one queued after it returned cannot.
-    Dispatcher::Outcome o = h.dispatcher->Run(Dispatcher::Kind::Read, [] { return std::string(); }, timeout_ms);
-    UiTree tree;
-    std::uintptr_t hovered = 0;
-    std::string read_error;
-    if (o.ran) {
-        o = h.dispatcher->Run(
-            Dispatcher::Kind::Read,
-            [&] {
-                read_error = h.read_ui(tree);
-                hovered = h.read_hovered();
-                return std::string();
-            },
-            timeout_ms);
+    UiCoverCheck cover;
+    for (int attempt = 1;; ++attempt) {
+        if (attempt > 1) {
+            // A move to where the pointer already is may not make the game pick again
+            // (the misses came on repeated clicks on a scroll bar button); step one pixel aside first.
+            const int aside = x + 1 < rect.x + rect.w ? x + 1 : x - 1;
+            h.set_cursor(aside, y);
+            if (std::string error = h.send_input({MoveTo(aside, y)}); !error.empty()) return fail(error);
+            h.sleep_ms(kClickMoveSettleMs);
+            h.set_cursor(x, y);
+        }
+        if (std::string error = h.send_input({MoveTo(x, y)}); !error.empty()) return fail(error);
+        h.sleep_ms(kClickMoveSettleMs);
+        // The game picks the widget under the pointer once per frame. A job may run
+        // after a frame that began before the move; one queued after it returned cannot.
+        Dispatcher::Outcome o = h.dispatcher->Run(Dispatcher::Kind::Read, [] { return std::string(); }, timeout_ms);
+        UiTree tree;
+        std::uintptr_t hovered = 0;
+        std::string read_error;
+        if (o.ran) {
+            o = h.dispatcher->Run(
+                Dispatcher::Kind::Read,
+                [&] {
+                    read_error = h.read_ui(tree);
+                    hovered = h.read_hovered();
+                    return std::string();
+                },
+                timeout_ms);
+        }
+        if (!o.ran) return fail(o.error);
+        if (!read_error.empty()) return fail(read_error);
+        c.frame = o.frame;
+        cover = CheckCover(tree, target, hovered);
+        // Live, the game sometimes had no hovered widget at all for the first move
+        // after a click on a scroll bar button; the same move again found the target.
+        if (!cover.covered || hovered != 0 || attempt == kHoverAttempts) {
+            if (attempt > 1) c.members += ",\"hover_attempts\":" + std::to_string(attempt);
+            break;
+        }
     }
-    if (!o.ran) return fail(o.error);
-    if (!read_error.empty()) return fail(read_error);
-    c.frame = o.frame;
-    const UiCoverCheck cover = CheckCover(tree, target, hovered);
     if (cover.covered) {
         c.members += ",\"covered_by\":" + (cover.covered_by.empty() ? std::string("null") : Quote(cover.covered_by));
         return fail("covered");
@@ -1155,7 +1177,7 @@ public:
         std::uint64_t total = 0;
         if (called_) {
             const std::uint64_t calls = g_game_calls.fetch_add(1) + 1;
-            total = AddTotalCall(raw_.session, before_.date_raw);
+            total = AddTotalCall(before_);
             PublishActivity(h_, ",\"what\":\"game_call\",\"command\":\"console\",\"line\":" + Quoted(line_) +
                                     ",\"name\":" + Quoted(name_) + ",\"game_calls\":" + std::to_string(calls));
         }
@@ -1398,7 +1420,7 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
         if (!handlers.read_state) return Error("state reader unavailable");
         const StateSnapshot s = handlers.read_state();
         std::string out = "{\"ok\":true," + StateFields(s);
-        if (s.in_game) out += ",\"game_calls_total\":" + std::to_string(TotalCallsFor(s.session, s.date_raw));
+        if (s.in_game) out += ",\"game_calls_total\":" + std::to_string(TotalCallsFor(s));
         return out + "}";
     }
     if (command == "screenshot") {

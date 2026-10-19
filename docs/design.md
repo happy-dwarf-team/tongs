@@ -93,6 +93,13 @@ The date is the number of hours since 1 January of year −5000 in 365-day years
 `floor((raw − 43 800 000) / 24 / 365)`. `src/game_date.cpp` decodes it; the top
 bar refreshes `DateText` whenever the value changes.
 
+While a save is read into the session (live, 2026-10-19: reloading the save
+from the in-game menu), the session pointer is null for a second or two and
+then the date is 1 January of year 1, hour 0, for a moment. Tongs answers
+`in_game: false` for both: "no game loaded (session is null)" and "save still
+loading (date not set)". In the main menu the pointer at `root + 0x1E00`
+holds another class ("session object has an unexpected vtable").
+
 `plugin.toml` declares the code that relies on these offsets as `[[expect]]`
 entries, so Anvil skips the plugin when any of them differs.
 
@@ -553,6 +560,9 @@ this section describes what holds.
   without an owner); a scroll bar, which has no node, goes where its
   buttons' nodes point. Whatever is left are the top-level windows, in
   registry order.
+- **Scroll bars** have no render node, so slot `0xD8` gives their position
+  relative to the list box (live: x 425, y 0 for a bar drawn at 444, 111).
+  Their `rect` is the bounds of their buttons.
 
 **Selectors** (from "What do selectors and the ui tree answer look like?",
 with a throwaway prototype on `prototype/ui-selectors`):
@@ -693,7 +703,8 @@ How it runs (`src/protocol.cpp`, `ClickWidget`; decisions in
    among hidden widgets gives `not_visible`. Paths and the `disabled` check
    come from the same read.
 2. The virtual cursor is set to the centre of `rect` and a motion event
-   queued; then 50 ms.
+   queued; then 50 ms. A centre with a negative coordinate (a panel still
+   sliding in) or outside the client area is refused without input.
 3. An empty main-thread job runs, then a second one reads the tree again and
    `mgr+0x130`. The first job may follow a frame that began before the move;
    the second follows a whole frame that began after it, so the game has
@@ -701,7 +712,12 @@ How it runs (`src/protocol.cpp`, `ClickWidget`; decisions in
 4. The hovered widget must be the target or inside it (by the tree's
    parents); otherwise the answer is `covered` with `covered_by` (its path,
    or `null` when it is not in the tree or the pointer is 0). The click is not
-   sent.
+   sent. When `mgr+0x130` is 0, steps 2–4 run again, up to three times in
+   all, the later ones after a step one pixel aside (`hover_attempts`): live,
+   the first move after a click on a scroll bar button sometimes left the
+   game with no hovered widget (two of a few dozen clicks in `tongs-harden-1`,
+   3 of 30 repeated `downButton` clicks in `tongs-harden-2`), and the same
+   move again found the target.
 5. Button down and up are queued; the answer has `hovered` (the path of the
    hovered widget) and the state read 0.1 s later.
 
@@ -962,10 +978,15 @@ How it runs (`src/protocol.cpp`, `ConsoleCall`; decisions in
    after the job. A call counts in `game_calls` and `game_calls_total` once
    the game's code has run, whatever its text says.
 
-`game_calls_total` counts per loaded save: Tongs keys it by the session
-object and starts again from 0 when the session differs or the date is
-earlier than at the last call. A save loaded into a session object at the
-same address and at a later date would not reset it; this was not checked.
+`game_calls_total` counts per loaded save. Reloading the same save from the
+in-game menu keeps the session object at its address and the date where it
+was (live, `tongs-harden-1`: the count stayed 1), so neither tells loads
+apart. `src/load_watch.cpp` does: every state read is observed, and a read
+that sees a loaded game after one that saw none starts a new load; another
+session object or an earlier date also does. With `game_calls = true` a Tongs
+thread reads the state every 20 ms, so the second without a session while a
+save loads is always seen. Tongs keys the count by load, session object and
+date, and starts again from 0 when any of them says another save.
 
 ### Live check (2026-10-19)
 
