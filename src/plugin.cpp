@@ -86,7 +86,6 @@ extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* ho
         handlers.current_thread_id = [] { return static_cast<std::uint32_t>(GetCurrentThreadId()); };
         handlers.read_ui = [image_base](tongs::UiTree& tree) { return tongs::ReadUiTree(image_base, tongs::UiLayout{}, tree); };
         handlers.read_hovered = [image_base] { return tongs::ReadHoveredWidget(image_base, tongs::UiLayout{}); };
-        handlers.read_hover_flag = [](std::uintptr_t widget) { return tongs::ReadHoverFlag(widget, tongs::UiLayout{}); };
         handlers.read_events = [image_base](tongs::EventsRaw& events) {
             return tongs::ReadEvents(image_base, tongs::EventLayout{}, events);
         };

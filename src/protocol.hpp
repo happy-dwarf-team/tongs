@@ -102,10 +102,8 @@ struct Handlers {
     // Reads the widget tree (game_ui.cpp); called on the main thread through the
     // dispatcher. Returns an error text, or an empty string on success.
     std::function<std::string(UiTree&)> read_ui;
-    // Main thread: the widget under the GUI pointer (mgr+0x130, 0 = none), and a
-    // widget's "hovered this frame" byte (+0x8F; -1 = unreadable).
+    // Main thread: the widget under the GUI pointer (mgr+0x130, 0 = none).
     std::function<std::uintptr_t()> read_hovered;
-    std::function<int(std::uintptr_t widget)> read_hover_flag;
     // Main thread: the open events (game_events.cpp). Returns an error text, or empty.
     std::function<std::string(EventsRaw&)> read_events;
     // Pipe thread, one word: entries in the session's event window list; -1 = unreadable.

@@ -1098,7 +1098,6 @@ struct FakeScreen {
             return std::string();
         };
         h.read_hovered = [this] { return Hovered(); };
-        h.read_hover_flag = [this](std::uintptr_t widget) { return widget == Hovered() ? 1 : 0; };
         // A chosen event is gone by the next read, with its window.
         h.read_events = [this](EventsRaw& out) {
             out = raw;
@@ -1130,7 +1129,7 @@ static void TestUiClickCommand() {
     screen.game.events.clear();
     out = HandleRequest("ui click speed_controls/button_speedup timeout=5", h);
     assert(Contains(out, "{\"ok\":true,\"command\":\"ui click\",\"selector\":\"speed_controls/button_speedup\"") &&
-           Contains(out, "\"clicked\":\"speed_controls/button_speedup\"") && Contains(out, "\"target_hovered\":true") &&
+           Contains(out, "\"clicked\":\"speed_controls/button_speedup\"") && !Contains(out, "target_hovered") &&
            Contains(out, "\"hovered\":\"speed_controls/button_speedup\"") && Contains(out, "\"in_game\":true"));
     assert(screen.game.events.size() == 3 && screen.game.events[1].type == InputEvent::Type::MouseDown &&
            screen.game.events[1].x == 3350 && screen.game.events[2].type == InputEvent::Type::MouseUp);
@@ -1171,7 +1170,7 @@ static void TestEventCommands() {
 
     out = HandleRequest("event choose text^=refuse event=title^=tariffs", h);
     std::fprintf(stderr, "%s\n", out.c_str());
-    assert(Contains(out, "{\"ok\":true,\"command\":\"event choose\",\"date\":\"1719.3.17\",\"event\":{\"number\":1,\"id\":\"flavor_rus.1\"") &&
+    assert(Contains(out, "{\"ok\":true,\"command\":\"event choose\",\"choice_date\":\"1719.3.17\",\"event\":{\"number\":1,\"id\":\"flavor_rus.1\"") &&
            Contains(out, "\"option\":{\"number\":2,\"text\":\"Refuse them\",\"option_index\":1,\"option_key\":\"flavor_rus.1.b\"") &&
            Contains(out, "\"closed\":true,\"chosen_ms\":") && Contains(out, "\"closed_frames\":") && Contains(out, "\"in_game\":true"));
     assert(screen.chosen == std::vector<std::string>{"5_1"});

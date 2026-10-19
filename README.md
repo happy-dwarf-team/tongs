@@ -141,9 +141,10 @@ option's `name`, which may be empty or repeated) and `path`.
 (`event choose 2`) or by text (`event choose text^="Accept"`, also `text=` and
 `text~=`). With several events open it needs `event=N` or
 `event=title^="..."`, and refuses `ambiguous` otherwise. The game keeps the
-options disabled for a moment after the window opens; meanwhile `event choose`
-refuses `disabled`. The answer has the game `date`, the `event` and `option`,
-`closed` (the event left the game's lists within 3 s) and the state after.
+options disabled for half a second after the window opens; meanwhile
+`event choose` refuses `disabled`. The answer has `choice_date` (the game date
+of the click), the `event` and `option`, `closed` (the event left the game's
+lists within 3 s; it took 3 frames in the live check) and the state after.
 
 `run_until DATE events=first` does the same for every event that opens during
 the run: it waits for the first enabled option of the topmost event, clicks it

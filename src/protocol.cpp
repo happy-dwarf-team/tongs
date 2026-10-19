@@ -704,7 +704,6 @@ ClickOutcome ClickWidget(const Handlers& h, std::uintptr_t target, const UiRect&
     Dispatcher::Outcome o = h.dispatcher->Run(Dispatcher::Kind::Read, [] { return std::string(); }, timeout_ms);
     UiTree tree;
     std::uintptr_t hovered = 0;
-    int flag = -1;
     std::string read_error;
     if (o.ran) {
         o = h.dispatcher->Run(
@@ -712,7 +711,6 @@ ClickOutcome ClickWidget(const Handlers& h, std::uintptr_t target, const UiRect&
             [&] {
                 read_error = h.read_ui(tree);
                 hovered = h.read_hovered();
-                if (h.read_hover_flag) flag = h.read_hover_flag(target);
                 return std::string();
             },
             timeout_ms);
@@ -720,7 +718,6 @@ ClickOutcome ClickWidget(const Handlers& h, std::uintptr_t target, const UiRect&
     if (!o.ran) return fail(o.error);
     if (!read_error.empty()) return fail(read_error);
     c.frame = o.frame;
-    if (flag >= 0) c.members += std::string(",\"target_hovered\":") + Bool(flag != 0);
     const UiCoverCheck cover = CheckCover(tree, target, hovered);
     if (cover.covered) {
         c.members += ",\"covered_by\":" + (cover.covered_by.empty() ? std::string("null") : Quote(cover.covered_by));
@@ -881,7 +878,7 @@ std::string EventChoose(const Handlers& handlers, const EventRequest& r) {
     std::string out = std::string("{\"ok\":") + Bool(error.empty());
     if (!error.empty()) out += ",\"error\":" + Quote(error);
     out += ",\"command\":\"event choose\"";
-    if (before.in_game) out += ",\"date\":\"" + DateText(before.date_raw) + "\"";
+    if (before.in_game) out += ",\"choice_date\":\"" + DateText(before.date_raw) + "\"";
     out += ChoiceMembers(e, o) + fields + ",\"waited_ms\":" + std::to_string(h.now_ms() - start);
     return out + "," + StateFields(state) + "}";
 }

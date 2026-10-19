@@ -270,10 +270,4 @@ std::uintptr_t ReadHoveredWidget(std::uintptr_t image_base, const UiLayout& layo
     return hovered;
 }
 
-int ReadHoverFlag(std::uintptr_t widget, const UiLayout& layout) {
-    std::uint8_t flag = 0;
-    if (widget == 0 || !Read(widget + layout.hovered_flag, flag)) return -1;
-    return flag != 0 ? 1 : 0;
-}
-
 }  // namespace tongs
