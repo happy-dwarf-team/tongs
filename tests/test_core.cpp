@@ -225,6 +225,29 @@ static UiTree SampleTree() {
     return t;
 }
 
+// SampleTree with a ticked check box and an empty edit box as top-level widgets.
+static UiTree SampleTreeWithBoxes() {
+    UiTree t = SampleTree();
+    UiWidget box;
+    box.name = "show_unsafe_checkbox";
+    box.type = UiType::Checkbox;
+    box.shown = true;
+    box.rect = {33, 70, 38, 39};
+    box.has_checked = true;
+    box.checked = true;
+    t.widgets.push_back(box);
+    t.roots.push_back(static_cast<int>(t.widgets.size()) - 1);
+    UiWidget edit;
+    edit.name = "console_edit";
+    edit.type = UiType::Editbox;
+    edit.shown = true;
+    edit.rect = {6, 972, 840, 48};
+    edit.has_text = true;  // an edit box shows even an empty text
+    t.widgets.push_back(edit);
+    t.roots.push_back(static_cast<int>(t.widgets.size()) - 1);
+    return t;
+}
+
 static std::vector<std::string> Paths(const UiTree& t, const char* selector, bool all = false) {
     UiSelector sel;
     const std::string error = ParseUiSelector(selector, sel);
@@ -262,6 +285,10 @@ static void TestUiSelectors() {
            V({"speed_controls/button_speedup", "speed_controls/button_speeddown"}));
     assert(Paths(t, "speed_controls/*[disabled]") == V{"speed_controls/button_speeddown"});
     assert(Paths(t, "speed_controls/[type=button][enabled]") == V{"speed_controls/button_speedup"});
+    UiTree boxes = SampleTreeWithBoxes();
+    assert(Paths(boxes, "//[checked]") == V{"show_unsafe_checkbox"} && Paths(boxes, "//[unchecked]").empty());
+    boxes.widgets[boxes.widgets.size() - 2].checked = false;
+    assert(Paths(boxes, "//[unchecked]") == V{"show_unsafe_checkbox"} && Paths(boxes, "//[checked]").empty());
     assert(Paths(t, "speed_controls/[2]") == V{"speed_controls/DateText"});
     assert(Paths(t, "//[text~=MARCH]") == V{"speed_controls/DateText"});
     assert(Paths(t, "//*[text=\"17 march 1719\"]") == V{"speed_controls/DateText"});
@@ -372,6 +399,14 @@ static void TestUiCommand() {
         assert(Contains(out, "{\"ok\":true,\"command\":\"ui find\",\"selector\":\"//button_speedup\",\"count\":1,") &&
                Contains(out, "\"queued_ms\":") && Contains(out, "\"run_ms\":") && Contains(out, "\"frame\":"));
         assert(reader != std::this_thread::get_id());  // read on the "main thread"
+        h.read_ui = [](UiTree& tree) {
+            tree = SampleTreeWithBoxes();
+            return std::string();
+        };
+        out = HandleRequest("ui find //[type=checkbox]", h);
+        assert(Contains(out, "\"path\":\"show_unsafe_checkbox\",\"type\":\"checkbox\"") && Contains(out, "\"checked\":true"));
+        out = HandleRequest("ui find console_edit", h);
+        assert(Contains(out, "\"type\":\"editbox\"") && Contains(out, "\"text\":\"\"") && !Contains(out, "checked"));
         out = HandleRequest("ui tree //nothing", h);
         assert(Contains(out, "{\"ok\":false,\"error\":\"not_found\",\"command\":\"ui tree\""));
         h.read_ui = [](UiTree&) { return std::string("access violation while reading the widget tree"); };
@@ -1100,6 +1135,7 @@ struct FakeScreen {
     UiTree tree = EventTree();
     EventsRaw raw = EventRaw(tree);
     std::vector<std::string> chosen;  // scopes of the clicked option buttons
+    std::function<void(std::uintptr_t)> on_click;  // called with the widget under every click
     Dispatcher dispatcher{SteadyMs};
 
     std::uintptr_t Hovered() const {
@@ -1127,6 +1163,7 @@ struct FakeScreen {
             for (const InputEvent& e : batch) {
                 if (e.type != InputEvent::Type::MouseUp) continue;
                 const std::uintptr_t under = Hovered();
+                if (on_click) on_click(under);
                 for (OpenEventRaw& ev : raw.events) {
                     for (const EventButtonRaw& b : ev.buttons) {
                         const int w = static_cast<int>((b.widget - 0x1000) / 0x10);
@@ -1229,6 +1266,66 @@ static void TestUiClickCommand() {
     Handlers no_hook = h;
     no_hook.set_cursor = nullptr;
     assert(Contains(HandleRequest("ui click speed_controls/button_speedup", no_hook), "cursor hook"));
+}
+
+static void TestUiClickChoice() {
+    FakeScreen screen;
+    NotificationHub hub(SteadyMs);
+    Handlers h = screen.Make();
+    h.notifications = &hub;
+    // The note must be there before any waiting after the click: the event reader
+    // may see the event close within a few frames.
+    bool clicked = false;
+    std::optional<std::string> note;
+    screen.on_click = [&clicked](std::uintptr_t) { clicked = true; };
+    const auto sleep = h.sleep_ms;
+    h.sleep_ms = [&, sleep](int ms) {
+        if (clicked && !note) note = hub.TakeChoice(0xC2, "flavor_rus.1").value_or("none at the first wait");
+        sleep(ms);
+    };
+    FakeMainThread main(screen.dispatcher);
+    // A plain ui click on an option button: Tongs knows which option it clicked.
+    std::string out = HandleRequest("ui click EventWindow[1]/event_option_listbox/event_option_entry[2]/event_option_button", h);
+    assert(Contains(out, "\"ok\":true") &&
+           Contains(out, "\"event_option\":{\"id\":\"flavor_rus.1\",\"number\":2,\"option_index\":1}"));
+    assert(screen.chosen == std::vector<std::string>{"5_1"});
+    assert(note && Contains(*note, "\"option_index\":1") && Contains(*note, "\"by\":\"tongs\"") &&
+           Contains(*note, "\"via\":\"ui click\"") && Contains(*note, "\"choice_date\":\"1719.3.17\""));
+    // Any other widget: no event_option, nothing noted.
+    out = HandleRequest("ui click speed_controls/button_speedup", h);
+    assert(Contains(out, "\"ok\":true") && !Contains(out, "event_option"));
+    // The events cannot be read: the click still happens, without the note.
+    Handlers broken = h;
+    broken.read_events = [](EventsRaw&) { return std::string("access violation while reading events"); };
+    out = HandleRequest("ui click speed_controls/button_speedup", broken);
+    assert(Contains(out, "\"ok\":true") && !Contains(out, "event_option"));
+}
+
+static void TestEventChooseScrolls() {
+    FakeScreen screen;
+    UiTree& t = screen.tree;
+    // Tariffs on Fish with a two-row list box: its third option (enabled here) is a hidden row.
+    t.widgets[15].enabled = true;
+    t.widgets[14].shown = false;
+    const Handlers h = screen.Make();
+    FakeMainThread main(screen.dispatcher);
+    std::string out = HandleRequest("event choose 3 event=title^=tariffs", h);
+    assert(Contains(out, "\"error\":\"not_visible\"") && !Contains(out, "scrolled"));  // no scroll bar
+    assert(screen.game.events.empty());
+
+    const int bar = AddWidget(t, "standardlistbox_slider", UiType::Other, true, {1923, 900, 19, 180}, 9);
+    AddWidget(t, "upButton", UiType::Button, true, {1923, 900, 19, 19}, bar);
+    const int down = AddWidget(t, "downButton", UiType::Button, true, {1923, 1061, 19, 19}, bar);
+    int downs = 0;
+    screen.on_click = [&](std::uintptr_t under) {
+        if (under != Address(down)) return;
+        ++downs;  // the list moves one row: the first option leaves, the third comes in
+        t.widgets[10].shown = false;
+        t.widgets[14].shown = true;
+    };
+    out = HandleRequest("event choose 3 event=title^=tariffs", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"scrolled\":1") && Contains(out, "\"option_index\":3"));
+    assert(downs == 1 && screen.chosen == std::vector<std::string>{"5_3"});
 }
 
 static void TestEventCommands() {
@@ -1959,6 +2056,8 @@ int main() {
     TestUiClickTarget();
     TestChildrenBounds();
     TestUiClickCommand();
+    TestUiClickChoice();
+    TestEventChooseScrolls();
     TestEventCommands();
     TestInputsCount();
     TestRunUntilEventsFirst();

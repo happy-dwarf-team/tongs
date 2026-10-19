@@ -315,8 +315,30 @@ EventChoice ChooseEvent(const std::vector<EventView>& events, const EventRequest
         Refusal(c, "disabled", "the option's button is disabled (the game keeps them disabled for a moment after opening)",
                 option);
     }
+    if (c.error == "not_visible") {
+        c.hidden_event = c.event;
+        c.hidden_option = c.option;
+    }
     if (!c.error.empty()) c.event = c.option = -1;
     return c;
+}
+
+int OptionScrollButton(const UiTree& tree, const EventView& event, int option) {
+    const EventOption& o = event.options[option];
+    if (o.widget == -1) return -1;
+    const UiView all(tree, true);
+    int list = all.Parent(o.widget);
+    while (list != -1 && tree.widgets[list].type != UiType::Listbox) list = all.Parent(list);
+    if (list == -1) return -1;
+    bool shown_before = false;
+    for (const EventOption& other : event.options) shown_before = shown_before || (other.visible && other.number < o.number);
+    const std::string_view name = shown_before ? "downButton" : "upButton";
+    for (const int child : tree.widgets[list].children) {
+        for (const int button : tree.widgets[child].children) {
+            if (tree.widgets[button].name == name) return button;
+        }
+    }
+    return -1;
 }
 
 int FirstEnabledOption(const EventView& event) {

@@ -242,8 +242,9 @@ private:
         w.rect = {position[0], position[1], size[0], size[1]};
         if (!e.kind) return;
         std::string text;
-        // A button without a label has an empty string; a text box shows even an empty one.
-        if (e.kind->text != 0 && ReadString(e.pointer + e.kind->text, text) && (w.type == UiType::Text || !text.empty())) {
+        // A button without a label has an empty string; a text or edit box shows even an empty one.
+        if (e.kind->text != 0 && ReadString(e.pointer + e.kind->text, text) &&
+            (w.type == UiType::Text || w.type == UiType::Editbox || !text.empty())) {
             w.has_text = true;
             w.text = GameTextToUtf8(text);
         }
@@ -251,6 +252,11 @@ private:
         if (e.kind->state && tongs::Read(e.pointer + l_.button_state, state)) {
             w.has_enabled = true;
             w.enabled = state != 3;
+        }
+        std::uint8_t checked = 0;
+        if (e.kind->checked != 0 && tongs::Read(e.pointer + e.kind->checked, checked)) {
+            w.has_checked = true;
+            w.checked = checked != 0;
         }
     }
 
