@@ -22,7 +22,8 @@ A release is proposed only when the changelog would get a visible entry;
 commits of hidden types alone never start one and ship with the next release.
 
 Scopes: the area of the plugin (`pipe`, `state`, `input`, `cursor`, `window`,
-`threads`, `screenshot`, `client`), `config`, `plugin` (manifest, packaging).
+`threads`, `screenshot`, `client`), `mcp` (the MCP server in `mcp/`), `config`,
+`plugin` (manifest, packaging).
 A new command is a `feat`; a command that sends input to the game says so in
 the description. Breaking changes (a command or answer field renamed or
 removed, a config key renamed, a different Anvil requirement) take `!` and a

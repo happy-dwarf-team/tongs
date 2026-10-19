@@ -267,6 +267,9 @@ available only for developers." in `text`.
 
   From the command line, `python tongs.py "subscribe all" --seconds 30`
   prints the stream (`subscribe` comes last).
+- [`mcp/`](mcp/README.md): an MCP server (stdio) with one tool per command
+  family, for agents such as Claude Code:
+  `claude mcp add --transport stdio tongs -- uv run --frozen --directory C:\path	o	ongs\mcp tongs-mcp`.
 
 ## Safety
 
