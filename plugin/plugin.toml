@@ -1,6 +1,6 @@
 id = "tongs"
 name = "Tongs"
-version = "0.8.0"
+version = "0.9.0"
 authors = ["Happy Dwarf Team"]
 description = "Control EU4 from scripts and agents: a local command pipe that reads the state of a running game and, when allowed, uses its keyboard and mouse and runs console commands."
 api = 1

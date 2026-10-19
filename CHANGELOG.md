@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/happy-dwarf-team/tongs/compare/v0.8.0...v0.9.0) (2026-10-19)
+
+
+### Features
+
+* **mcp:** add an MCP server that exposes the pipe as tools ([#43](https://github.com/happy-dwarf-team/tongs/issues/43)) ([7c4abb5](https://github.com/happy-dwarf-team/tongs/commit/7c4abb596b77df6bc619a9c8de469d6b525ef22f))
+
 ## [0.8.0](https://github.com/happy-dwarf-team/tongs/compare/v0.7.0...v0.8.0) (2026-10-19)
 
 
