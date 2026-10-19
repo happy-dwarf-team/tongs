@@ -56,6 +56,11 @@ A message Tongs sends to a subscribed client on its own, not as the answer to
 a request.
 _Avoid_: event, push, callback
 
+**Subscription**:
+A pipe connection that has sent `subscribe` and carries notifications of the
+kinds it named, through its own bounded queue, until `unsubscribe`.
+_Avoid_: listener, channel, watch
+
 **Input**:
 A key press, typed text or mouse action that Tongs gives the game the way a player's
 keyboard and mouse would.

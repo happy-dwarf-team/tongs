@@ -7,7 +7,7 @@
 namespace tongs {
 
 inline constexpr wchar_t kPipeName[] = L"\\\\.\\pipe\\tongs";
-inline constexpr int kMaxClients = 4;  // pipe instances, each served by its own thread
+inline constexpr int kMaxClients = 8;  // pipe instances, each served by its own thread; a subscription holds one
 
 using LogFn = void (*)(int level, const std::string& message);  // level: AnvilLogLevel
 

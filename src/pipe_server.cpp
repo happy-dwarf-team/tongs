@@ -56,23 +56,56 @@ bool WriteAll(HANDLE pipe, const std::string& text) {
            written == text.size();
 }
 
-// Serves one connected client until it disconnects.
+constexpr int kStreamWaitMs = 20;  // a subscribed connection looks for requests this often
+
+// Serves one connected client until it disconnects. After `subscribe` the
+// thread alternates between writing notifications and looking for a request
+// without blocking (PeekNamedPipe), so the pipe itself stays synchronous. A
+// write to a client that does not read blocks only this thread; its queue
+// drops the oldest notifications meanwhile.
 void ServeClient(Server& server, HANDLE pipe, int number) {
     std::string pending;
+    std::shared_ptr<Subscription> subscription;
+    NotificationHub* hub = server.handlers.notifications;
+    const auto end = [&subscription, hub] {
+        if (subscription && hub) hub->Unsubscribe(subscription);
+    };
     char chunk[512];
     for (;;) {
-        DWORD read = 0;
-        if (!ReadFile(pipe, chunk, sizeof chunk, &read, nullptr) || read == 0) return;
-        pending.append(chunk, read);
         for (std::size_t eol; (eol = pending.find('\n')) != std::string::npos;) {
-            const std::string reply = HandleRequest(std::string_view(pending).substr(0, eol), server.handlers, number) +"\n";
+            const std::string_view line = std::string_view(pending).substr(0, eol);
+            std::string reply;
+            if (subscription) {
+                reply = SubscribedRequest(line, server.handlers, subscription);
+            } else if (IsSubscribe(line)) {
+                reply = Subscribe(line, server.handlers, subscription);
+            } else {
+                reply = HandleRequest(line, server.handlers, number);
+            }
             pending.erase(0, eol + 1);
-            if (!WriteAll(pipe, reply)) return;
+            if (!WriteAll(pipe, reply + "\n")) return end();
         }
         if (pending.size() > kMaxLine) {
             WriteAll(pipe, "{\"ok\":false,\"error\":\"line too long\"}\n");
-            return;
+            return end();
         }
+        DWORD read = 0;
+        if (!subscription) {
+            if (!ReadFile(pipe, chunk, sizeof chunk, &read, nullptr) || read == 0) return;
+            pending.append(chunk, read);
+            continue;
+        }
+        DWORD available = 0;
+        if (!PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr)) return end();  // the client left
+        if (available > 0) {
+            if (!ReadFile(pipe, chunk, available < sizeof chunk ? available : sizeof chunk, &read, nullptr) || read == 0) {
+                return end();
+            }
+            pending.append(chunk, read);
+            continue;
+        }
+        const std::string lines = subscription->Take(kStreamWaitMs);
+        if (!lines.empty() && !WriteAll(pipe, lines)) return end();
     }
 }
 

@@ -4,7 +4,8 @@ Status: draft 4 (2026-10-18). Layers 1 and 2 are implemented (0.3.0), together
 with timing (`run_until`), worker pools and screenshots for measurements.
 Layer 3 is implemented: the dispatcher (0.4.0), the widget tree (0.5.0), and
 widget clicks and events (0.6.0). Layer 4, console game calls, is implemented
-(0.7.0). Notifications are planned for release 0.8.0 (see "Releases"). The decisions behind them are on the planning map
+(0.7.0), and so are notifications (0.8.0), the last release of draft 4 (see
+"Releases"). The decisions behind them are on the planning map
 [Map: game calls and the widget tree](https://github.com/happy-dwarf-team/tongs/issues/15).
 Words such as game call, main-thread read, outer frame, widget path, event,
 notification and marked run are defined in [`GLOSSARY.md`](../GLOSSARY.md).
@@ -55,20 +56,21 @@ window for agents that need to look.
 
 ## Transport
 
-- Named pipe `\\.\pipe\tongs`, 4 instances, each served by its own thread.
+- Named pipe `\\.\pipe\tongs`, 8 instances (4 before 0.8.0), each served by its own thread.
   The first is created with `FILE_FLAG_FIRST_PIPE_INSTANCE` (a second game
   cannot take the name over and logs an error instead); all with
   `PIPE_REJECT_REMOTE_CLIENTS` and a DACL that allows only the user running
   the game and SYSTEM.
-- Up to 4 clients at once, one per instance; requests are lines, answers are
+- Up to 8 clients at once, one per instance; requests are lines, answers are
   single-line JSON. Input commands take turns through one lock, so presses of
   two clients never interleave; `run_until` holds it only while pressing.
 - Off unless `enabled = true` in `anvil/data/tongs/config.toml`; the input
   commands also need `input = true`, and game calls (0.7.0) need
   `game_calls = true`.
-- From 0.8.0: 8 instances. A connection that sends `subscribe KINDS` carries
-  only notifications from then on (see "Notifications"). The server stays
-  blocking, with one thread per instance.
+- From 0.8.0: 8 instances, because a subscription holds one. A connection
+  that sends `subscribe KINDS` carries only notifications from then on, until
+  `unsubscribe` (see "Notifications"). The server stays blocking, with one
+  thread per instance.
 
 ## State reading (EU4 1.37.5)
 
@@ -1062,12 +1064,189 @@ notifications. The connection still accepts `unsubscribe` and `ping`.
   `{"notification": "overflow", "dropped": N}` follows. Nothing waits for a
   slow reader.
 
+How it works (queue, diffs and formatting in `src/notifications.cpp` and
+`src/notify_sources.cpp`, both platform-independent and unit-tested; the
+stream in `src/pipe_server.cpp`; the file in `src/game_files.cpp`):
+
+- **Connection.** `subscribe` is handled by the pipe thread of its
+  connection. After the answer, the thread loops: it looks for a request with
+  `PeekNamedPipe` (so `ReadFile` never blocks there), then waits up to 20 ms
+  for notifications and writes what came, up to 256 lines at a time. The pipe
+  stays synchronous, one thread per instance. While subscribed, `ping` and
+  `unsubscribe` are answered and everything else is refused with
+  `subscribed`. **`unsubscribe` returns the connection to ordinary
+  requests**; what is still queued is discarded and counted in the answer
+  (`sent`, `dropped`, `discarded`). Closing the connection ends the
+  subscription as well.
+- **Answer.** `subscribe` answers with `kinds`, `date_unit` (with `date`),
+  `queue` (1000), `unavailable` (kinds this build cannot serve, e.g. `event`
+  without the frame hook), `error_log` (`path` and `source`, or `error`) and
+  the fields of `state`: the state that the first `state` notification
+  changes.
+- **Queue.** Publishing copies the notification's members into the queue of
+  every subscription that wants its kind and never waits for a reader; the
+  date and `wall_ms` are taken then. `seq` is given when the line is written,
+  so it has no gaps; after a drop the `overflow` notice (with the date and
+  `wall_ms` of the last dropped notification) takes the next number. A pipe
+  thread blocked in `WriteFile` on a client that does not read holds only its
+  own instance.
+- **Baselines.** A source that starts (because a subscription now wants its
+  kind) first reads what is, without reporting it; only changes after that
+  are sent. A source with no subscription for 1 s forgets its baseline.
+- **`state` and `date`.** A Tongs thread reads the state every 10 ms (as
+  `wait_until` does). `state` reports, in this order, `left_game` (with
+  `reason`), `entered_game`, `paused` / `resumed` (the game's own `paused`)
+  and `speed` (with `previous_speed`); each carries `speed`, `paused` and
+  `paused_flag`. Another session object at the next read counts as leaving
+  and entering. `date` is sent to each subscription whose step (`day`,
+  `month` or `year`) the new date crosses, with `unit` and `previous`; one
+  notification per read, however many days passed, and never for a date that
+  goes back. While a save loads the thread keeps reading, so `entered_game`
+  comes without waiting for outer frames.
+- **`event`.** Another thread reads the count of the session's event window
+  list (one word, as `run_until events=first` does) every 10 ms. When it
+  changes, a main-thread read takes the event list and, while events are
+  open, the widget tree (6–7 ms in 0.5.0), and compares it with the events
+  known (by controller and script id). Once a second while events are open
+  it reads the list alone and the tree only when the list differs. `opened`
+  carries `id`, `title` and `options` (`number`, `text`, `option_index`,
+  `option_key`); `closed` carries `id`, `title` and `chosen`. `chosen` is
+  the option when Tongs clicked it (`event choose`, `run_until
+  events=first`): Tongs notes the option right after the click, with `by:
+  "tongs"`, the `client` and `choice_date`. A choice by the player, or by a
+  plain `click` / `ui click`, is not known and gives `null`. Without a
+  session (count −1), every known event closes. The main thread only runs the
+  reads; it never waits for the thread.
+- **`error_log`.** A third thread follows `error.log` every 100 ms (at once
+  again after a full 1 MiB read). The file is opened for each read with every
+  sharing mode, so the game can still write, rename or delete it, and closed
+  again. Lines are split on `\n` (a `\r` before it dropped), kept when they
+  are valid UTF-8 and read as Windows-1252 otherwise, and cut at 4096 bytes.
+  A smaller size or another file identity (volume serial and file index)
+  means the file was replaced: `restarted: true` is sent and reading starts
+  at 0. A missing file is followed from its start once it appears.
+- **Where `error.log` is.** The game writes its logs to `logs/` in PhysFS's
+  write directory, which it sets at start-up from the Documents folder or
+  from `userdir=` / `userdir.txt` (Bellows found `logs/error.log` there; the
+  lab's `userdir.txt` is empty). `eu4.exe` exports `PHYSFS_getWriteDir`, so
+  Tongs asks the game (under SEH; the function takes PhysFS's state lock for
+  a moment) and uses `<write dir>\logs\error.log` (`source:
+  "physfs_write_dir"`). Before the game has set it, the subscription answers
+  an `error` and the thread asks again every second. Only without the export
+  does Tongs use `SHGetKnownFolderPath(FOLDERID_Documents)\Paradox
+  Interactive\Europa Universalis IV` (`source: "documents"`), which misses a
+  `userdir`. No `[[expect]]` entry: the export is looked up by name.
+- **`activity`.** Published by the commands: an input when it counts in
+  `inputs` (`what: "input"`, `command`, the running total `inputs`), a game
+  call when it counts in `game_calls` (`what: "game_call"`, `line`, `name`,
+  `game_calls`); both with `client`, the pipe instance. Refusals and the
+  presses `run_until` makes for itself are not activity, as they are not
+  counted.
+
 Live checks in the 0.8.0 PR:
 
 - every kind on a running game;
 - overflow with a client that stops reading;
-- `error_log` while a mod writes errors;
+- `error_log` lines from what the game writes anyway (mods are not changed to
+  provoke errors);
 - 8 clients at once.
+
+### Live check (2026-10-19)
+
+Setup:
+- the original `eu4.exe` (`9AD3EFE1…771A`), Anvil 0.2.0 and the 0.8.0 branch;
+- the Russia save of 17 March 1719, single player, loaded with `continue=`,
+  with the lab's usual ten mods (unchanged);
+- the lab's `anvil-play.ps1 -Scenario tongs -TongsInput -TongsGameCalls`
+  under Process Lasso's `1-7`: `tongs-notify-1` (a Python script with
+  `scripts/tongs.py` as a module) and `tongs-notify-2` (the command-line
+  clients).
+
+Anvil reported "93 expected byte range(s) match", "2 patch(es)" and Tongs
+"serving \\.\pipe\tongs, 8 clients at a time". Both sessions were closed by
+the script after the PID, path and start-time check; the save was unchanged,
+`settings.txt` differed only in `graceful_exit` and was restored, the EXE hash
+was unchanged, the Process Lasso rule was `eu4.exe,0,1-7` afterwards and no
+installed file was left.
+
+Findings (`tongs-notify-1` unless noted):
+
+- **8 clients.** Eight connections were open at once: subscribers to `all
+  date=day`, `state,date`, `event`, `error_log` and `activity`, a sixth
+  subscriber (`all date=day`) that stopped reading, and two ordinary clients.
+  A ninth could not connect (the client gave up after 2 s); in
+  `tongs-notify-2` a ninth connected as soon as one of eight closed. An
+  unsubscribed connection stays open and keeps its instance. The second
+  ordinary client read `state` every 0.2 s throughout: median 0.06 ms, at
+  most 8.1 ms while the slow subscriber was blocked (258 answers), at most
+  4.7 ms afterwards.
+- **`state` while loading.** The first subscribers came in while the root
+  object was still null. `entered_game` came 27.5 s after the pipe answered,
+  4 s before the first main-thread answer (`frames` answered `main thread
+  busy` until then), and `paused` 1.5 s later, when the game paused itself.
+  Each `speed`, `resume`, `pause` and `run_until` step gave its own
+  notification (11 in all, e.g. `speed` 3 → 4 → 5 and `resumed` when
+  `run_until` started), and `tongs-notify-2`'s PowerShell stream had
+  `resumed` and `paused` for the other client's commands.
+- **`date`.** The `date=day` subscriber got 471 notifications from 1719.3.18
+  to 1720.7.1: every day once, also at speed 5 (about 10 days/s), none
+  skipped. The month subscriber got the 16 first days of month, each with the
+  last day of the previous month as `previous`.
+- **`event`** (8 notifications).
+  - `parlaments.1` opened on 1719.4.26 during `run_until` at speed 5 and
+    closed on 1719.8.27 with `chosen: null`; `game.log` has "Auto-selected
+    event option 0 for event parlaments.1": the game chose itself after four
+    months (the deadline that 0.6.0 left unchecked). `orthodox_flavor.4`
+    opened on 1719.9.16 and stayed open.
+  - `console event flavor_rus.129` and `console event 4011` opened their
+    events about 30 ms after the call's answer, with titles and options.
+  - `4011` was chosen with `ui click` on its first option: `closed` with
+    `chosen: null`, as Tongs does not know that option. `flavor_rus.129` and
+    `orthodox_flavor.4` were chosen with `event choose`: `chosen` named the
+    option with `by: "tongs"`, `client` 4 and `choice_date`, and came 15 ms
+    after the command's answer. `game.log` has "Selected event option 0" for
+    all three.
+- **`error_log`.** The file was `Documents\Paradox Interactive\Europa
+  Universalis IV\logs\error.log` with `source: "physfs_write_dir"`, already
+  in the first `subscribe` answer before the root object existed. The `all`
+  subscriber got 178 lines: lines 49–226 of the 227 of the `error.log` copied
+  after the session, in order, nothing missing or extra (the first 48 were
+  written before it subscribed). They were what the mods write: duplicate GUI
+  types, script errors, `GetRelativeStrength() is zero`. The `error_log`
+  subscriber, which came later, got the last 136 of them. `restarted` did not
+  occur (the game moves the file aside at start, before these subscriptions).
+- **`activity`.** 1109 notifications: 6 inputs (`speed`, `resume`, `pause`,
+  `ui click`, two `event choose`) and 1103 game calls (two `event`, 1100 `echo`
+  and one more `echo`), each with `client` 4 and the running count;
+  `game_calls_total` was 1103 at the end.
+- **Overflow.** The slow subscriber read nothing for 54 s, while `run_until`
+  ran 7 months and another client made 1100 `echo` game calls (18.0 s, one per
+  outer frame, paused). Then it read 1031 lines: seq 1–30 (what the pipe's
+  buffer took before the write blocked), `overflow` with `dropped` 397 as seq
+  31 (date 1719.11.1, `wall_ms` 37 490), then the 1000 newest, with no gap in
+  `seq`. `unsubscribe` answered `sent` 1031, `dropped` 397, `discarded` 0, and
+  `state` worked on the same connection.
+- **No waiting for the slow reader.** `run_until` 1719.3.23 → 1719.11.1 at
+  speed 5 ran at 10.3 days/s with the slow subscriber blocked, and 1719.11.1 →
+  1720.7.1 at 10.0 days/s after it had gone; one run each on CPU 1–7, not a
+  `SIMULATION` measurement.
+- **`unsubscribe`.** All five recorders unsubscribed at the end (`sent` equal
+  to what they had read, `dropped` 0) and then read `state` on the same
+  connection.
+- **Clients** (`tongs-notify-2`). `tongs.py "subscribe event" --seconds 3` and
+  `tongs.ps1 -Subscribe event -Seconds 3`, with no notification at all,
+  unsubscribed and exited after 3.1 and 3.4 s. `tongs.ps1 state -Subscribe
+  'state,date date=day' -Seconds 8` printed `resumed`, three days and
+  `paused` while another client resumed and paused; `tongs.py "subscribe date
+  date=day" --count 5 --seconds 20` stopped at 20 s with the three days there
+  were. `subscribe nothing` answered `bad_command`.
+
+Not checked: the main menu and a save loaded from it (`left_game` /
+`entered_game` across saves), `restarted` on a live game, an event that pauses
+the game, a player's own choice (`chosen` is `null` for it; the game's
+`game.log` lines "Selected event option N" and "Auto-selected event option N"
+could tell, but Tongs does not follow `game.log`), ironman and multiplayer,
+and the cost of the event reads at speed 5 under `SIMULATION` conditions.
 
 ## Releases
 
@@ -1097,8 +1276,7 @@ Not in draft 4:
 
 ## Not verified yet
 
-- Every static finding in the section for 0.8.0, which lists the live checks
-  of its release; the open points of 0.7.0 are under its live check.
+- The open points of 0.7.0 and 0.8.0, under their live checks.
 - `paused` for pauses not caused by the pause button (event popups that pause,
   menus, multiplayer); `paused_flag` alone was confirmed for the button.
 - Behaviour in the main menu and during save loading beyond "not in game".

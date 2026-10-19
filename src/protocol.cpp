@@ -5,7 +5,9 @@
 #include <atomic>
 #include <charconv>
 #include <cstdio>
+#include <memory>
 #include <mutex>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -26,6 +28,19 @@ std::atomic<std::uint64_t> g_inputs{0};
 std::atomic<std::uint64_t> g_game_calls{0};
 // Set by a game call that faulted; refuses every later game call until the game exits.
 std::atomic<bool> g_game_calls_tripped{false};
+// The pipe instance (from 1) whose request this thread is handling, for `activity`.
+thread_local int t_client = 0;
+
+// An `activity` notification, when anyone subscribes to them.
+void PublishActivity(const Handlers& h, const std::string& members) {
+    if (!h.notifications || !h.notifications->Wants(NotificationKind::Activity)) return;
+    std::optional<std::int32_t> date;
+    if (h.read_state) {
+        const StateSnapshot s = h.read_state();
+        if (s.in_game) date = s.date_raw;
+    }
+    h.notifications->Publish(NotificationKind::Activity, date, members + ",\"client\":" + std::to_string(t_client));
+}
 
 // Game calls since the save was loaded, for `game_calls_total` in `state`. A
 // loaded save is told by its session object, or by a date earlier than the last
@@ -55,10 +70,11 @@ std::uint64_t AddTotalCall(std::uintptr_t session, std::int32_t date_raw) {
 }
 
 // The handlers with a send_input that notices whether anything was queued; the
-// command counts as one input when it was.
+// command counts as one input when it was, and an `activity` notification
+// names it.
 class CountedInput {
 public:
-    explicit CountedInput(const Handlers& h) : handlers_(h) {
+    CountedInput(const Handlers& h, std::string_view command) : handlers_(h), command_(command) {
         handlers_.send_input = [this, send = h.send_input](const std::vector<InputEvent>& events) {
             std::string error = send(events);
             if (error.empty()) sent_ = true;
@@ -68,12 +84,16 @@ public:
     CountedInput(const CountedInput&) = delete;
     CountedInput& operator=(const CountedInput&) = delete;
     ~CountedInput() {
-        if (sent_) g_inputs.fetch_add(1);
+        if (!sent_) return;
+        const std::uint64_t total = g_inputs.fetch_add(1) + 1;
+        PublishActivity(handlers_, ",\"what\":\"input\",\"command\":\"" + JsonEscape(command_) +
+                                       "\",\"inputs\":" + std::to_string(total));
     }
     const Handlers& handlers() const { return handlers_; }
 
 private:
     Handlers handlers_;
+    std::string command_;
     bool sent_ = false;
 };
 
@@ -779,7 +799,7 @@ int TimeoutOr(const Handlers& h, int timeout_ms) { return timeout_ms > 0 ? timeo
 std::string UiClick(const Handlers& handlers, const UiRequest& request) {
     if (std::string error = ClickUnavailable(handlers); !error.empty()) return Error(error);
     std::lock_guard lock(g_input_mutex);
-    const CountedInput counted(handlers);
+    const CountedInput counted(handlers, "ui click");
     const Handlers& h = counted.handlers();
     const int timeout_ms = TimeoutOr(h, request.timeout_ms);
     const std::uint64_t start = h.now_ms();
@@ -877,6 +897,21 @@ std::string CloseFields(const CloseWatch& w) {
     return out;
 }
 
+// For the `closed` event notification: the option Tongs clicked, noted before
+// the game handles the click.
+void NoteChoice(const Handlers& h, const EventView& e, const EventOption& o, const StateSnapshot& before) {
+    if (!h.notifications) return;
+    std::string json = "{\"number\":" + std::to_string(o.number) + ",\"text\":" + Quote(o.text) +
+                       ",\"option_index\":" + std::to_string(o.index) + ",\"option_key\":" + Quote(o.key) +
+                       ",\"by\":\"tongs\",\"client\":" + std::to_string(t_client);
+    if (before.in_game) json += ",\"choice_date\":\"" + DateText(before.date_raw) + "\"";
+    h.notifications->NoteChoice(e.controller, e.id, json + "}");
+}
+
+void ForgetChoice(const Handlers& h, const EventView& e) {
+    if (h.notifications) h.notifications->TakeChoice(e.controller, e.id);
+}
+
 std::string NotChosen() {
     return "the event was still waiting for a choice " + std::to_string(kCloseLimitMs) + " ms after the click";
 }
@@ -886,7 +921,7 @@ std::string EventChoose(const Handlers& handlers, const EventRequest& r) {
     if (std::string error = ClickUnavailable(handlers); !error.empty()) return Error(error);
     if (!handlers.read_events) return Error(kNoDispatch);
     std::lock_guard lock(g_input_mutex);
-    const CountedInput counted(handlers);
+    const CountedInput counted(handlers, "event choose");
     const Handlers& h = counted.handlers();
     const int timeout_ms = TimeoutOr(h, r.timeout_ms);
     const std::uint64_t start = h.now_ms();
@@ -905,8 +940,12 @@ std::string EventChoose(const Handlers& handlers, const EventRequest& r) {
     std::string fields = c.members;
     StateSnapshot state = c.state;
     if (c.ok) {
+        NoteChoice(h, e, o, before);
         const CloseWatch w = WatchClose(h, e, c.clicked_at, c.frame);
-        if (!w.chosen) error = NotChosen();
+        if (!w.chosen) {
+            error = NotChosen();
+            ForgetChoice(h, e);
+        }
         fields += CloseFields(w);
         state = h.read_state();
     }
@@ -975,9 +1014,10 @@ struct EventsFirst {
         const UiWidget& button = s.tree.widgets[o.widget];
         ClickOutcome c;
         {
-            const CountedInput counted(h);
+            const CountedInput counted(h, "run_until events=first: choice");
             c = ClickWidget(counted.handlers(), button.address, button.rect, h.dispatch_timeout_ms, false);
         }
+        if (c.ok) NoteChoice(h, *e, o, before);
         if (!c.ok) {
             members = ",\"event\":" + EventJson(*e) + c.members;
             return Stop(c.error);
@@ -986,13 +1026,14 @@ struct EventsFirst {
         choices += ChoiceJson(*e, o, before.in_game ? DateText(before.date_raw) : std::string());
         const CloseWatch w = WatchClose(h, *e, c.clicked_at, c.frame);
         if (!w.chosen) {
+            ForgetChoice(h, *e);
             members = ",\"event\":" + EventJson(*e);
             return Stop(NotChosen());
         }
         // An event that paused the game with the player pause leaves it paused.
         const StateSnapshot after = h.read_state();
         if (after.in_game && after.paused_flag) {
-            const CountedInput counted(h);
+            const CountedInput counted(h, "run_until events=first: resume");
             Actions actions(counted.handlers());
             const ActionResult resume = actions.SetPaused(false);
             if (!resume.ok) return Stop("resume after choosing an event failed: " + resume.error);
@@ -1113,8 +1154,10 @@ public:
         if (!refusal_.error.empty()) return Refuse(refusal_.error, refusal_.detail);
         std::uint64_t total = 0;
         if (called_) {
-            g_game_calls.fetch_add(1);
+            const std::uint64_t calls = g_game_calls.fetch_add(1) + 1;
             total = AddTotalCall(raw_.session, before_.date_raw);
+            PublishActivity(h_, ",\"what\":\"game_call\",\"command\":\"console\",\"line\":" + Quoted(line_) +
+                                    ",\"name\":" + Quoted(name_) + ",\"game_calls\":" + std::to_string(calls));
         }
         const StateSnapshot after = h_.read_state();
         const std::string text = GameTextToUtf8(result_.text);
@@ -1237,7 +1280,87 @@ private:
     bool called_ = false;
 };
 
+std::string Ping(const Handlers& h) {
+    return std::string("{\"ok\":true,\"command\":\"ping\",\"pong\":true,\"version\":\"") + TONGS_VERSION +
+           "\",\"pid\":" + std::to_string(h.process_id) + "}";
+}
+
+// Splits a request line into its command word and the rest.
+std::pair<std::string_view, std::string_view> SplitCommand(std::string_view line) {
+    const std::string_view request = Trim(line);
+    const std::size_t space = request.find_first_of(" \t");
+    const std::string_view command = request.substr(0, space);
+    const std::string_view argument = space == std::string_view::npos ? std::string_view{} : Trim(request.substr(space));
+    return {command, argument};
+}
+
+std::string Refused(std::string_view command, std::string_view error, std::string_view detail) {
+    return "{\"ok\":false,\"error\":" + Quote(error) + ",\"detail\":" + Quote(detail) + ",\"command\":" +
+           Quote(command.substr(0, 64)) + "}";
+}
+
+// Whether the plugin can serve a kind (the others answer `unavailable` in `subscribe`).
+bool Served(const Handlers& h, NotificationKind kind) {
+    switch (kind) {
+        case NotificationKind::Event: return h.dispatcher && h.read_ui && h.read_events && h.count_event_windows;
+        case NotificationKind::ErrorLog: return h.locate_error_log && h.read_log_chunk;
+        case NotificationKind::Activity: return true;
+        default: return static_cast<bool>(h.read_state);
+    }
+}
+
 }  // namespace
+
+bool IsSubscribe(std::string_view line) { return SplitCommand(line).first == "subscribe"; }
+
+std::string Subscribe(std::string_view line, const Handlers& h, std::shared_ptr<Subscription>& out) {
+    const std::string_view argument = SplitCommand(line).second;
+    if (!h.notifications) return Refused("subscribe", "unavailable", "notifications are not set up");
+    SubscribeRequest request;
+    if (std::string error = ParseSubscribe(argument, request); !error.empty()) {
+        return Refused("subscribe", "bad_command", error);
+    }
+    std::string kinds;
+    std::string unavailable;
+    for (unsigned bit = 1; bit <= kAllNotificationKinds; bit <<= 1) {
+        if ((request.kinds & bit) == 0) continue;
+        const auto kind = static_cast<NotificationKind>(bit);
+        const std::string name = std::string("\"") + KindName(kind) + "\"";
+        kinds += (kinds.empty() ? "" : ",") + name;
+        if (!Served(h, kind)) unavailable += (unavailable.empty() ? "" : ",") + name;
+    }
+    std::string answer = "{\"ok\":true,\"command\":\"subscribe\",\"kinds\":[" + kinds + "]";
+    if (request.kinds & Bit(NotificationKind::Date)) {
+        answer += std::string(",\"date_unit\":\"") + DateUnitName(request.date_unit) + "\"";
+    }
+    answer += ",\"queue\":" + std::to_string(kNotificationQueue);
+    if (!unavailable.empty()) answer += ",\"unavailable\":[" + unavailable + "]";
+    if ((request.kinds & Bit(NotificationKind::ErrorLog)) && h.locate_error_log) {
+        const ErrorLogLocation where = h.locate_error_log();
+        answer += where.error.empty()
+                      ? ",\"error_log\":{\"path\":" + Quote(where.path) + ",\"source\":" + Quote(where.source) + "}"
+                      : ",\"error_log\":{\"error\":" + Quote(where.error) + "}";
+    }
+    // The state the notifications start from.
+    if (h.read_state) answer += "," + StateFields(h.read_state());
+    out = h.notifications->Subscribe(request);
+    return answer + "}";
+}
+
+std::string SubscribedRequest(std::string_view line, const Handlers& h, std::shared_ptr<Subscription>& subscription) {
+    const auto [command, argument] = SplitCommand(line);
+    if (command == "ping" && argument.empty()) return Ping(h);
+    if (command == "unsubscribe" && argument.empty()) {
+        if (h.notifications && subscription) h.notifications->Unsubscribe(subscription);
+        const std::size_t discarded = subscription ? subscription->Discard() : 0;
+        const Subscription::Counts counts = subscription ? subscription->counts() : Subscription::Counts{};
+        subscription.reset();
+        return "{\"ok\":true,\"command\":\"unsubscribe\",\"sent\":" + std::to_string(counts.sent) +
+               ",\"dropped\":" + std::to_string(counts.dropped) + ",\"discarded\":" + std::to_string(discarded) + "}";
+    }
+    if (command.empty()) return Refused("", "bad_command", "empty command");
+    return Refused(command, "subscribed", "a subscribed connection accepts only unsubscribe and ping");
+}
 
 std::string JsonEscape(std::string_view text) {
     std::string out;
@@ -1264,15 +1387,13 @@ std::string JsonEscape(std::string_view text) {
 }
 
 std::string HandleRequest(std::string_view line, const Handlers& handlers, int client) {
+    t_client = client;
     const std::string_view request = Trim(line);
-    const std::size_t space = request.find_first_of(" \t");
-    const std::string_view command = request.substr(0, space);
-    const std::string_view argument = space == std::string_view::npos ? std::string_view{} : Trim(request.substr(space));
+    const auto [command, argument] = SplitCommand(request);
 
-    if (command == "ping" && argument.empty()) {
-        return std::string("{\"ok\":true,\"pong\":true,\"version\":\"") + TONGS_VERSION + "\",\"pid\":" +
-               std::to_string(handlers.process_id) + "}";
-    }
+    if (command == "ping" && argument.empty()) return Ping(handlers);
+    if (command == "subscribe") return Error("subscribe needs a pipe connection of its own");
+    if (command == "unsubscribe" && argument.empty()) return Error("not subscribed");
     if (command == "state" && argument.empty()) {
         if (!handlers.read_state) return Error("state reader unavailable");
         const StateSnapshot s = handlers.read_state();
@@ -1303,7 +1424,7 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
     if (command == "help" && argument.empty()) {
         return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"frames\",\"ui\",\"event\",\"help\",") +
                "\"wait_until\",\"cancel\",\"key\",\"text\",\"move\",\"click\",\"scroll\",\"release\",\"pause\",\"resume\",\"speed\"," +
-               "\"run_until\",\"console\"],\"input\":" + Bool(InputReady(handlers)) + ",\"main_thread\":" +
+               "\"run_until\",\"console\",\"subscribe\",\"unsubscribe\"],\"input\":" + Bool(InputReady(handlers)) + ",\"main_thread\":" +
                Bool(handlers.dispatcher != nullptr) + ",\"game_calls\":" + Bool(handlers.game_calls.enabled) +
                ",\"game_calls_tripped\":" + Bool(g_game_calls_tripped.load()) + "}";
     }
@@ -1332,14 +1453,14 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
     if (command == "text" || command == "move" || command == "click" || command == "scroll") {
         if (!InputReady(handlers)) return Error(kInputDisabled);
         std::lock_guard lock(g_input_mutex);
-        const CountedInput counted(handlers);
+        const CountedInput counted(handlers, command);
         if (command == "text") return TextCommand(counted.handlers(), argument);
         return MouseCommand(counted.handlers(), command, argument);
     }
     if (command == "key" || command == "pause" || command == "resume" || command == "speed") {
         if (!InputReady(handlers)) return Error(kInputDisabled);
         std::lock_guard lock(g_input_mutex);
-        const CountedInput counted(handlers);
+        const CountedInput counted(handlers, command);
         Actions actions(counted.handlers());
         if (command == "key") {
             const auto key = FindKey(argument);
