@@ -1204,7 +1204,8 @@ private:
         if (!ok) out += ",\"error\":" + Quoted(error) + ",\"detail\":" + Quoted(detail);
         out += ",\"command\":\"console\",\"line\":" + Quoted(line_);
         if (!name_.empty()) out += ",\"name\":" + Quoted(name_);
-        if (h_.game_calls.ironman || h_.game_calls.multiplayer) {
+        // Only once the main thread has read the mode; a refusal before that has none.
+        if ((h_.game_calls.ironman || h_.game_calls.multiplayer) && raw_.session != 0) {
             out += std::string(",\"mode\":{\"ironman\":") + Bool(raw_.ironman) + ",\"multiplayer\":" + Bool(raw_.multiplayer) +
                    ",\"game_calls_ironman\":" + Bool(h_.game_calls.ironman) +
                    ",\"game_calls_multiplayer\":" + Bool(h_.game_calls.multiplayer) + "}";

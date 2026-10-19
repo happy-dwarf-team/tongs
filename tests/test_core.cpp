@@ -1441,6 +1441,7 @@ static void TestConsoleCommand() {
     out = HandleRequest("console echo x", ironman);
     assert(Contains(out, "\"ok\":true") && Contains(out, "\"mode\":{\"ironman\":true,\"multiplayer\":false,"));
     assert(console.log.back().first == 2 && Contains(console.log.back().second, "called in ironman"));
+    assert(!Contains(HandleRequest("console leak", ironman), "\"mode\""));  // refused before the mode is read
     console.raw.ironman = false;
     console.raw.multiplayer = true;
     assert(Contains(HandleRequest("console echo x", ironman), "\"error\":\"multiplayer\""));
