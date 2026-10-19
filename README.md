@@ -115,16 +115,20 @@ text, list boxes, check boxes and edit boxes, by their names in the game's
 - Filters in brackets: `[2]` (the second match, from 1), `[type=button]`
   (`window`, `button`, `icon`, `text`, `listbox`, `checkbox`,
   `editbox`, `other`), `[text=...]`, `[text~=...]` (contains),
-  `[text^=...]` (starts with), `[enabled]`, `[disabled]`. A step made only
-  of filters means any name: `speed_controls/[type=button]`.
+  `[text^=...]` (starts with), `[enabled]`, `[disabled]`, `[checked]`,
+  `[unchecked]`. A step made only of filters means any name:
+  `speed_controls/[type=button]`.
 - Hidden widgets are left out unless the command ends with `all`.
 
 Every widget in an answer has a `path` that finds it again, with `[n]`
 where siblings share a name. `text` is what the game displays, in UTF-8
 without its colour codes, so text filters depend on the game's language;
-prefer names and `[n]`. `click_point` is the centre of `rect` and can be
-passed to `click`. Window sizes may not cover the drawn panel; positions are
-right.
+prefer names and `[n]`. Edit boxes have their `text` too, and check boxes
+`checked`. `click_point` is the centre of `rect` and can be passed to `click`.
+Window sizes come from the `.gui` files and may not match the drawn panel
+(larger, or 0 for some shield buttons); positions are right. List boxes
+create widgets only for the rows they show and refill them as they scroll,
+so a row's path stays while its text changes.
 
 `ui click SEL` resolves the selector, moves the pointer to the centre of the
 widget, checks that the game sees that widget (or one inside it) under the

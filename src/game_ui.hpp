@@ -18,6 +18,7 @@ struct UiKind {
     unsigned text = 0;    // std::string shown by the widget; 0 = none
     bool state = false;   // int32 state at UiLayout::button_state, 3 = disabled
     Children children = Children::None;
+    unsigned checked = 0;  // byte: the check box is ticked; 0 = none
 };
 
 // Where EU4 1.37.5 keeps its widgets (docs/design.md, "Widget tree"). RVAs are
@@ -78,8 +79,8 @@ struct UiLayout {
         {0x1D96D00, UiType::Icon, 0x168},
         {0x1D8FD10, UiType::Text, 0x118, 0x170},                                    // instantTextBoxType
         {0x1D99230, UiType::Text, 0xD0, 0x178},                                     // textBoxType
-        {0x1D91358, UiType::Editbox, 0x1E8},                                        // editBoxType
-        {0x1D8FFC8, UiType::Checkbox, 0x110},                                       // checkboxType
+        {0x1D91358, UiType::Editbox, 0x1E8, 0xF8},                                  // editBoxType
+        {0x1D8FFC8, UiType::Checkbox, 0x110, 0, false, UiKind::Children::None, 0x100},  // checkboxType
         {0x1D90FD8, UiType::Listbox, 0x180, 0, false, UiKind::Children::Listbox},   // listboxType
         {0x1D96578, UiType::Listbox, 0x218, 0, false, UiKind::Children::SmoothListbox},  // smoothListboxType
         {0x1D97EF0, UiType::Listbox},                                               // gridBoxType

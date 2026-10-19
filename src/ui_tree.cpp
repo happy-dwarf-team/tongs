@@ -86,6 +86,11 @@ std::string ParseFilter(std::string_view body, UiSelector::Step& step) {
         step.filters.push_back(filter);
         return {};
     }
+    if (body == "checked" || body == "unchecked") {
+        filter.kind = body == "checked" ? Kind::Checked : Kind::Unchecked;
+        step.filters.push_back(filter);
+        return {};
+    }
     std::string_view key;
     if (body.starts_with("type")) {
         key = "type";
@@ -258,6 +263,10 @@ bool UiView::Matches(int widget, const UiSelector::Step& step) const {
             case Kind::Disabled:
                 if (!w.has_enabled || w.enabled != (f.kind == Kind::Enabled)) return false;
                 break;
+            case Kind::Checked:
+            case Kind::Unchecked:
+                if (!w.has_checked || w.checked != (f.kind == Kind::Checked)) return false;
+                break;
             default: {
                 if (!w.has_text) return false;
                 const std::string text = LowerCopy(w.text);
@@ -424,7 +433,7 @@ std::string ParseUiRequest(std::string_view argument, UiRequest& out) {
 
 namespace {
 
-// path, type, visible, rect, click_point, and text / enabled where they apply.
+// path, type, visible, rect, click_point, and text / enabled / checked where they apply.
 std::string WidgetMembers(const UiView& view, int widget) {
     const UiWidget& w = view.tree().widgets[widget];
     const UiRect& r = w.rect;
@@ -434,6 +443,7 @@ std::string WidgetMembers(const UiView& view, int widget) {
     out += ",\"click_point\":{\"x\":" + Num(r.x + r.w / 2) + ",\"y\":" + Num(r.y + r.h / 2) + "}";
     if (w.has_text) out += ",\"text\":\"" + JsonEscape(w.text) + "\"";
     if (w.has_enabled) out += std::string(",\"enabled\":") + (w.enabled ? "true" : "false");
+    if (w.has_checked) out += std::string(",\"checked\":") + (w.checked ? "true" : "false");
     return out;
 }
 

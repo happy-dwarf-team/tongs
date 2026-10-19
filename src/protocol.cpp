@@ -817,6 +817,9 @@ ClickOutcome ClickWidget(const Handlers& h, std::uintptr_t target, const UiRect&
 
 int TimeoutOr(const Handlers& h, int timeout_ms) { return timeout_ms > 0 ? timeout_ms : h.dispatch_timeout_ms; }
 
+void NoteChoice(const Handlers& h, const EventView& e, const EventOption& o, const StateSnapshot& before,
+                const char* via = nullptr);
+
 // ui click SEL [timeout=S]: resolves the selector on the main thread, then clicks.
 std::string UiClick(const Handlers& handlers, const UiRequest& request) {
     if (std::string error = ClickUnavailable(handlers); !error.empty()) return Error(error);
@@ -825,8 +828,10 @@ std::string UiClick(const Handlers& handlers, const UiRequest& request) {
     const Handlers& h = counted.handlers();
     const int timeout_ms = TimeoutOr(h, request.timeout_ms);
     const std::uint64_t start = h.now_ms();
+    // With event windows open, the events too: a click on an option is a choice Tongs can name.
+    const bool events = h.read_events && h.count_event_windows && h.count_event_windows() > 0;
     Screen s;
-    if (!ReadScreen(h, timeout_ms, false, s)) return ScreenFailure("ui click", s);
+    if (!ReadScreen(h, timeout_ms, events, s)) return ScreenFailure("ui click", s);
     const std::string head = ",\"command\":\"ui click\",\"selector\":" + Quote(request.selector_text);
     const UiClickTarget target = ResolveClickTarget(s.tree, request.selector);
     if (!target.error.empty()) {
@@ -837,10 +842,26 @@ std::string UiClick(const Handlers& handlers, const UiRequest& request) {
         return out + "]}";
     }
     const UiWidget& w = s.tree.widgets[target.widget];
+    const EventView* event = nullptr;
+    const EventOption* option = nullptr;
+    for (const EventView& e : s.events) {
+        for (const EventOption& o : e.options) {
+            if (o.widget == target.widget) {
+                event = &e;
+                option = &o;
+            }
+        }
+    }
+    const StateSnapshot before = option ? h.read_state() : StateSnapshot{};
     const ClickOutcome c = ClickWidget(h, w.address, w.rect, timeout_ms, true);
+    if (c.ok && option) NoteChoice(h, *event, *option, before, "ui click");
     std::string out = std::string("{\"ok\":") + Bool(c.ok);
     if (!c.ok) out += ",\"error\":" + Quote(c.error);
     out += head + (c.ok ? ",\"clicked\":" : ",\"path\":") + Quote(target.path) + c.members;
+    if (option) {
+        out += ",\"event_option\":{\"id\":" + Quote(event->id) + ",\"number\":" + std::to_string(option->number) +
+               ",\"option_index\":" + std::to_string(option->index) + "}";
+    }
     out += ",\"waited_ms\":" + std::to_string(h.now_ms() - start);
     return out + "," + StateFields(c.state) + "}";
 }
@@ -921,11 +942,14 @@ std::string CloseFields(const CloseWatch& w) {
 
 // For the `closed` event notification: the option Tongs clicked, noted before
 // the game handles the click.
-void NoteChoice(const Handlers& h, const EventView& e, const EventOption& o, const StateSnapshot& before) {
+// `via` names the command when it is not event choose / run_until (a plain ui click on the option).
+void NoteChoice(const Handlers& h, const EventView& e, const EventOption& o, const StateSnapshot& before,
+                const char* via) {
     if (!h.notifications) return;
     std::string json = "{\"number\":" + std::to_string(o.number) + ",\"text\":" + Quote(o.text) +
                        ",\"option_index\":" + std::to_string(o.index) + ",\"option_key\":" + Quote(o.key) +
                        ",\"by\":\"tongs\",\"client\":" + std::to_string(t_client);
+    if (via) json += ",\"via\":" + Quote(via);
     if (before.in_game) json += ",\"choice_date\":\"" + DateText(before.date_raw) + "\"";
     h.notifications->NoteChoice(e.controller, e.id, json + "}");
 }

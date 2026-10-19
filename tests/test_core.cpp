@@ -225,6 +225,29 @@ static UiTree SampleTree() {
     return t;
 }
 
+// SampleTree with a ticked check box and an empty edit box as top-level widgets.
+static UiTree SampleTreeWithBoxes() {
+    UiTree t = SampleTree();
+    UiWidget box;
+    box.name = "show_unsafe_checkbox";
+    box.type = UiType::Checkbox;
+    box.shown = true;
+    box.rect = {33, 70, 38, 39};
+    box.has_checked = true;
+    box.checked = true;
+    t.widgets.push_back(box);
+    t.roots.push_back(static_cast<int>(t.widgets.size()) - 1);
+    UiWidget edit;
+    edit.name = "console_edit";
+    edit.type = UiType::Editbox;
+    edit.shown = true;
+    edit.rect = {6, 972, 840, 48};
+    edit.has_text = true;  // an edit box shows even an empty text
+    t.widgets.push_back(edit);
+    t.roots.push_back(static_cast<int>(t.widgets.size()) - 1);
+    return t;
+}
+
 static std::vector<std::string> Paths(const UiTree& t, const char* selector, bool all = false) {
     UiSelector sel;
     const std::string error = ParseUiSelector(selector, sel);
@@ -262,6 +285,10 @@ static void TestUiSelectors() {
            V({"speed_controls/button_speedup", "speed_controls/button_speeddown"}));
     assert(Paths(t, "speed_controls/*[disabled]") == V{"speed_controls/button_speeddown"});
     assert(Paths(t, "speed_controls/[type=button][enabled]") == V{"speed_controls/button_speedup"});
+    UiTree boxes = SampleTreeWithBoxes();
+    assert(Paths(boxes, "//[checked]") == V{"show_unsafe_checkbox"} && Paths(boxes, "//[unchecked]").empty());
+    boxes.widgets[boxes.widgets.size() - 2].checked = false;
+    assert(Paths(boxes, "//[unchecked]") == V{"show_unsafe_checkbox"} && Paths(boxes, "//[checked]").empty());
     assert(Paths(t, "speed_controls/[2]") == V{"speed_controls/DateText"});
     assert(Paths(t, "//[text~=MARCH]") == V{"speed_controls/DateText"});
     assert(Paths(t, "//*[text=\"17 march 1719\"]") == V{"speed_controls/DateText"});
@@ -372,6 +399,14 @@ static void TestUiCommand() {
         assert(Contains(out, "{\"ok\":true,\"command\":\"ui find\",\"selector\":\"//button_speedup\",\"count\":1,") &&
                Contains(out, "\"queued_ms\":") && Contains(out, "\"run_ms\":") && Contains(out, "\"frame\":"));
         assert(reader != std::this_thread::get_id());  // read on the "main thread"
+        h.read_ui = [](UiTree& tree) {
+            tree = SampleTreeWithBoxes();
+            return std::string();
+        };
+        out = HandleRequest("ui find //[type=checkbox]", h);
+        assert(Contains(out, "\"path\":\"show_unsafe_checkbox\",\"type\":\"checkbox\"") && Contains(out, "\"checked\":true"));
+        out = HandleRequest("ui find console_edit", h);
+        assert(Contains(out, "\"type\":\"editbox\"") && Contains(out, "\"text\":\"\"") && !Contains(out, "checked"));
         out = HandleRequest("ui tree //nothing", h);
         assert(Contains(out, "{\"ok\":false,\"error\":\"not_found\",\"command\":\"ui tree\""));
         h.read_ui = [](UiTree&) { return std::string("access violation while reading the widget tree"); };
@@ -1231,6 +1266,25 @@ static void TestUiClickCommand() {
     assert(Contains(HandleRequest("ui click speed_controls/button_speedup", no_hook), "cursor hook"));
 }
 
+static void TestUiClickChoice() {
+    FakeScreen screen;
+    NotificationHub hub(SteadyMs);
+    Handlers h = screen.Make();
+    h.notifications = &hub;
+    FakeMainThread main(screen.dispatcher);
+    // A plain ui click on an option button: Tongs knows which option it clicked.
+    std::string out = HandleRequest("ui click EventWindow[1]/event_option_listbox/event_option_entry[2]/event_option_button", h);
+    assert(Contains(out, "\"ok\":true") &&
+           Contains(out, "\"event_option\":{\"id\":\"flavor_rus.1\",\"number\":2,\"option_index\":1}"));
+    assert(screen.chosen == std::vector<std::string>{"5_1"});
+    const std::optional<std::string> note = hub.TakeChoice(0xC2, "flavor_rus.1");
+    assert(note && Contains(*note, "\"option_index\":1") && Contains(*note, "\"by\":\"tongs\"") &&
+           Contains(*note, "\"via\":\"ui click\"") && Contains(*note, "\"choice_date\":\"1719.3.17\""));
+    // Any other widget: no event_option, nothing noted.
+    out = HandleRequest("ui click speed_controls/button_speedup", h);
+    assert(Contains(out, "\"ok\":true") && !Contains(out, "event_option"));
+}
+
 static void TestEventCommands() {
     FakeScreen screen;
     const Handlers h = screen.Make();
@@ -1959,6 +2013,7 @@ int main() {
     TestUiClickTarget();
     TestChildrenBounds();
     TestUiClickCommand();
+    TestUiClickChoice();
     TestEventCommands();
     TestInputsCount();
     TestRunUntilEventsFirst();

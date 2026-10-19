@@ -163,7 +163,7 @@ Selector = Annotated[
         min_length=1,
         description="Widget selector: a path of .gui names such as speed_controls/button_speedup, "
         "EventWindow//event_option_button or //DateText; * and ? wildcards; filters [2], [type=button], "
-        "[text~=...], [text^=...], [enabled], [disabled].",
+        "[text~=...], [text^=...], [enabled], [disabled], [checked], [unchecked].",
     ),
 ]
 

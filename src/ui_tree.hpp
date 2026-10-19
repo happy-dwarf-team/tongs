@@ -31,6 +31,8 @@ struct UiWidget {
     std::string text;  // UTF-8
     bool has_enabled = false;
     bool enabled = false;
+    bool has_checked = false;  // check boxes
+    bool checked = false;
     std::vector<int> children;  // indices into UiTree::widgets, in the game's order
     std::uintptr_t address = 0;  // the widget pointer in the game: matches event buttons and the hovered widget; not reported
 };
@@ -43,7 +45,7 @@ struct UiTree {
 struct UiSelector {
     enum class Axis { Top, Child, Descendant };
     struct Filter {
-        enum class Kind { Type, TextEquals, TextContains, TextStarts, Enabled, Disabled };
+        enum class Kind { Type, TextEquals, TextContains, TextStarts, Enabled, Disabled, Checked, Unchecked };
         Kind kind = Kind::Type;
         UiType type = UiType::Other;
         std::string value;  // lower case
