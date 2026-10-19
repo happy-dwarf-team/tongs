@@ -27,6 +27,10 @@ struct StateSnapshot {
     bool paused_flag = false;    // the player pause byte (+0x48) alone
     std::uintptr_t session = 0;  // the session object (root+0x1E00); not reported, tells loaded saves apart
     std::uint64_t load = 0;      // which load of a save the read saw (LoadWatch); 0 when not observed; not reported
+    // The game process, so a client can tell answers of a restarted game apart:
+    // its id and creation time (Unix ms). Filled by the plugin; 0 when unknown, then not reported.
+    std::uint32_t pid = 0;
+    std::uint64_t process_start_ms = 0;
 };
 
 // The game window (game_window.cpp). Mouse commands use client coordinates.
@@ -131,6 +135,7 @@ struct Handlers {
     // The Anvil log (level as AnvilLogLevel: 1 info, 2 warning, 3 error); optional.
     std::function<void(int level, const std::string& message)> log;
     std::uint32_t process_id = 0;
+    std::uint64_t process_start_ms = 0;  // creation time of the game process (Unix ms); 0 when unknown
     // How long pause/resume/speed wait for the game to react. Right after a save
     // loads, the main loop handled a key press only 2-7 s later.
     int wait_timeout_ms = 10000;

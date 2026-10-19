@@ -105,8 +105,10 @@ Tongs controls a running Europa Universalis IV 1.37.5 (with the Anvil loader) th
 the local pipe \\\\.\\pipe\\tongs. Every tool sends one command and returns the plugin's
 JSON answer unchanged; "ok": false answers come back as errors with an "error" field.
 
-- Start with tongs_state (in_game, date, speed, paused). Use tongs_ui_find before
+- Start with tongs_state (in_game, date, speed, paused, pid). Use tongs_ui_find before
   clicking, and prefer tongs_ui_click (by widget name) over tongs_click_point.
+- Answers that carry the state include pid and process_start_ms: when they change, the
+  game was restarted and earlier answers describe another process.
 - Input tools (pause, resume, speed, key, text, mouse, ui click, event choose, run_until)
   work only with input = true in the plugin config and are counted in "inputs" of any
   wait in progress. tongs_console works only with game_calls = true, changes game
@@ -290,7 +292,8 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
     @tool(READ)
     async def tongs_state() -> CallToolResult:
         """Game state: in_game, and with a loaded game date ("1719.3.17"), hour, speed (1-5 as in
-        the UI), paused, paused_flag (the player pause) and game_calls_total. Cheap; call it first."""
+        the UI), paused, paused_flag (the player pause) and game_calls_total; always pid and
+        process_start_ms (Unix ms) of the game process. Cheap; call it first."""
         return await call("state")
 
     @tool(READ)

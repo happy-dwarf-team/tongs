@@ -48,6 +48,15 @@ tongs::Config LoadConfig(const std::filesystem::path& data_dir) {
     return tongs::ParseConfig(text.str());
 }
 
+// Creation time of this process as Unix milliseconds; 0 when Windows does not tell.
+std::uint64_t ProcessStartMs() {
+    FILETIME created{}, exited{}, kernel{}, user{};
+    if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user)) return 0;
+    const std::uint64_t ticks = (static_cast<std::uint64_t>(created.dwHighDateTime) << 32) | created.dwLowDateTime;
+    constexpr std::uint64_t kUnixEpochTicks = 116'444'736'000'000'000ULL;  // 1970-01-01 in 100 ns since 1601
+    return ticks > kUnixEpochTicks ? (ticks - kUnixEpochTicks) / 10'000 : 0;
+}
+
 }  // namespace
 
 extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* host, AnvilPlugin* self) {
@@ -67,13 +76,16 @@ extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* ho
     const std::uintptr_t image_base = host->game->image_base;
     tongs::Handlers handlers;
     handlers.process_id = GetCurrentProcessId();
+    handlers.process_start_ms = ProcessStartMs();
     handlers.log = [](int level, const std::string& message) { Log(level, message); };
     handlers.game_calls = config.game_calls;
     // Every state read also tells LoadWatch whether a game was loaded, so a reloaded save starts game_calls_total again.
     static tongs::LoadWatch load_watch;
-    handlers.read_state = [image_base] {
+    handlers.read_state = [image_base, pid = handlers.process_id, start_ms = handlers.process_start_ms] {
         tongs::StateSnapshot s = tongs::ReadState(image_base, tongs::GameLayout{});
         load_watch.Observe(s);
+        s.pid = pid;
+        s.process_start_ms = start_ms;
         return s;
     };
     handlers.read_window = [] { return tongs::ReadGameWindow(); };
