@@ -853,8 +853,14 @@ std::string UiClick(const Handlers& handlers, const UiRequest& request) {
         }
     }
     const StateSnapshot before = option ? h.read_state() : StateSnapshot{};
-    const ClickOutcome c = ClickWidget(h, w.address, w.rect, timeout_ms, true);
-    if (c.ok && option) NoteChoice(h, *event, *option, before, "ui click");
+    // A choice is noted right after the click, before the settle time: the event
+    // reader may see the event close within a few frames (live: chosen came null).
+    ClickOutcome c = ClickWidget(h, w.address, w.rect, timeout_ms, !option);
+    if (c.ok && option) {
+        NoteChoice(h, *event, *option, before, "ui click");
+        h.sleep_ms(h.key_settle_ms);
+        c.state = h.read_state();
+    }
     std::string out = std::string("{\"ok\":") + Bool(c.ok);
     if (!c.ok) out += ",\"error\":" + Quote(c.error);
     out += head + (c.ok ? ",\"clicked\":" : ",\"path\":") + Quote(target.path) + c.members;

@@ -1273,13 +1273,22 @@ static void TestUiClickChoice() {
     NotificationHub hub(SteadyMs);
     Handlers h = screen.Make();
     h.notifications = &hub;
+    // The note must be there before any waiting after the click: the event reader
+    // may see the event close within a few frames.
+    bool clicked = false;
+    std::optional<std::string> note;
+    screen.on_click = [&clicked](std::uintptr_t) { clicked = true; };
+    const auto sleep = h.sleep_ms;
+    h.sleep_ms = [&, sleep](int ms) {
+        if (clicked && !note) note = hub.TakeChoice(0xC2, "flavor_rus.1").value_or("none at the first wait");
+        sleep(ms);
+    };
     FakeMainThread main(screen.dispatcher);
     // A plain ui click on an option button: Tongs knows which option it clicked.
     std::string out = HandleRequest("ui click EventWindow[1]/event_option_listbox/event_option_entry[2]/event_option_button", h);
     assert(Contains(out, "\"ok\":true") &&
            Contains(out, "\"event_option\":{\"id\":\"flavor_rus.1\",\"number\":2,\"option_index\":1}"));
     assert(screen.chosen == std::vector<std::string>{"5_1"});
-    const std::optional<std::string> note = hub.TakeChoice(0xC2, "flavor_rus.1");
     assert(note && Contains(*note, "\"option_index\":1") && Contains(*note, "\"by\":\"tongs\"") &&
            Contains(*note, "\"via\":\"ui click\"") && Contains(*note, "\"choice_date\":\"1719.3.17\""));
     // Any other widget: no event_option, nothing noted.
