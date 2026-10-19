@@ -5,8 +5,9 @@ with timing (`run_until`), worker pools and screenshots for measurements.
 Layer 3 is implemented: the dispatcher (0.4.0), the widget tree (0.5.0), and
 widget clicks and events (0.6.0). Layer 4, console game calls, is implemented
 (0.7.0), and so are notifications (0.8.0), the last release of draft 4 (see
-"Releases"). The decisions behind them are on the planning map
-[Map: game calls and the widget tree](https://github.com/happy-dwarf-team/tongs/issues/15).
+"Releases"). After draft 4, an MCP server in `mcp/` (0.9.0) offers the
+pipe to agents as tools (see "MCP adapter"). The decisions behind them are on
+the planning map [Map: game calls and the widget tree](https://github.com/happy-dwarf-team/tongs/issues/15).
 Words such as game call, main-thread read, outer frame, widget path, event,
 notification and marked run are defined in [`GLOSSARY.md`](../GLOSSARY.md).
 
@@ -1248,6 +1249,29 @@ the game, a player's own choice (`chosen` is `null` for it; the game's
 could tell, but Tongs does not follow `game.log`), ironman and multiplayer,
 and the cost of the event reads at speed 5 under `SIMULATION` conditions.
 
+## MCP adapter (0.9.0)
+
+`mcp/` holds an MCP server (Python, MCP Python SDK 2.3.0, stdio only) that
+turns the pipe into typed tools for agents: one tool per command family and
+`tongs_raw` for any one line. It was left out of draft 4 as a separate thin
+project; it lives in this repository instead, next to the client it reuses.
+
+- No new power: each tool sends one command over a connection of its own and
+  returns the answer line unchanged (and parsed, with `isError` for
+  `"ok": false`). `input` and `game_calls` in the plugin's config still decide.
+  Arguments with line breaks are refused, so a tool cannot send two commands.
+- `scripts/tongs.py` is copied verbatim into the package (a test keeps the two
+  equal), so the server installs on its own with `uvx` or `uv sync`.
+- Long waits: when the client asks for progress, `wait_until` / `run_until`
+  open a second connection with `subscribe date date=day` and report the game
+  days as MCP progress. Cancelling the tool call sends `cancel`, which ends
+  every wait in progress.
+- Releases: no new asset. release-please bumps `mcp/pyproject.toml` and
+  `mcp/uv.lock` with `version.txt`; users run the server from a release tag.
+
+Install, tools, client timeouts and the live check (2026-10-19, game driven
+through the server over stdio by a Python MCP client): [`mcp/README.md`](../mcp/README.md).
+
 ## Releases
 
 Each release is one PR with its live checks done before it merges; the order
@@ -1269,7 +1293,7 @@ Not in draft 4:
 - the map and provinces;
 - notifications for arbitrary windows;
 - `nowait` for main-thread jobs;
-- an MCP adapter;
+- an MCP adapter (added after draft 4 in `mcp/`, see "MCP adapter");
 - a per-day tick profile;
 - state queries through scripted triggers;
 - screenshots of single widgets.

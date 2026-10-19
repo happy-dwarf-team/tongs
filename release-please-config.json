@@ -8,7 +8,9 @@
       "package-name": "tongs",
       "bump-minor-pre-major": true,
       "extra-files": [
-        { "type": "toml", "path": "plugin/plugin.toml", "jsonpath": "$.version" }
+        { "type": "toml", "path": "plugin/plugin.toml", "jsonpath": "$.version" },
+        { "type": "toml", "path": "mcp/pyproject.toml", "jsonpath": "$.project.version" },
+        { "type": "toml", "path": "mcp/uv.lock", "jsonpath": "$.package[?(@.name.value==='tongs-mcp')].version" }
       ],
       "changelog-sections": [
         { "type": "feat", "section": "Features" },

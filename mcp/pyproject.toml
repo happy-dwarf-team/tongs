@@ -1,0 +1,28 @@
+[project]
+name = "tongs-mcp"
+# Bumped by release-please together with version.txt (release-please-config.json).
+version = "0.8.0"
+description = "MCP server (stdio) for the Tongs pipe: control Europa Universalis IV from agents"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+# The direct dependency is pinned exactly; uv.lock pins the rest.
+dependencies = ["mcp==2.3.0"]
+
+[project.scripts]
+tongs-mcp = "tongs_mcp.server:main"
+
+[dependency-groups]
+dev = ["pytest==9.1.1"]
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.14"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+# A verbatim copy of scripts/tongs.py (tests/test_vendored.py checks it).
+extend-exclude = ["src/tongs_mcp/tongs.py"]
