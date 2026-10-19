@@ -453,3 +453,115 @@ build = "eu4-1.37.5-steam-win64"
 rva = 0x1552BFC
 bytes = "48 8D 05 45 0B 84 00 48 89 01"
 name = "scrollbarType vtable 0x1D93748"
+
+# Clicking widgets (0.6.0): the topmost widget under the GUI pointer.
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x15528D0
+bytes = "48 89 5C 24 08 57 48 83 EC 20 48 8B 01 8B FA 48 8B D9 FF 10 84 C0 74 2F 8B 4B 60 83 F9 FF 74 12 3B F9 0F 9E C0 88 83 8F 00 00 00 83 F9 FE 7E 17 EB 07 C6 83 8F 00 00 00 01 48 8B 83 B8 00 00 00 48 89 98 30 01 00 00"
+name = "GuiObject hover callback: +0x8F hovered this frame, mgr+0x130 = this (manager at +0xB8)"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x14DEFFA
+bytes = "48 8B 5E 08 48 2B 1E 48 C1 FB 04 83 EB 01 78 34 48 89 7C 24 30 48 63 FB 48 C1 E7 04 66 66 0F 1F 84 00 00 00 00 00 48 8B 06 8B D3 48 8B 4C 07 08 48 8B 01 FF 50 08 83 EB 01 48 8D 7F F0 79 E7"
+name = "hover: picked owners called from the last to the first, so the topmost (first) stays in mgr+0x130"
+
+# Events (0.6.0): open event windows, their events and option buttons.
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x828C20
+bytes = "48 8B 05 51 72 B1 01 80 B8 E0 74 00 00 00 74 30 B9 E8 03 00 00 E8 9A A6 20 01 48 89 44 24 30 89 7C 24 20 4C 8B CE 4C 8B C5 48 8B D3 48 8B C8 E8 FC 0D 89 00 90 48 8B D0 48 8B CB E8 80 3E EC FF"
+name = "session slot 0x108: new event controller (0x10B9A50), append to session pop-up list (0x6ECAE0)"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x6ECB39
+bytes = "48 8B 9E 80 00 00 00 B9 20 00 00 00 E8 8A 67 34 01 48 89 38 48 89 58 08 48 C7 40 10 00 00 00 00 C6 40 18 00"
+name = "pop-up list append: tail session+0x80, node {popup, prev, next +0x10, flag +0x18}"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x10B9B3B
+bytes = "48 8D 05 B6 F5 C9 00 48 89 03 48 8D 05 94 F5 C9 00 48 89 43 08 C7 43 30 FF FF FF FF 33 F6 48 89 73 38 48 89 7B 40 4C 89 7B 48"
+name = "event controller ctor: vtable 0x1D590F8, +0x30 = -1, window +0x38, session +0x40, event +0x48"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x10BA234
+bytes = "48 8D 54 24 50 41 FF D0 49 89 47 38"
+name = "event fill: created EventWindow stored at controller+0x38"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x10BB593
+bytes = "49 8B 47 48 48 8B 88 90 07 00 00 48 8B 80 98 07 00 00"
+name = "event fill: options vector at event+0x790/+0x798"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x10BB74C
+bytes = "49 8B 4F 48 8B 51 14 48 8D 4D 68 E8 A4 82 64 00"
+name = "event fill: numeric event id at event+0x14 for the button string"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x10BB7A8
+bytes = "49 8B 04 24 48 8D 54 24 70 49 8B CC FF 90 18 01 00 00 49 8D 47 50 49 89 44 24 10"
+name = "event fill: button slot 0x118 gets '<id>_<index>', button+0x10 = controller+0x50"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x10BB81F
+bytes = "49 8D 8F 08 02 00 00 48 8D 95 18 01 00 00 E8 EE 38 02 FF"
+name = "event fill: append option button to controller+0x208"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x10BBAE8
+bytes = "48 8B 05 89 43 28 01 48 8B 88 00 1E 00 00 48 8B 01 4D 8B 4F 38 4D 8B C4 49 8B 57 48"
+name = "event fill: session slot 0x2F0 gets (event, scope, window)"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x82B055
+bytes = "48 89 18 48 89 78 08 48 89 70 10 48 8B 9D A0 04 00 00"
+name = "session slot 0x2F0: entry {event, scope, window}, list tail session+0x4A0"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x1552930
+bytes = "48 83 7A 18 10 72 03 48 8B 12 49 C7 C0 FF FF FF FF 49 FF C0 42 80 3C 02 00 75 F6 48 83 C1 38 E9 BC 27 B4 FE"
+name = "GuiObject slot 0x118: assign string at +0x38"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x10BC220
+bytes = "40 57 48 83 EC 40 80 B9 24 01 00 00 00 48 8B F9 0F 84 92 00 00 00 4C 8B 81 08 02 00 00 4D 85 C0 0F 84 82 00 00 00 49 39 10 4D 8B 40 10 74 0B 4D 85 C0 75 F2 48 83 C4 40 5F C3 48 85 D2 74 69 48 8D 4A 38 41 B0 5F"
+name = "option click: +0x124 active, button in +0x208 list, split button+0x38 at '_'"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x6EEC19
+bytes = "4C 8D 61 20 49 8B D6 49 8B CC E8 E8 64 9A FF 49 8B CE E8 A8 A3 35 01 44 8B E8 41 BF 04 00 00 00 3D A0 86 01 00"
+name = "event parser, token id: text to event+0x20, atoi, limit 100000"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x6F6C5F
+bytes = "48 81 C2 44 04 00 00 49 C7 C0 FF FF FF FF 0F 1F 00 49 FF C0 42 80 3C 02 00 75 F6 48 81 C1 88 00 00 00 48 83 C4 20 5F E9 85 E4 99 FF"
+name = "option parser, token name: text to option+0x88"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x82B07F
+bytes = "8B 95 A8 04 00 00 48 89 85 A0 04 00 00 8D 4A 01 89 8D A8 04 00 00"
+name = "session slot 0x2F0: event window list count at session+0x4A8"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x10BBEE1
+bytes = "48 8B 9E 08 02 00 00 F2 0F 5C 86 20 02 00 00 F3 0F 10 0D 5C 29 28 01 0F 5A C9 66 0F 2F C8 76 29"
+name = "event update: option buttons disabled while less than the float at 0x233E854 has passed since +0x220"

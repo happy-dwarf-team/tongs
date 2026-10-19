@@ -1,6 +1,7 @@
 // Tongs — Anvil plugin entry point.
 #include "config.hpp"
 #include "game_cursor.hpp"
+#include "game_events.hpp"
 #include "game_frame.hpp"
 #include "game_input.hpp"
 #include "game_state.hpp"
@@ -84,6 +85,11 @@ extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* ho
         handlers.frame_stats = &frame_stats;
         handlers.current_thread_id = [] { return static_cast<std::uint32_t>(GetCurrentThreadId()); };
         handlers.read_ui = [image_base](tongs::UiTree& tree) { return tongs::ReadUiTree(image_base, tongs::UiLayout{}, tree); };
+        handlers.read_hovered = [image_base] { return tongs::ReadHoveredWidget(image_base, tongs::UiLayout{}); };
+        handlers.read_events = [image_base](tongs::EventsRaw& events) {
+            return tongs::ReadEvents(image_base, tongs::EventLayout{}, events);
+        };
+        handlers.count_event_windows = [image_base] { return tongs::CountEventWindows(image_base, tongs::EventLayout{}); };
     } else {
         Log(ANVIL_LOG_WARNING, error + "; main-thread commands disabled");
     }

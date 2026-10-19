@@ -32,6 +32,7 @@ struct UiWidget {
     bool has_enabled = false;
     bool enabled = false;
     std::vector<int> children;  // indices into UiTree::widgets, in the game's order
+    std::uintptr_t address = 0;  // the widget pointer in the game: matches event buttons and the hovered widget; not reported
 };
 
 struct UiTree {
@@ -72,6 +73,7 @@ public:
     std::string PathOf(int widget) const;
     bool Visible(int widget) const { return visible_[widget] != 0; }
     bool Usable(int widget) const { return include_hidden_ || Visible(widget); }
+    int Parent(int widget) const { return parent_[widget]; }
     // Usable children and top-level windows.
     std::vector<int> Children(int widget) const;
     std::vector<int> Roots() const;
@@ -90,9 +92,9 @@ private:
     std::vector<char> visible_;
 };
 
-// `ui find SEL [all] [limit=N]` and `ui tree [SEL] [depth=N] [limit=N] [all]`.
+// `ui find SEL [all] [limit=N]`, `ui tree [SEL] [depth=N] [limit=N] [all]` and `ui click SEL`.
 struct UiRequest {
-    enum class Verb { Find, Tree };
+    enum class Verb { Find, Tree, Click };
     Verb verb = Verb::Find;
     std::string selector_text;  // empty: none (tree only)
     UiSelector selector;
@@ -114,6 +116,31 @@ std::string ParseUiRequest(std::string_view argument, UiRequest& out);
 // The answer members (each starting with a comma) of a request run on a tree.
 // Sets `found` to false when `ui tree SEL` matches nothing.
 std::string UiAnswer(const UiTree& tree, const UiRequest& request, bool& found);
+
+// The widget `ui click` would click, or why it refuses: "not_found", "ambiguous"
+// (with up to 10 paths), "not_visible" (only hidden widgets match) or "disabled".
+struct UiClickTarget {
+    std::string error;
+    std::vector<std::string> paths;  // ambiguous and not_visible: the matches, up to 10
+    int count = 0;                   // all matches
+    int widget = -1;
+    std::string path;
+};
+
+constexpr int kUiClickPaths = 10;
+
+UiClickTarget ResolveClickTarget(const UiTree& tree, const UiSelector& selector);
+
+// After the pointer moved onto a target: the game hovers `hovered` (mgr+0x130,
+// 0 = none). The click goes ahead only when that is the target or a widget
+// inside it; otherwise `covered_by` names the hovered widget, when the tree has it.
+struct UiCoverCheck {
+    bool covered = true;
+    std::string covered_by;  // path; empty when nothing is hovered or the widget is not in the tree
+    std::string hovered;     // path of the hovered widget when it is the target or inside it
+};
+
+UiCoverCheck CheckCover(const UiTree& tree, std::uintptr_t target, std::uintptr_t hovered);
 
 // The game's 8-bit text (Windows-1252) as UTF-8, without its colour codes (§ and
 // the next character, e.g. "§YName§!" -> "Name").

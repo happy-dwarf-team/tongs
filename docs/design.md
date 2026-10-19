@@ -1,10 +1,10 @@
 # Tongs — design
 
 Status: draft 4 (2026-10-18). Layers 1 and 2 are implemented (0.3.0), together
-with timing (`run_until`), worker pools and screenshots for measurements. Of
-layer 3, the dispatcher (0.4.0) and the widget tree (0.5.0) are implemented;
-the rest of layers 3 and 4 and notifications are planned for releases
-0.6.0–0.8.0 (see "Releases"). The decisions behind them are on the planning map
+with timing (`run_until`), worker pools and screenshots for measurements.
+Layer 3 is implemented: the dispatcher (0.4.0), the widget tree (0.5.0), and
+widget clicks and events (0.6.0). Layer 4 and notifications are planned for
+releases 0.7.0–0.8.0 (see "Releases"). The decisions behind them are on the planning map
 [Map: game calls and the widget tree](https://github.com/happy-dwarf-team/tongs/issues/15).
 Words such as game call, main-thread read, outer frame, widget path, event,
 notification and marked run are defined in [`GLOSSARY.md`](../GLOSSARY.md).
@@ -215,6 +215,13 @@ not count. A stretch with either count above 0 is a marked run, and a
 measurement rejects it. `state` reports `game_calls_total` since the save was
 loaded.
 
+An input is one input command that queued at least one SDL event: `key`,
+`text`, `move`, `click`, `scroll`, `pause`, `resume`, `speed`, `ui click`,
+`event choose`, and inside `run_until events=first` each choice and each
+resume after a choice. A counter shared by all clients is read at the start
+and the end of the wait; `run_until` starts its wait after its own speed and
+resume presses and ends it before its pause.
+
 `run_until DATE events=first` (0.6.0) chooses the first enabled option of each
 event that opens during the run, topmost window first, through `event choose`
 (see "Events"). Each choice counts as an input, so the run is marked. The
@@ -223,6 +230,21 @@ option number and text, `option_index`, `option_key` and widget path. The
 default `events=stop` keeps today's behaviour, with `max_pause`. When an event
 has no enabled option, the run ends with `no_enabled_option` and the event's
 data.
+
+How `events=first` works (0.6.0):
+
+- Between the 10 ms polls of the wait, the pipe thread reads one word, the
+  count of the session's event window list (`session+0x4A8`, written by
+  `0x82B07F`). Only while it is above 0 does it read the events on the main
+  thread, at most every 250 ms when none is waiting for a choice.
+- It takes the input lock, picks the topmost event (the newest, see
+  "Events") and waits up to 10 s for an option to become enabled (the game
+  keeps them disabled for half a second after opening). Without one, the run
+  ends with `no_enabled_option`.
+- It clicks the first enabled option as `event choose` does, waits until the
+  event is no longer waiting for a choice, and presses `resume` when the game
+  is left with the player pause on. A click that is refused (`covered`) or
+  has no effect within 3 s ends the run.
 
 ## Mouse
 
@@ -638,7 +660,7 @@ Findings:
 
 Not checked: the main menu (`continue=` skips it), a save loaded from the
 menu, the children of grid boxes and overlapping elements boxes, edit box
-text, check box state, `+0x8F` and `mgr+0x130` (0.6.0).
+text, check box state. `+0x8F` and `mgr+0x130` were checked in 0.6.0 (below).
 
 ## Clicking widgets (0.6.0)
 
@@ -659,6 +681,64 @@ The game delivers a click to the topmost visible owner under the pointer, and
 a button reacts only when `+0x8F` (hovered this frame) is set, which is why
 the cursor hook is needed. On success the answer has `clicked`, `point` and the
 state after the click. `ui click` needs `input = true` and counts as an input.
+
+How it runs (`src/protocol.cpp`, `ClickWidget`; decisions in
+`src/ui_tree.cpp`):
+
+1. Under the input lock, the tree is read as a main-thread read and the
+   selector resolved: visible matches first; when there is none, a match
+   among hidden widgets gives `not_visible`. Paths and the `disabled` check
+   come from the same read.
+2. The virtual cursor is set to the centre of `rect` and a motion event
+   queued; then 50 ms.
+3. An empty main-thread job runs, then a second one reads the tree again and
+   `mgr+0x130`. The first job may follow a frame that began before the move;
+   the second follows a whole frame that began after it, so the game has
+   picked the widget under the new pointer.
+4. The hovered widget must be the target or inside it (by the tree's
+   parents); otherwise the answer is `covered` with `covered_by` (its path,
+   or `null` when it is not in the tree or the pointer is 0). The click is not
+   sent.
+5. Button down and up are queued; the answer has `hovered` (the path of the
+   hovered widget) and the state read 0.1 s later.
+
+Static findings checked for this: the hover callback `0x15528D0` writes
+`mgr+0x130 = this`, and `0x14DEFD0` calls it for the picked owners from the
+last to the first, so the first (topmost) one stays. Both are `[[expect]]`
+entries.
+
+### Live check (2026-10-19)
+
+Setup:
+- the original `eu4.exe` (`9AD3EFE1…771A`), Anvil 0.2.0 and the 0.6.0 branch;
+- the Russia save of 17 March 1719, loaded with `continue=`; a 3440×1440
+  window at DPI 96, focused;
+- the lab's `anvil-play.ps1 -Scenario tongs -TongsInput` (`tongs-events-1`)
+  under Process Lasso's `1-7`; Python scripts sent the commands.
+
+Anvil reported "84 expected byte range(s) match" and "2 patch(es)". The
+session was closed by the script after the PID, path and start-time check;
+the save was unchanged, `settings.txt` differed only in `graceful_exit` and
+was restored, and the Process Lasso rule was `eu4.exe,0,1-7` afterwards.
+
+- **Success.** `ui click speed_controls/button_speedup` changed the speed
+  2 → 3 and `button_speeddown` back to 2, 190–200 ms per command with the game
+  paused; `mgr+0x130` was the button itself both times.
+- **`covered`.** With an event window open, `ui click topbar` (whose
+  rectangle centre lay under the window) and the menu bar's war enthusiasm
+  icon were refused with `covered_by: "EventWindow[1]/Background"`. With two event windows at
+  the same place, the older window's `Background` was `covered` by the newer
+  one's (`EventWindow[3]/Background`): the newest event window is on top.
+- **`disabled`.** `speed_controls/button_achievements` (state 3).
+- **`not_visible`, `not_found`, `ambiguous`.** `IronmanSaveSelectDialog/show_cloud`
+  (hidden), `//nothing_here` and `//button_speed*` (two paths) were refused
+  without input.
+- **`+0x8F`.** Read after the outer frame, the byte was 0 on the target even
+  though `mgr+0x130` pointed at it: the game clears it per frame. Tongs does
+  not report it.
+- **Not checked:** `mgr+0x130` with nothing under the pointer (whether the
+  game clears it), and clicks while the game runs at speed 5 outside
+  `run_until events=first`.
 
 ## Events (0.6.0)
 
@@ -703,14 +783,84 @@ Commands:
   - The answer carries the game date, event and option, and the state after
     the click.
 
-Live checks in the 0.6.0 PR:
+How it runs (`src/game_events.cpp` reads, `src/events.cpp` decides):
 
-- open an event with the console command `event <id>`, which is not
-  developer-only;
-- `mgr+0x130` after `move`;
-- how fast a chosen event leaves both session lists;
-- whether `+0x498` holds exactly the windows on screen;
-- the length of the click delay.
+- **Main-thread read.** The session's pop-up list (`+0x78`) gives every event
+  controller (vtable `0x1D590F8`) in opening order, with "waiting" `+0x124`,
+  the window (`+0x38`, a full window object; the widget is `+0x30` into it),
+  the event's script id, numeric id and option names, and the option buttons
+  (`+0x208`) with their `+0x38` strings. The event window list (`+0x498`)
+  gives the windows whose node is not marked as being removed. The define
+  `0x233E854` is read as `option_delay`. The widget tree is read in the same
+  job.
+- **Events.** Only controllers that are waiting and have a window are
+  reported, newest first (the newest window is drawn on top, see the live
+  check). Title and description are the texts of the window's `Title` and
+  `Description` widgets (`interface/eventwindow.gui`). Options are numbered
+  in the order of the button list, which is the order on screen;
+  `option_index` comes from the button's string when its numeric id matches
+  the event's, `option_key` from `event+0x790[index]+0x88`, and text,
+  `enabled` and path from the button's widget.
+- **`event list`** also reports `controllers` (event controllers in the
+  pop-up list, chosen ones included), `listed_windows` (live entries of
+  `+0x498`) and `option_delay`.
+- **`event choose`** resolves the request against that list, then clicks the
+  button with the steps of `ui click` (including `covered`). Afterwards it
+  reads the events on the main thread until the controller has left the
+  pop-up list and its window the event window list, up to 3 s: `closed`,
+  `chosen_ms` (no longer waiting), `closed_ms` and `closed_frames` (outer
+  frames after the hover check). The game date of the click is
+  `choice_date`; the state after the choice follows. An event still waiting
+  3 s after the click is an error.
+
+### Live check (2026-10-19)
+
+Same session as "Clicking widgets" (`tongs-events-1`). Events were opened with
+the console command `event <id>`, typed through `key grave`, `text`,
+`key return`, `key grave`; the command was accepted without
+`enable_all_commands`.
+
+- **Fields.** `event flavor_rus.129` opened "Catherine the Great" with its
+  description and three options, `flavor_rus.129.a`–`.c` at indexes 0–2 (the
+  option behind a Rights of Man trigger was shown; the DLC is installed).
+  `event 4011` gave `id: "4011"` (a numeric id comes back as its digits) with
+  `EVTOPTA4011`–`EVTOPTC4011`, and `event 9022` likewise. Texts matched the
+  screenshot.
+- **Lists.** With one, two and three events open, `controllers` and
+  `listed_windows` were 1, 2 and 3, one window per event on screen; after the
+  last choice both were 0.
+- **Option delay.** `option_delay` was 0.5. Polled after `key return`, the
+  options were disabled at 200–234 ms and enabled at 516–546 ms; an
+  `event choose 1` sent right after the console closed was refused
+  `disabled` five times and succeeded 485 ms later.
+- **Choosing.** `event choose 1` with two events open was refused
+  `ambiguous` with both events; `event choose text^="only reform the army"
+  event=title^=military` and `event choose 2` (one event left) clicked the
+  right options. `game.log` has "Selected event option N for event X" for
+  each choice of the session, with the same indexes.
+- **Closing.** `chosen_ms` was 12–13 and `closed_ms` 42–44, `closed_frames`
+  3: a chosen event leaves both session lists within three outer frames
+  (paused, about 63 frames/s).
+- **`run_until events=first`.** 17 March → 1 June 1719 at speed 5, with a
+  second client typing `event 9022` into the console 3 s in (1719.4.19): the
+  run chose option 1 on 1719.4.25 and reached the target, `inputs` 5 (the
+  other client's four commands and the choice). Then 1 June 1719 → 1 December
+  1720: three events opened on their own (`trade.8` on 1720.7.29,
+  `ideagroups.1309` on 1720.11.1, `patriarch_events.1` on 1720.11.27), each
+  was chosen, `inputs` 3, `paused_ms` 0, 10.0 days/s. The game did not pause
+  for any of them, so the resume after a pausing event was not exercised.
+- **Final build.** A second session (`tongs-events-2`, same setup) ran the
+  branch after two answer fields changed: both speed buttons by `ui click`,
+  `event choose 1` on `event 4011` (refused `disabled` until 469 ms), and
+  `run_until 1719.7.1 speed=5 events=first` across a console `event 9022`
+  (chosen on 1719.6.14, `inputs` 5). In an earlier run of that session the
+  console line was typed in the last half second before the target date;
+  no event opened, during the run or after it, and `game.log` has no trace
+  of it. The cause was not investigated; typing into the console at speed 5
+  is outside what Tongs checks.
+- **Not checked:** an event that pauses the game, an event whose options are
+  never enabled, events with more options than the list box shows, and the
+  auto-selection at the deadline (`+0x30`).
 
 ## Game calls (0.7.0)
 
@@ -830,7 +980,7 @@ Not in draft 4:
 
 ## Not verified yet
 
-- Every static finding in the sections for 0.6.0–0.8.0; each section lists the
+- Every static finding in the sections for 0.7.0–0.8.0; each section lists the
   live checks of its release.
 - `paused` for pauses not caused by the pause button (event popups that pause,
   menus, multiplayer); `paused_flag` alone was confirmed for the button.
@@ -844,4 +994,4 @@ Not in draft 4:
   clicks on the map (only interface buttons were tried), and the focused
   window path of `0x14E5E50` (the game was never focused in the checks).
 - `run_until` across an event that pauses the game (the mod set used does not
-  pause on events).
+  pause on events), with `max_pause` and with `events=first`.
