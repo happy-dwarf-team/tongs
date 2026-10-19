@@ -142,6 +142,11 @@ struct UiCoverCheck {
 
 UiCoverCheck CheckCover(const UiTree& tree, std::uintptr_t target, std::uintptr_t hovered);
 
+// The smallest rectangle around the children of `parent` that have a size; the
+// parent's own rect when none has. Scroll bars have no render node, so their own
+// position is not in client pixels; their buttons' are.
+UiRect ChildrenBounds(const UiTree& tree, int parent);
+
 // The game's 8-bit text (Windows-1252) as UTF-8, without its colour codes (§ and
 // the next character, e.g. "§YName§!" -> "Name").
 std::string GameTextToUtf8(std::string_view text);

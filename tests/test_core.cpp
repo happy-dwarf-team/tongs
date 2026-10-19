@@ -1161,6 +1161,20 @@ struct FakeScreen {
     }
 };
 
+static void TestChildrenBounds() {
+    UiTree t;
+    // A scroll bar as read live: its own position relative, its buttons in client pixels.
+    const int bar = AddWidget(t, "standardlistbox_slider", UiType::Other, true, {425, 0, 15, 876});
+    assert(ChildrenBounds(t, bar).x == 425);  // no children: its own rect
+    AddWidget(t, "listboxSliderButton", UiType::Button, true, {444, 130, 19, 19}, bar);
+    AddWidget(t, "listboxTrackButton", UiType::Button, true, {446, 130, 15, 838}, bar);
+    AddWidget(t, "downButton", UiType::Button, true, {444, 968, 19, 19}, bar);
+    AddWidget(t, "upButton", UiType::Button, true, {444, 111, 19, 19}, bar);
+    AddWidget(t, "empty", UiType::Button, true, {0, 0, 0, 19}, bar);  // no size: left out
+    const UiRect r = ChildrenBounds(t, bar);
+    assert(r.x == 444 && r.y == 111 && r.w == 19 && r.h == 876);
+}
+
 static void TestUiClickCommand() {
     FakeScreen screen;
     // A tooltip over the speed-up button, drawn last.
@@ -1941,6 +1955,7 @@ int main() {
     TestSubscribeCommands();
     TestEvents();
     TestUiClickTarget();
+    TestChildrenBounds();
     TestUiClickCommand();
     TestEventCommands();
     TestInputsCount();

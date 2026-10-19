@@ -161,6 +161,11 @@ public:
             Describe(entries_[i], out.widgets[i]);
             if (entries_[i].parent == -1) out.roots.push_back(i);
         }
+        for (int i = 0; i < static_cast<int>(entries_.size()); ++i) {
+            if (entries_[i].kind && entries_[i].kind->children == UiKind::Children::Scrollbar) {
+                out.widgets[i].rect = ChildrenBounds(out, i);
+            }
+        }
         return {};
     }
 

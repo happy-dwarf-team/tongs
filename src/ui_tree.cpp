@@ -575,6 +575,22 @@ UiCoverCheck CheckCover(const UiTree& tree, std::uintptr_t target, std::uintptr_
     return c;
 }
 
+UiRect ChildrenBounds(const UiTree& tree, int parent) {
+    const UiWidget& p = tree.widgets[parent];
+    int left = 0, top = 0, right = 0, bottom = 0;
+    bool any = false;
+    for (const int c : p.children) {
+        const UiRect& r = tree.widgets[c].rect;
+        if (r.w <= 0 || r.h <= 0) continue;
+        left = any ? std::min(left, r.x) : r.x;
+        top = any ? std::min(top, r.y) : r.y;
+        right = any ? std::max(right, r.x + r.w) : r.x + r.w;
+        bottom = any ? std::max(bottom, r.y + r.h) : r.y + r.h;
+        any = true;
+    }
+    return any ? UiRect{left, top, right - left, bottom - top} : p.rect;
+}
+
 std::string GameTextToUtf8(std::string_view text) {
     // 0x80-0x9F of Windows-1252; 0 marks the five bytes it leaves undefined (kept as U+0080-U+009F).
     static constexpr char16_t kHigh[32] = {0x20AC, 0,      0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021,
