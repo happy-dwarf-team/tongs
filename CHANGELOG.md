@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/happy-dwarf-team/tongs/compare/v0.6.0...v0.7.0) (2026-10-19)
+
+
+### Features
+
+* console game calls behind game_calls ([#39](https://github.com/happy-dwarf-team/tongs/issues/39)) ([79cd25a](https://github.com/happy-dwarf-team/tongs/commit/79cd25a2a2626524750919e958bd7c01ca735d1f))
+
 ## [0.6.0](https://github.com/happy-dwarf-team/tongs/compare/v0.5.0...v0.6.0) (2026-10-19)
 
 
