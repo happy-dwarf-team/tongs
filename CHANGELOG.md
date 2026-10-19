@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/happy-dwarf-team/tongs/compare/v0.5.0...v0.6.0) (2026-10-19)
+
+
+### Features
+
+* ui click, event list and event choose, run_until events=first and inputs ([#37](https://github.com/happy-dwarf-team/tongs/issues/37)) ([d677e36](https://github.com/happy-dwarf-team/tongs/commit/d677e36d0d49fd3d42f2f5bc22f5adaa6e15b042))
+
 ## [0.5.0](https://github.com/happy-dwarf-team/tongs/compare/v0.4.0...v0.5.0) (2026-10-18)
 
 
