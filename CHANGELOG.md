@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/happy-dwarf-team/tongs/compare/v0.7.0...v0.8.0) (2026-10-19)
+
+
+### Features
+
+* notifications with subscribe and 8 pipe instances ([#41](https://github.com/happy-dwarf-team/tongs/issues/41)) ([ba70972](https://github.com/happy-dwarf-team/tongs/commit/ba709724fdf6a0ad874ea03b24a51dc62fb0d2d6))
+
 ## [0.7.0](https://github.com/happy-dwarf-team/tongs/compare/v0.6.0...v0.7.0) (2026-10-19)
 
 
