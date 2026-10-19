@@ -11,15 +11,19 @@ outside the forge.
 > in the game (pause, speed, run to a date, keys, text, clicks on points or on
 > widgets by name, event choices) through the game's own SDL input, so the
 > window does not need focus. With `game_calls = true` it also runs console
-> commands, which change game state; without it, it never does. Supported game build: EU4 1.37.5
+> commands, which change game state; without it, it never does. A connection
+> can also subscribe to notifications: state and date changes, events opening
+> and closing, new `error.log` lines and other clients' input and game calls.
+> Supported game build: EU4 1.37.5
 > (Steam, Windows 64-bit); Anvil skips it on other builds. Design and the
 > addresses it relies on: [docs/design.md](docs/design.md).
 
 ## Commands
 
 The pipe is `\\.\pipe\tongs`. A request is one line of text; the answer is
-one JSON object on one line. Up to 4 clients can be connected at once, so one
-can wait in `run_until` while another reads `state` or sends `cancel`.
+one JSON object on one line. Up to 8 clients can be connected at once, so one
+can wait in `run_until` while another reads `state` or sends `cancel`, and a
+connection can instead carry notifications (see "Notifications").
 
 | Command | Answer |
 | --- | --- |
@@ -34,6 +38,7 @@ can wait in `run_until` while another reads `state` or sends `cancel`.
 | `event list [timeout=S]` | the open events, topmost first (see "Events"), read on the main thread |
 | `wait_until DATE [timeout=S] [max_pause=S]` | waits (without touching the game) until the date reaches `DATE` (`1720.1.1` or `1720.1.1.12`); answers with the timing below |
 | `cancel` | ends every `wait_until` / `run_until` in progress and withdraws main-thread jobs still waiting for a frame (`withdrawn`) |
+| `subscribe KINDS [date=day\|month\|year]` | turns the connection into a stream of notifications (see "Notifications"); `unsubscribe` ends it |
 | `help` | list of commands and whether input commands are enabled |
 
 With `input = true` in the config, also:
@@ -160,6 +165,45 @@ and lists the choices in `events`; when no option becomes enabled, the run
 ends with `no_enabled_option` and the event. An event that paused the game is
 resumed after the choice. Every choice counts in `inputs`.
 
+## Notifications
+
+`subscribe KINDS [date=day|month|year]` turns the connection into a stream:
+Tongs sends a line whenever something changes, without being asked. `KINDS`
+is `all` or a list such as `state,date,event`:
+
+| Kind | Sent when |
+| --- | --- |
+| `state` | the game is entered or left (`change`: `entered_game`, `left_game` with `reason`), paused or resumed (`paused`, `resumed`) or the speed changes (`speed`, with `previous_speed`); each with `speed`, `paused`, `paused_flag`. Also while a save loads |
+| `date` | a new day, month (the default) or year begins, with `unit` and `previous` |
+| `event` | an event window opens (`opened`, with `id`, `title` and `options`) or closes (`closed`, with `chosen`: the option when Tongs chose it with `event choose` or `run_until events=first`, otherwise `null`) |
+| `error_log` | the game writes a `line` to its `error.log`; `restarted` when the file was replaced |
+| `activity` | any client sends an input command (`what: "input"`, `command`) or a game call (`what: "game_call"`, `line`, `name`), with the `client` (pipe instance) and the running count (`inputs`, `game_calls`), so a marked run shows as it happens |
+
+```powershell
+.\scripts\tongs.ps1 -Subscribe 'state,date,activity date=day' -Seconds 30
+# {"ok":true,"command":"subscribe","kinds":["state","date","activity"],"date_unit":"day","queue":1000,"in_game":true,"date":"1719.3.17",...}
+# {"notification":"state","seq":1,"date":"1719.3.17","wall_ms":2210,"change":"resumed","speed":3,"paused":false,"paused_flag":false}
+# {"notification":"date","seq":2,"date":"1719.3.18","wall_ms":2304,"unit":"day","previous":"1719.3.17"}
+```
+
+- Every notification has `notification` (its kind), `seq` (from 1 on this
+  connection, without gaps), the game `date` (`null` outside a game) and
+  `wall_ms` since the subscription. Answers always have `command`, so the two
+  never mix up.
+- The `subscribe` answer lists the `kinds`, kinds the plugin cannot serve as
+  `unavailable`, for `error_log` the file it follows, and the current state,
+  which the first notifications change. Only changes after the subscription
+  are reported.
+- While subscribed, the connection answers `ping` and `unsubscribe` and
+  refuses everything else (`subscribed`). `unsubscribe` answers with `sent`,
+  `dropped` and `discarded` (still queued, not sent) and the connection takes
+  ordinary requests again.
+- A client that reads slowly does not hold anyone up: each subscription keeps
+  up to 1000 notifications, and when that is full the oldest are dropped and
+  `{"notification":"overflow","dropped":N}` comes before the next one.
+- A subscription holds one of the 8 pipe instances, so use a connection of its
+  own for it.
+
 ## Console
 
 `console LINE` runs a console command the way the game's console does, but
@@ -201,8 +245,10 @@ available only for developers." in `text`.
 
 ## Clients
 
-- `scripts/tongs.ps1 CMD [CMD ...] [-AsObject] [-StopOnError]`: sends the
-  commands over one connection and prints one answer line per command.
+- `scripts/tongs.ps1 CMD [CMD ...] [-AsObject] [-StopOnError] [-Subscribe KINDS [-Seconds S] [-Count N]]`:
+  sends the commands over one connection and prints one answer line per
+  command; with `-Subscribe`, then prints notifications for `-Seconds` (60 by
+  default) or until `-Count` of them, and unsubscribes.
 - `scripts/tongs.py` (Python 3, standard library): the same from the command
   line (`python tongs.py pause "speed 5"`), or as a module:
 
@@ -211,7 +257,16 @@ available only for developers." in `text`.
   with Tongs() as game:
       result = game.call("run_until 1720.1.1 speed=5", check=True)
       print(result["days_per_second"])
+
+  with Tongs() as watch:  # notifications on a connection of their own
+      watch.subscribe("state,event,activity")
+      for note in watch.notifications(seconds=30):
+          print(note["notification"], note.get("change"))
+      watch.unsubscribe()
   ```
+
+  From the command line, `python tongs.py "subscribe all" --seconds 30`
+  prints the stream (`subscribe` comes last).
 
 ## Safety
 
@@ -238,6 +293,10 @@ available only for developers." in `text`.
   commands. `affects_gameplay = true`, because game calls can change the
   simulation, even though they are off by default.
 - Screenshots are written only to the plugin's data folder.
+- Notifications only read: the state, the event list (on the main thread,
+  like `event list`) and the game's `error.log`, which is opened for each
+  read with every sharing mode, so the game can still write, move or delete
+  it.
 
 ## Install / uninstall
 

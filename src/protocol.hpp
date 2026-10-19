@@ -5,10 +5,12 @@
 #include "events.hpp"
 #include "frame_stats.hpp"
 #include "input.hpp"
+#include "notifications.hpp"
 #include "ui_tree.hpp"
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -74,7 +76,7 @@ struct ScreenshotResult {
 
 // Protocol: UTF-8 lines. A request is one command line; the answer is one
 // JSON object on one line. Commands: ping, state, window, threads, screenshot,
-// frames, ui, event, help, wait_until, cancel, and with input enabled key, text, move,
+// frames, ui, event, help, wait_until, cancel, subscribe (see below), and with input enabled key, text, move,
 // click, scroll, release, pause, resume, speed, run_until, ui click, event choose,
 // and with game calls enabled console. Input commands and game calls answer with
 // the state read after the action; they take turns across clients.
@@ -118,6 +120,13 @@ struct Handlers {
     GameCallPolicy game_calls;
     std::function<std::string(ConsoleRaw&)> read_console;
     std::function<void(const std::vector<std::string>& tokens, ConsoleCallResult&)> call_console;
+    // Notifications (0.8.0): the hub of every subscription, and where error.log
+    // is. read_log_chunk reads up to `max` bytes from `offset` and the file's size
+    // and identity (game_files.cpp); it returns an error text, or empty.
+    NotificationHub* notifications = nullptr;
+    std::function<ErrorLogLocation()> locate_error_log;
+    std::function<std::string(const std::string& path, std::uint64_t offset, std::size_t max, LineTail::Chunk&)>
+        read_log_chunk;
     // The Anvil log (level as AnvilLogLevel: 1 info, 2 warning, 3 error); optional.
     std::function<void(int level, const std::string& message)> log;
     std::uint32_t process_id = 0;
@@ -130,6 +139,15 @@ struct Handlers {
 
 // `client` is the pipe instance (from 1) that sent the line, for the log.
 std::string HandleRequest(std::string_view line, const Handlers& handlers, int client = 0);
+
+// Subscriptions (pipe_server.cpp). A connection that sends `subscribe KINDS
+// [date=day|month|year]` gets the answer, then only notifications, until it
+// sends `unsubscribe` (back to ordinary requests; what is still queued is
+// discarded) or closes. Meanwhile SubscribedRequest answers `ping` and
+// `unsubscribe` and refuses everything else. Subscribe sets `out` on success.
+bool IsSubscribe(std::string_view line);
+std::string Subscribe(std::string_view line, const Handlers& handlers, std::shared_ptr<Subscription>& out);
+std::string SubscribedRequest(std::string_view line, const Handlers& handlers, std::shared_ptr<Subscription>& subscription);
 
 std::string JsonEscape(std::string_view text);
 

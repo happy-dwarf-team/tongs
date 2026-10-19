@@ -1,6 +1,7 @@
 #include "config.hpp"
 #include "console.hpp"
 #include "game_date.hpp"
+#include "notify_sources.hpp"
 #include "protocol.hpp"
 #include "ui_tree.hpp"
 
@@ -1495,7 +1496,397 @@ static void TestConsoleCommand() {
     assert(Contains(HandleRequest("state", h), "\"ok\":true") && Contains(HandleRequest("help", h), "\"game_calls_tripped\":true"));
 }
 
+static std::int32_t Raw(const char* date) { return *ParseGameDate(date); }
+
+static std::vector<std::string> Lines(const std::string& text) {
+    std::vector<std::string> out;
+    for (std::size_t start = 0; start < text.size();) {
+        const std::size_t eol = text.find('\n', start);
+        assert(eol != std::string::npos);  // every notification ends its line
+        out.push_back(text.substr(start, eol - start));
+        start = eol + 1;
+    }
+    return out;
+}
+
+static void TestSubscribeParsing() {
+    SubscribeRequest r;
+    assert(ParseSubscribe("state,date date=day", r).empty() && r.kinds == (Bit(NotificationKind::State) | Bit(NotificationKind::Date)) &&
+           r.date_unit == DateUnit::Day);
+    assert(ParseSubscribe("all", r).empty() && r.kinds == kAllNotificationKinds && r.date_unit == DateUnit::Month);
+    assert(ParseSubscribe("event  error_log,activity", r).empty() &&
+           r.kinds == (Bit(NotificationKind::Event) | Bit(NotificationKind::ErrorLog) | Bit(NotificationKind::Activity)));
+    assert(ParseSubscribe("date date=year", r).empty() && r.date_unit == DateUnit::Year);
+    assert(Contains(ParseSubscribe("", r), "usage: subscribe"));
+    assert(Contains(ParseSubscribe("states", r), "unknown kind: states"));
+    assert(Contains(ParseSubscribe("state,,date", r), "empty kind"));
+    assert(Contains(ParseSubscribe("date date=week", r), "day, month or year"));
+    assert(Contains(ParseSubscribe("state date=day", r), "needs the date kind"));
+    assert(Contains(ParseSubscribe("date date=day date=month", r), "twice"));
+}
+
+static void TestDateCrosses() {
+    assert(DateCrosses(Raw("1719.3.17"), Raw("1719.3.18"), DateUnit::Day));
+    assert(!DateCrosses(Raw("1719.3.17"), Raw("1719.3.17.12"), DateUnit::Day));
+    assert(!DateCrosses(Raw("1719.3.17"), Raw("1719.3.31"), DateUnit::Month));
+    assert(DateCrosses(Raw("1719.3.31"), Raw("1719.4.1"), DateUnit::Month));
+    assert(DateCrosses(Raw("1719.3.31"), Raw("1719.4.1"), DateUnit::Day));
+    assert(!DateCrosses(Raw("1719.3.31"), Raw("1719.12.31"), DateUnit::Year));
+    assert(DateCrosses(Raw("1719.12.31"), Raw("1720.1.1"), DateUnit::Year));
+    // Only forwards: a date that goes back (another save) is not a new day.
+    assert(!DateCrosses(Raw("1720.1.1"), Raw("1719.1.1"), DateUnit::Year));
+    assert(!DateCrosses(Raw("1720.1.1"), Raw("1720.1.1"), DateUnit::Day));
+}
+
+static void TestSubscriptionQueue() {
+    SubscribeRequest request;
+    request.kinds = kAllNotificationKinds;
+    Subscription s(request, 1000, 3);
+    assert(s.Take(0).empty());
+    s.Push(NotificationKind::State, Raw("1719.3.17"), 1010, ",\"change\":\"paused\"");
+    s.Push(NotificationKind::Activity, std::nullopt, 1020, ",\"what\":\"input\"");
+    std::vector<std::string> lines = Lines(s.Take(0));
+    assert(lines.size() == 2);
+    assert(lines[0] == "{\"notification\":\"state\",\"seq\":1,\"date\":\"1719.3.17\",\"wall_ms\":10,\"change\":\"paused\"}");
+    assert(lines[1] == "{\"notification\":\"activity\",\"seq\":2,\"date\":null,\"wall_ms\":20,\"what\":\"input\"}");
+
+    // Five into a queue of three: the two oldest are dropped, and an overflow
+    // notice with the time and date of the last dropped one comes first.
+    for (int i = 0; i < 5; ++i) {
+        s.Push(NotificationKind::ErrorLog, Raw("1719.4.1"), 2000 + i, ",\"line\":\"" + std::to_string(i) + "\"");
+    }
+    lines = Lines(s.Take(0, 2));
+    assert(lines.size() == 2);
+    assert(lines[0] == "{\"notification\":\"overflow\",\"seq\":3,\"date\":\"1719.4.1\",\"wall_ms\":1001,\"dropped\":2}");
+    assert(Contains(lines[1], "\"seq\":4,") && Contains(lines[1], "\"line\":\"2\""));
+    lines = Lines(s.Take(0));
+    assert(lines.size() == 2 && Contains(lines[0], "\"seq\":5,") && Contains(lines[1], "\"line\":\"4\""));
+    Subscription::Counts c = s.counts();
+    assert(c.sent == 6 && c.dropped == 2 && c.pending == 0);
+
+    // A reader that waits is woken by a push from another thread.
+    std::thread pusher([&s] {
+        SleepMs(30);
+        s.Push(NotificationKind::Date, Raw("1719.5.1"), 3000, ",\"unit\":\"month\"");
+    });
+    const std::uint64_t before = SteadyMs();
+    lines = Lines(s.Take(5000));
+    pusher.join();
+    assert(lines.size() == 1 && Contains(lines[0], "\"notification\":\"date\",\"seq\":7,") && SteadyMs() - before < 4000);
+
+    s.Push(NotificationKind::State, std::nullopt, 3100, "");
+    s.Push(NotificationKind::State, std::nullopt, 3100, "");
+    assert(s.Discard() == 2 && s.Take(0).empty() && s.counts().sent == 7);
+}
+
+static void TestNotificationHub() {
+    std::uint64_t clock = 500;
+    NotificationHub hub([&clock] { return clock; });
+    assert(hub.wanted() == 0 && !hub.WaitFor(kAllNotificationKinds, 1));
+    SubscribeRequest by_day;
+    by_day.kinds = Bit(NotificationKind::Date) | Bit(NotificationKind::State);
+    by_day.date_unit = DateUnit::Day;
+    SubscribeRequest activity;
+    activity.kinds = Bit(NotificationKind::Activity) | Bit(NotificationKind::Date);
+    const auto a = hub.Subscribe(by_day);
+    clock = 600;
+    const auto b = hub.Subscribe(activity);
+    assert(hub.subscriptions() == 2 && hub.Wants(NotificationKind::Activity) && !hub.Wants(NotificationKind::Event));
+    assert(hub.WaitFor(Bit(NotificationKind::State), 1));
+
+    clock = 700;
+    hub.PublishDate(Raw("1719.3.17"), Raw("1719.3.18"));  // a new day, not a new month
+    hub.PublishDate(Raw("1719.3.31"), Raw("1719.4.1"));
+    hub.Publish(NotificationKind::Activity, Raw("1719.4.1"), ",\"what\":\"input\"");
+    std::vector<std::string> la = Lines(a->Take(0));
+    std::vector<std::string> lb = Lines(b->Take(0));
+    assert(la.size() == 2 && lb.size() == 2);
+    assert(la[0] == "{\"notification\":\"date\",\"seq\":1,\"date\":\"1719.3.18\",\"wall_ms\":200,\"unit\":\"day\",\"previous\":\"1719.3.17\"}");
+    assert(Contains(la[1], "\"date\":\"1719.4.1\"") && Contains(la[1], "\"unit\":\"day\""));
+    assert(lb[0] == "{\"notification\":\"date\",\"seq\":1,\"date\":\"1719.4.1\",\"wall_ms\":100,\"unit\":\"month\",\"previous\":\"1719.3.31\"}");
+    assert(Contains(lb[1], "\"notification\":\"activity\",\"seq\":2,"));
+
+    hub.Unsubscribe(b);
+    assert(hub.subscriptions() == 1 && !hub.Wants(NotificationKind::Activity) && hub.Wants(NotificationKind::Date));
+    hub.Publish(NotificationKind::Activity, std::nullopt, "");
+    assert(a->Take(0).empty() && b->Take(0).empty());
+    hub.Unsubscribe(a);
+    assert(hub.wanted() == 0);
+
+    // Choices made through Tongs, by controller and event id.
+    hub.NoteChoice(0xC1, "a.1", "{\"number\":1}");
+    assert(!hub.TakeChoice(0xC1, "a.2") && !hub.TakeChoice(0xC2, "a.1"));
+    assert(*hub.TakeChoice(0xC1, "a.1") == "{\"number\":1}" && !hub.TakeChoice(0xC1, "a.1"));
+    for (int i = 0; i < 40; ++i) hub.NoteChoice(static_cast<std::uintptr_t>(i), "e", "x");
+    assert(!hub.TakeChoice(0, "e") && hub.TakeChoice(39, "e"));  // only the newest 32 are kept
+}
+
+static void TestStateChanges() {
+    StateSnapshot menu;
+    menu.reason = "session is null";
+    StateSnapshot game = LoadedGame().state;  // paused, UI speed 2
+    game.session = 0x5E55;
+
+    std::vector<std::string> c = StateChanges(menu, game);
+    assert(c.size() == 1 && c[0] == ",\"change\":\"entered_game\",\"speed\":2,\"paused\":true,\"paused_flag\":true");
+    assert(StateChanges(game, game).empty());
+    assert(StateChanges(menu, menu).empty());
+
+    StateSnapshot running = game;
+    running.paused = running.paused_flag = false;
+    running.speed = 4;
+    running.date_raw += 48;  // a date change alone is a `date` notification, not a `state` one
+    c = StateChanges(game, running);
+    assert(c.size() == 2 && c[0] == ",\"change\":\"resumed\",\"speed\":5,\"paused\":false,\"paused_flag\":false");
+    assert(c[1] == ",\"change\":\"speed\",\"speed\":5,\"paused\":false,\"paused_flag\":false,\"previous_speed\":2");
+    c = StateChanges(running, game);
+    assert(c.size() == 2 && Contains(c[0], "\"change\":\"paused\"") && Contains(c[1], "\"previous_speed\":5"));
+
+    c = StateChanges(game, menu);
+    assert(c.size() == 1 && c[0] == ",\"change\":\"left_game\",\"reason\":\"session is null\"");
+    // Another save in a session at another address: left, then entered.
+    StateSnapshot other = game;
+    other.session = 0x5E56;
+    c = StateChanges(game, other);
+    assert(c.size() == 2 && c[0] == ",\"change\":\"left_game\"" && Contains(c[1], "entered_game"));
+}
+
+static void TestEventChanges() {
+    const UiTree t = EventTree();
+    EventsRaw raw = EventRaw(t);
+    const std::vector<EventView> both = BuildEvents(t, raw);  // Tariffs on Fish (0xC2) on top of Plague (0xC1)
+    std::vector<KnownEvent> known;
+    std::vector<std::string> c = EventChanges(known, both, {});
+    assert(c.size() == 2 && known.size() == 2);
+    assert(c[0] == ",\"change\":\"opened\",\"id\":\"flavor_x.2\",\"title\":\"Plague\",\"options\":[{\"number\":1,\"text\":\"Pray\","
+                   "\"option_index\":0,\"option_key\":\"flavor_x.2.a\"}]");
+    assert(Contains(c[1], "\"id\":\"flavor_rus.1\",\"title\":\"Tariffs on Fish\",\"options\":[{\"number\":1,") &&
+           Contains(c[1], "{\"number\":2,\"text\":\"Refuse them\",\"option_index\":1,\"option_key\":\"flavor_rus.1.b\"}"));
+    assert(EventChanges(known, both, {}).empty());
+
+    // Plague chosen through Tongs, Tariffs on Fish by someone else.
+    raw.events[1].waiting = false;
+    std::vector<std::uintptr_t> asked;
+    const ChoiceLookup lookup = [&asked](std::uintptr_t controller, const std::string& id) -> std::optional<std::string> {
+        asked.push_back(controller);
+        if (controller == 0xC1 && id == "flavor_x.2") return std::string("{\"number\":1,\"by\":\"tongs\"}");
+        return std::nullopt;
+    };
+    c = EventChanges(known, BuildEvents(t, raw), lookup);
+    assert(c.size() == 1 && c[0] == ",\"change\":\"closed\",\"id\":\"flavor_x.2\",\"title\":\"Plague\",\"chosen\":{\"number\":1,\"by\":\"tongs\"}");
+    raw.events[2].waiting = false;
+    c = EventChanges(known, BuildEvents(t, raw), lookup);
+    assert(c.size() == 1 && Contains(c[0], "\"title\":\"Tariffs on Fish\",\"chosen\":null") && known.empty());
+    assert((asked == std::vector<std::uintptr_t>{0xC1, 0xC2}));
+
+    // The same controller with another event: the old one closed, the new one opened.
+    raw = EventRaw(t);
+    known.clear();
+    EventChanges(known, BuildEvents(t, raw), {});
+    raw.events[1].id = "flavor_x.3";
+    c = EventChanges(known, BuildEvents(t, raw), {});
+    assert(c.size() == 2 && Contains(c[0], "\"change\":\"closed\",\"id\":\"flavor_x.2\"") &&
+           Contains(c[1], "\"change\":\"opened\",\"id\":\"flavor_x.3\""));
+}
+
+static void TestLineTail() {
+    LineTail tail;
+    // The first chunk sets the start: what was there before is not reported.
+    LineTail::Lines got = tail.Feed({120, 7, "", false});
+    assert(got.lines.empty() && !got.restarted && tail.started() && tail.offset() == 120);
+    got = tail.Feed({140, 7, "first line\r\nsecond", false});
+    assert(got.lines == std::vector<std::string>{"first line"} && tail.offset() == 138);
+    got = tail.Feed({150, 7, " half\n\n", false});
+    assert((got.lines == std::vector<std::string>{"second half", ""}));
+    // Windows-1252 bytes become UTF-8; UTF-8 stays as it is.
+    got = tail.Feed({160, 7, "M\xFCnster \xA7Y\n" "K\xC3\xB6ln\n", false});
+    assert((got.lines == std::vector<std::string>{"M\xC3\xBCnster \xC2\xA7Y", "K\xC3\xB6ln"}));
+    // A long line is cut at kMaxLine.
+    got = tail.Feed({0, 7, std::string(LineTail::kMaxLine + 100, 'x') + "\n", false});
+    assert(got.restarted);  // the size went down: truncated, read again from 0
+    assert(tail.offset() == 0);
+    got = tail.Feed({LineTail::kMaxLine + 101, 7, std::string(LineTail::kMaxLine + 100, 'x') + "\n", false});
+    assert(got.lines.size() == 1 && got.lines[0].size() == LineTail::kMaxLine);
+    // Another file under the same name (the game moves error.log aside at start).
+    got = tail.Feed({LineTail::kMaxLine + 500, 8, "old offset", false});
+    assert(got.restarted && got.lines.empty() && tail.offset() == 0);
+    got = tail.Feed({20, 8, "new file\n", false});
+    assert(got.lines == std::vector<std::string>{"new file"});
+    tail.Reset();
+    assert(!tail.started() && tail.offset() == 0);
+    assert(LogTextToUtf8("plain") == "plain" && LogTextToUtf8("\x80") == "\xE2\x82\xAC" && LogTextToUtf8("\xC3") == "\xC3\x83");
+}
+
+static void TestNotificationSources() {
+    // State and date.
+    FakeGame game = LoadedGame();
+    game.state.session = 0x5E55;
+    Handlers h = game.Make();
+    NotificationHub hub(h.now_ms);
+    h.notifications = &hub;
+    SubscribeRequest request;
+    request.kinds = Bit(NotificationKind::State) | Bit(NotificationKind::Date);
+    const auto sub = hub.Subscribe(request);
+    NotificationSources sources(h, hub);
+    sources.PollState();  // the baseline
+    assert(sub->Take(0).empty());
+    game.state.paused = game.state.paused_flag = false;
+    game.state.date_raw = Raw("1719.3.31");
+    sources.PollState();
+    std::vector<std::string> lines = Lines(sub->Take(0));
+    assert(lines.size() == 1 && Contains(lines[0], "\"notification\":\"state\",\"seq\":1,\"date\":\"1719.3.31\"") &&
+           Contains(lines[0], "\"change\":\"resumed\""));
+    game.state.date_raw = Raw("1719.4.2");
+    sources.PollState();
+    lines = Lines(sub->Take(0));
+    assert(lines.size() == 1 && Contains(lines[0], "\"notification\":\"date\",\"seq\":2,\"date\":\"1719.4.2\"") &&
+           Contains(lines[0], "\"previous\":\"1719.3.31\""));
+    game.state = {};
+    game.state.reason = "session is null";
+    sources.PollState();
+    lines = Lines(sub->Take(0));
+    assert(lines.size() == 1 && Contains(lines[0], "\"date\":null") && Contains(lines[0], "\"change\":\"left_game\""));
+    hub.Unsubscribe(sub);
+
+    // Events: read on the main thread when the window count changes.
+    FakeScreen screen;
+    Handlers hs = screen.Make();
+    bool no_session = false;
+    hs.count_event_windows = [&screen, &no_session] {
+        return no_session ? -1 : static_cast<int>(screen.raw.listed_windows.size());
+    };
+    NotificationHub event_hub(hs.now_ms);
+    hs.notifications = &event_hub;
+    request.kinds = Bit(NotificationKind::Event);
+    const auto events = event_hub.Subscribe(request);
+    NotificationSources event_sources(hs, event_hub);
+    FakeMainThread main(screen.dispatcher);
+    event_sources.PollEvents();  // the two open events are the baseline
+    event_sources.PollEvents();
+    assert(events->Take(0).empty());
+    assert(Contains(HandleRequest("event choose 1 event=title^=tariffs", hs, 3), "\"ok\":true"));
+    event_sources.PollEvents();
+    lines = Lines(events->Take(0));
+    assert(lines.size() == 1 && Contains(lines[0], "\"change\":\"closed\",\"id\":\"flavor_rus.1\"") &&
+           Contains(lines[0], "\"chosen\":{\"number\":1,\"text\":\"Accept the tariffs\",\"option_index\":0,\"option_key\":\"flavor_rus.1.a\",\"by\":\"tongs\",\"client\":3,\"choice_date\":\"1719.3.17\"}"));
+    // An event opens: the count goes up.
+    screen.raw = EventRaw(screen.tree);
+    screen.raw.events.erase(screen.raw.events.begin() + 1);  // without Plague, which is still known: it closed
+    event_sources.PollEvents();
+    lines = Lines(events->Take(0));
+    assert(lines.size() == 2 && Contains(lines[0], "\"change\":\"closed\",\"id\":\"flavor_x.2\",\"title\":\"Plague\",\"chosen\":null") &&
+           Contains(lines[1], "\"change\":\"opened\",\"id\":\"flavor_rus.1\""));
+    // No session: what was known closes without the main thread.
+    no_session = true;
+    event_sources.PollEvents();
+    lines = Lines(events->Take(0));
+    assert(lines.size() == 1 && Contains(lines[0], "\"date\":null") && Contains(lines[0], "\"change\":\"closed\",\"id\":\"flavor_rus.1\""));
+    event_sources.PollEvents();
+    assert(events->Take(0).empty());
+
+    // error.log: an in-memory file the game appends to.
+    FakeGame log_game = LoadedGame();
+    Handlers hl = log_game.Make();
+    NotificationHub log_hub(hl.now_ms);
+    std::string file = "old line\n";
+    std::uint64_t file_id = 1;
+    int locates = 0;
+    hl.locate_error_log = [&locates] {
+        ErrorLogLocation where;
+        if (++locates == 1) {
+            where.error = "not yet";
+            return where;
+        }
+        where.path = "C:\\user\\logs\\error.log";
+        where.source = "physfs_write_dir";
+        return where;
+    };
+    hl.read_log_chunk = [&](const std::string& path, std::uint64_t offset, std::size_t max, LineTail::Chunk& chunk) {
+        assert(path == "C:\\user\\logs\\error.log");
+        chunk = {file.size(), file_id, offset < file.size() ? file.substr(offset, max) : std::string(), false};
+        return std::string();
+    };
+    request.kinds = Bit(NotificationKind::ErrorLog);
+    const auto log = log_hub.Subscribe(request);
+    NotificationSources log_sources(hl, log_hub);
+    assert(log_sources.PollErrorLog() == 0 && locates == 1);  // not located: tried again a second later
+    log_sources.PollErrorLog();
+    assert(locates == 1);
+    log_game.clock += NotificationSources::kLocateRetryMs;
+    log_sources.PollErrorLog();  // located; the end of the file is the start
+    assert(locates == 2 && log->Take(0).empty());
+    file += "[culture.cpp:1]: Unknown culture group \"x\"\npartial";
+    log_sources.PollErrorLog();
+    lines = Lines(log->Take(0));
+    assert(lines.size() == 1 && Contains(lines[0], "\"notification\":\"error_log\",\"seq\":1,\"date\":\"1719.3.17\"") &&
+           Contains(lines[0], "\"line\":\"[culture.cpp:1]: Unknown culture group \\\"x\\\"\""));
+    file = "fresh\n";
+    file_id = 2;
+    log_sources.PollErrorLog();
+    log_sources.PollErrorLog();
+    lines = Lines(log->Take(0));
+    assert(lines.size() == 2 && Contains(lines[0], "\"restarted\":true") && Contains(lines[1], "\"line\":\"fresh\""));
+}
+
+static void TestSubscribeCommands() {
+    FakeGame game = LoadedGame();
+    Handlers h = game.Make();
+    std::shared_ptr<Subscription> sub;
+    assert(IsSubscribe(" subscribe state") && !IsSubscribe("subscribed") && !IsSubscribe("state"));
+    assert(Contains(Subscribe("subscribe state", h, sub), "\"error\":\"unavailable\"") && !sub);
+    NotificationHub hub(h.now_ms);
+    h.notifications = &hub;
+    std::string out = Subscribe("subscribe state,date", h, sub);
+    assert(out == "{\"ok\":true,\"command\":\"subscribe\",\"kinds\":[\"state\",\"date\"],\"date_unit\":\"month\",\"queue\":1000,"
+                  "\"in_game\":true,\"date\":\"1719.3.17\",\"date_raw\":58860240,\"hour\":0,\"speed\":2,\"speed_internal\":1,"
+                  "\"paused\":true,\"paused_flag\":true}");
+    assert(sub && hub.subscriptions() == 1);
+    assert(Contains(SubscribedRequest("ping", h, sub), "{\"ok\":true,\"command\":\"ping\",\"pong\":true"));
+    out = SubscribedRequest("state", h, sub);
+    assert(out == "{\"ok\":false,\"error\":\"subscribed\",\"detail\":\"a subscribed connection accepts only unsubscribe and ping\",\"command\":\"state\"}");
+    assert(Contains(SubscribedRequest("subscribe all", h, sub), "\"error\":\"subscribed\""));
+    hub.Publish(NotificationKind::State, std::nullopt, "");
+    hub.Publish(NotificationKind::State, std::nullopt, "");
+    assert(Lines(sub->Take(0, 1)).size() == 1);
+    out = SubscribedRequest("unsubscribe", h, sub);
+    assert(out == "{\"ok\":true,\"command\":\"unsubscribe\",\"sent\":1,\"dropped\":0,\"discarded\":1}" && !sub && hub.subscriptions() == 0);
+
+    // Kinds the plugin cannot serve are named; error_log says where it reads.
+    h.locate_error_log = [] { return ErrorLogLocation{"C:\\docs\\logs\\error.log", "physfs_write_dir", ""}; };
+    out = Subscribe("subscribe event,error_log,activity", h, sub);
+    assert(Contains(out, "\"kinds\":[\"event\",\"error_log\",\"activity\"],\"queue\":1000,\"unavailable\":[\"event\",\"error_log\"],"
+                         "\"error_log\":{\"path\":\"C:\\\\docs\\\\logs\\\\error.log\",\"source\":\"physfs_write_dir\"}"));
+    assert(Contains(Subscribe("subscribe nothing", h, sub), "{\"ok\":false,\"error\":\"bad_command\",\"detail\":\"unknown kind: nothing"));
+
+    // Without a subscription: subscribe needs the pipe server, unsubscribe has nothing to end.
+    assert(Contains(HandleRequest("subscribe state", h), "pipe connection of its own"));
+    assert(Contains(HandleRequest("unsubscribe", h), "not subscribed"));
+    assert(Contains(HandleRequest("help", h), "\"subscribe\",\"unsubscribe\""));
+    assert(Contains(HandleRequest("ping", h), "\"command\":\"ping\""));
+
+    // activity: every input of any client, with the client and the running count.
+    const std::shared_ptr<Subscription> activity = sub;
+    assert(Contains(HandleRequest("resume", h, 4), "\"ok\":true"));
+    assert(Contains(HandleRequest("pause", h, 2), "\"ok\":true"));
+    assert(Contains(HandleRequest("pause", h, 2), "\"presses\":0"));  // nothing pressed: no input
+    std::vector<std::string> lines = Lines(activity->Take(0));
+    assert(lines.size() == 2);
+    assert(Contains(lines[0], "\"notification\":\"activity\",\"seq\":1,\"date\":\"1719.3.17\"") &&
+           Contains(lines[0], "\"what\":\"input\",\"command\":\"resume\",\"inputs\":") && Contains(lines[0], ",\"client\":4}"));
+    assert(Contains(lines[1], "\"command\":\"pause\"") && Contains(lines[1], ",\"client\":2}"));
+    hub.Unsubscribe(activity);
+}
+
 int main() {
+    TestSubscribeParsing();
+    TestDateCrosses();
+    TestSubscriptionQueue();
+    TestNotificationHub();
+    TestStateChanges();
+    TestEventChanges();
+    TestLineTail();
+    TestNotificationSources();
+    TestSubscribeCommands();
     TestEvents();
     TestUiClickTarget();
     TestUiClickCommand();

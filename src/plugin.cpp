@@ -3,12 +3,14 @@
 #include "game_console.hpp"
 #include "game_cursor.hpp"
 #include "game_events.hpp"
+#include "game_files.hpp"
 #include "game_frame.hpp"
 #include "game_input.hpp"
 #include "game_state.hpp"
 #include "game_threads.hpp"
 #include "game_ui.hpp"
 #include "game_window.hpp"
+#include "notify_sources.hpp"
 #include "pipe_server.hpp"
 #include "screenshot.hpp"
 
@@ -126,6 +128,15 @@ extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* ho
     } else {
         Log(ANVIL_LOG_INFO, "game calls disabled (game_calls = false)");
     }
+    // Notifications: the hub of every subscription and the threads that feed it,
+    // idle while nobody subscribes.
+    static tongs::NotificationHub hub(handlers.now_ms);
+    handlers.notifications = &hub;
+    handlers.locate_error_log = [image_base] { return tongs::LocateErrorLog(image_base); };
+    handlers.read_log_chunk = [](const std::string& path, std::uint64_t offset, std::size_t max,
+                                 tongs::LineTail::Chunk& chunk) { return tongs::ReadLogChunk(path, offset, max, chunk); };
+    static tongs::NotificationSources sources(handlers, hub);
+    sources.Start();
     tongs::StartPipeServer(handlers, Log);
     return ANVIL_OK;  // a pipe that failed to start only turns the plugin into a no-op
 }
