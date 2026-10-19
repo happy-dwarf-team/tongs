@@ -130,13 +130,27 @@ longer:
   second connection with `subscribe date date=day` and reports the game days
   done (of the days to the target) as MCP progress, at most twice a second,
   with the game date as the message. `progress=false` turns this off, e.g. to
-  keep a measurement to one pipe connection. While the game stays paused no
-  progress is sent; use `max_pause` to end such a wait.
+  keep a measurement to one pipe connection.
+- **Heartbeat.** While no new game day comes (the game is paused, by the
+  player or by a dialog), the server sends `ping` on the progress connection
+  every `TONGS_MCP_HEARTBEAT_S` seconds (default 60; `0` turns it off) and, if
+  the plugin answers, reports progress anyway with the message
+  `game date D, no new day for N s`. The MCP spec requires every progress
+  value to be larger than the one before, so each heartbeat adds 0.001 days;
+  the 240 heartbeats of the longest wait (4 hours at the default 60 s) add less
+  than a day, and the next new day reports the real count again. A paused
+  wait therefore stays alive until its own `timeout`; to end it early
+  instead, give `max_pause`.
+  If the game or the plugin stops answering, the heartbeat stops, and the
+  client's idle timeout applies again.
 - **Claude Code** gives a stdio tool call 100 000 000 ms (about 28 hours) by
   default (`MCP_TOOL_TIMEOUT`, or `"timeout"` per server in `.mcp.json`), and
   aborts a call whose server sends neither an answer nor progress for 30
-  minutes (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`); progress resets that idle
-  timer. A call running longer than 2 minutes moves to a background task.
+  minutes (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`); progress, heartbeats included,
+  resets that idle timer. A call running longer than 2 minutes moves to a
+  background task. Without progress (`progress=false`, or a client that sends
+  no progress token) a wait that is paused for 30 minutes is aborted; give it a
+  `max_pause` below that.
 - **MCP Inspector** times requests out after 10 s by default; raise its
   request timeout and maximum total timeout and turn on "reset timeout on
   progress" in its configuration.
@@ -171,6 +185,9 @@ version follows the Tongs release: release-please updates `pyproject.toml` and
 [`live_check.py`](live_check.py) drives a loaded game through the server over
 stdio, as an MCP client would. It presses keys, runs the game for a month and
 makes one game call, so use it only on a test session.
+[`live_check_events.py`](live_check_events.py) checks the heartbeat on a
+paused wait, then runs the game until events open and chooses options by
+number and by text; it changes the game the same way, without game calls.
 
 ## Live check (2026-10-19)
 
@@ -195,7 +212,29 @@ started by the lab launcher (`anvil-play.ps1 -Scenario tongs -TongsInput
 | `tongs_text` with a line break | refused by the adapter, nothing sent |
 
 After the session: save unchanged, settings difference `graceful_exit` only
-(restored), nothing left installed. Not checked live: `tongs_event_choose`
-(no event opened in 30 days), Claude Code itself as the client (the commands
-above follow its documentation), the MCP Inspector, a wait longer than the
-idle timeouts.
+(restored), nothing left installed. `tongs_event_choose` was not checked in
+this session: no event opened in 30 days (see the second session below).
+
+### Events and the heartbeat
+
+A second session the same day, set up as above but with `input` on and
+`game_calls` off (Tongs 0.8.0 build, plugin unchanged in 0.9.0). The script was
+[`live_check_events.py`](live_check_events.py), whose server ran with
+`TONGS_MCP_HEARTBEAT_S=2`, then one more `tongs_event_choose` call through the
+same server:
+
+| Step | Result |
+| --- | --- |
+| `tongs_wait_until` 10 years ahead with progress, game paused, `tongs_cancel` after 7.5 s | 3 heartbeats 2 s apart, progress 0, 0.001, 0.002 of 3650 days, message `game date 1719.3.17, no new day for 2 s` (4 s, 6 s); the wait answered `cancelled`, `paused_ms` 7512 |
+| `tongs_run_until` in 30-day steps (`speed=5 max_pause=10`), `tongs_event_list` after each | first event on 1720.10.20 after 19 steps: `colonial_nation.112` "Tariffs on Salt", 2 enabled options; the events did not pause the game |
+| `tongs_event_choose option=1` | "Tax it!" chosen, `closed` true after 61 ms (3 frames), call 188 ms |
+| next step to 1720.11.19 | 3 events open: `ideagroups.2000`, `parlaments.1`, `innovativeness_events.14` |
+| `tongs_event_choose option_text="Alas, some may have to pay..." event=1` | option 1 of `ideagroups.2000` chosen, `closed` true after 55 ms, 2 events left |
+| `tongs_event_choose option_text="Landowners have too many privileges already." option_match=equals event_title="Physiocrats" event_match=equals` | option 2 of the lower event (`innovativeness_events.14`, number 2) chosen, `closed` true after 60 ms, 1 event left |
+
+The run lasted 2.4 minutes; the launcher closed the game after checking PID,
+path and creation time. Save unchanged, settings difference `graceful_exit`
+only (restored), nothing left installed. Not checked live: Claude Code itself
+as the client (the commands above follow its documentation), the MCP
+Inspector, a wait longer than the idle timeouts (the heartbeat was checked at
+2 s, not against a real 30-minute idle timer).
