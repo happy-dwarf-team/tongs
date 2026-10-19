@@ -234,7 +234,38 @@ same server:
 
 The run lasted 2.4 minutes; the launcher closed the game after checking PID,
 path and creation time. Save unchanged, settings difference `graceful_exit`
-only (restored), nothing left installed. Not checked live: Claude Code itself
-as the client (the commands above follow its documentation), the MCP
-Inspector, a wait longer than the idle timeouts (the heartbeat was checked at
-2 s, not against a real 30-minute idle timer).
+only (restored), nothing left installed. Not checked live here: Claude Code
+itself as the client (see the next section), the MCP Inspector, a wait longer
+than the idle timeouts (the heartbeat was checked at 2 s, not against a real
+30-minute idle timer).
+
+### Claude Code as the client (2026-10-19)
+
+The hardening pass of 0.10.0 (`docs/design.md`, "Hardening pass (0.10.0)")
+drove the game from a Claude Code session in the Claude desktop app (Code
+tab), with the server registered at user scope as `tongs` (`claude mcp add
+--transport stdio --scope user tongs -- uv run --frozen --directory …
+tongs-mcp`, as above), status Connected. Lab runs `tongs-harden-1` … `-4`.
+
+- **Tools.** All 24 `tongs_*` tools were there as `mcp__tongs__tongs_*`.
+  The session loads MCP tools on demand: right after start the server was
+  still "connecting", and a tool search for "tongs" waited for it and
+  returned the schemas. No `claude mcp get` was needed.
+- **Used:** `state`, `window`, `threads` (through `raw`), `frames`,
+  `ui_tree`, `ui_find`, `ui_click` (dozens of clicks, menus, dialogs, list
+  rows), `scroll`, `move`, `release`, `key`, `text`, `speed`, `resume`,
+  `pause`, `run_until`, `event_list`, `event_choose`, `console`,
+  `screenshot` (path only; the PNGs were 4–8 MB) and `raw`. Not used:
+  `wait_until`, `cancel`, `click_point`, `screenshot image=true`.
+- **Answers.** Each answer came back as the plugin's JSON text. `"ok": false`
+  answers came back as tool errors carrying the same JSON, so the error
+  fields (`covered_by`, `hover_attempts`, `queued_ms`) were readable. When
+  the game exited, the next call failed with "the pipe closed without an
+  answer …; did the game exit?".
+- **Long calls.** `run_until 1721.1.1 speed=5 max_pause=5` ran 49 s
+  (520 days, 10.5 days/s) and `run_until 1723.1.1` ended after 15.7 s with
+  "the game stayed paused longer than max_pause" as a tool error, both within
+  one tool call; no client timeout was reached. No progress was shown in the
+  transcript.
+- **Not checked from Claude Code:** waits longer than a few minutes, and
+  cancelling a tool call from the client.

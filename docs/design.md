@@ -477,8 +477,12 @@ runs that the lab has seen before (27.6–28.4 s for the same stretch). The
 hook gets no opt-out. The Process Lasso rule `eu4.exe,0,1-7` was back after
 every run, and the broker was stopped after the batch.
 
-Not checked yet: the main menu (`continue=` skips it), an unfocused and a
-minimized window, and a save loaded from the menu.
+The main menu, a save loaded from it and an unfocused window were checked in
+the hardening pass (2026-10-19, "Hardening pass (0.10.0)" below): outer frames
+run in the menu (159/s unfocused) and stop while a save loads from it (3.5 s
+of `main thread busy`). Still open: a minimized window. The game's borderless
+window did not minimize from the taskbar (`IsIconic` stayed false), and
+computer-use was not available to try another way.
 
 ## Widget tree (0.5.0)
 
@@ -505,8 +509,9 @@ this section describes what holds.
   | Dead | `+0xC4` |
   | Position | slot `0xD8`: two int32 in client pixels, read from the widget's render node |
   | Size | slot `0xE0` |
-  | Text | button `+0x200`, instant text box `+0x170`, text box `+0x178`; Windows-1252 |
+  | Text | button `+0x200`, instant text box `+0x170`, text box `+0x178`, edit box `+0xF8`; Windows-1252 |
   | Button state | `+0x124`; 3 = disabled |
+  | Check box state | byte `+0x100` of `checkboxType`; 1 = ticked |
   | Render node | per kind (table below); the node holds its owner at `+0x118` and its parent node at `+0x110` |
 
   Slot `0x98`, which the research proposed for the position, gives the
@@ -671,9 +676,19 @@ Findings:
   same widget. Map icons come and go as the map moves, so their `[n]`
   changes between reads.
 
-Not checked: the main menu (`continue=` skips it), a save loaded from the
-menu, the children of grid boxes and overlapping elements boxes, edit box
-text, check box state. `+0x8F` and `mgr+0x130` were checked in 0.6.0 (below).
+Check boxes answer `checked` and match `[checked]` / `[unchecked]`; edit boxes
+answer their `text`, also when empty (both from the hardening pass, where the
+offsets were found: `+0x100` flipped 0 → 1 → 0 → 1 over three clicks on the
+lobby's `show_unsafe_checkbox` and was 1 only on the selected save row;
+`+0xF8` followed typing and Backspace in `console_edit`, and the lobby's
+`year` read "1444"). The main menu and a save loaded from it were read in the
+same pass. `+0x8F` and `mgr+0x130` were checked in 0.6.0 (below).
+
+Not checked: the children of grid boxes and overlapping elements boxes
+(`OverlappingElementsBoxType` is vtable `0x1DA4910`; their containers were
+not found, [#48](https://github.com/happy-dwarf-team/tongs/issues/48)), and
+sizes that differ from the drawn widget
+([#50](https://github.com/happy-dwarf-team/tongs/issues/50)).
 
 ## Clicking widgets (0.6.0)
 
@@ -694,6 +709,10 @@ The game delivers a click to the topmost visible owner under the pointer, and
 a button reacts only when `+0x8F` (hovered this frame) is set, which is why
 the cursor hook is needed. On success the answer has `clicked`, `point` and the
 state after the click. `ui click` needs `input = true` and counts as an input.
+When event windows are open, `ui click` reads the events with the tree; a
+click on an option button answers `event_option` (`id`, `number`,
+`option_index`) and is noted as a choice right after the click, before the
+settle time, so the `closed` notification names it (`via: "ui click"`).
 
 How it runs (`src/protocol.cpp`, `ClickWidget`; decisions in
 `src/ui_tree.cpp`):
@@ -755,9 +774,12 @@ was restored, and the Process Lasso rule was `eu4.exe,0,1-7` afterwards.
 - **`+0x8F`.** Read after the outer frame, the byte was 0 on the target even
   though `mgr+0x130` pointed at it: the game clears it per frame. Tongs does
   not report it.
-- **Not checked:** `mgr+0x130` with nothing under the pointer (whether the
-  game clears it), and clicks while the game runs at speed 5 outside
-  `run_until events=first`.
+- **Checked in the hardening pass:** with the virtual pointer over the map
+  and nothing under it, `mgr+0x130` read 0 (five reads from outside), and
+  `ui click topbar` (centre over the map) was refused with `covered_by:
+  null`. At speed 5, running, `ui click` on the speed buttons worked (speed
+  5 → 4 in `state` a second later), but the state in the answer, read 0.1 s
+  after the click, did not show it yet at about 10 days/s.
 
 ## Events (0.6.0)
 
@@ -824,7 +846,9 @@ How it runs (`src/game_events.cpp` reads, `src/events.cpp` decides):
   pop-up list, chosen ones included), `listed_windows` (live entries of
   `+0x498`) and `option_delay`.
 - **`event choose`** resolves the request against that list, then clicks the
-  button with the steps of `ui click` (including `covered`). Afterwards it
+  button with the steps of `ui click` (including `covered`). A hidden option
+  (outside the list box) is first scrolled in with the list's scroll bar
+  buttons (`scrolled`). Afterwards it
   reads the events on the main thread until the controller has left the
   pop-up list and its window the event window list, up to 3 s: `closed`,
   `chosen_ms` (no longer waiting), `closed_ms` and `closed_frames` (outer
@@ -877,9 +901,20 @@ the console command `event <id>`, typed through `key grave`, `text`,
   no event opened, during the run or after it, and `game.log` has no trace
   of it. The cause was not investigated; typing into the console at speed 5
   is outside what Tongs checks.
-- **Not checked:** an event that pauses the game, an event whose options are
-  never enabled, events with more options than the list box shows, and the
-  auto-selection at the deadline (`+0x30`).
+- **Hardening pass.** Events with more options than the list box shows:
+  the game makes a button for every option and hides those outside the box
+  (event 5060 with seven options for Russia: the seventh `visible: false`).
+  `event choose` now clicks the list box's own `downButton` / `upButton`
+  (with the steps of `ui click`) until the option is shown, at most 30 times,
+  and answers `scrolled`; live, `event choose 7` answered `scrolled: 1` and
+  closed in 3 frames. The auto-selection at the deadline was seen in 0.8.0
+  ("Auto-selected event option 0", about four months).
+- **Not checked:** an event that pauses the game. With the lab's message
+  settings no event paused in two years of the Russia save; the pause that
+  came (1721.4.25) was from message pop-ups (`EndOfLandCombatPopup`,
+  `DefaultPopup`), which set the player pause flag. Making events pause needs
+  the game's message settings changed, which the lab's rules do not allow.
+  Also open: an event whose options are never enabled.
 
 ## Game calls (0.7.0)
 
@@ -1054,11 +1089,21 @@ restored, the EXE hash was unchanged and the Process Lasso rule was
   `debug_crash` (the first entry with that alias) and was refused there; a
   call during `run_until 1719.7.1 speed=3` gave `game_calls` 1, `inputs` 0;
   `console_history.txt` was unchanged.
-- **Not checked:** the main menu (`continue=` skips it), ironman and multiplayer (no such save in the lab; what
-  the pre-command hook `0x8740B0` writes in ironman stays open), a game call
-  that faults, `game_calls_ironman` / `game_calls_multiplayer`, handlers that
-  need the console object (`clear`) or a script file (`run`), and a save
-  loaded from the menu (the `game_calls_total` reset).
+- **Hardening pass.** In the main menu `console echo menu` was refused
+  `not_in_game` on the main thread. After a save loaded from the menu,
+  `game_calls_total` was 0; reloading the same save from the in-game menu kept
+  it at 1 until the load watch (above), then 0. `clear` with the console
+  window open emptied its list (one entry to none), with it closed answered
+  an empty text; `run` resolves its argument through the game's file system
+  (it appends `.txt`): `run common/ai_army/01_ai_army_province_peace.txt` (a
+  base-game file of comments only) answered "... executed" with `success_hint`
+  true, `run tongs_no_such_file.txt` an empty text and false. No script file
+  was created.
+- **Not checked:** ironman and multiplayer (the lab has one ironman save,
+  `Armenia.eu4`, but loading an ironman save makes the game write it; what
+  the pre-command hook `0x8740B0` writes in ironman stays open),
+  `game_calls_ironman` / `game_calls_multiplayer`, and a game call that faults
+  (not forced).
 
 ## Notifications (0.8.0)
 
@@ -1134,9 +1179,11 @@ stream in `src/pipe_server.cpp`; the file in `src/game_files.cpp`):
   carries `id`, `title` and `options` (`number`, `text`, `option_index`,
   `option_key`); `closed` carries `id`, `title` and `chosen`. `chosen` is
   the option when Tongs clicked it (`event choose`, `run_until
-  events=first`): Tongs notes the option right after the click, with `by:
-  "tongs"`, the `client` and `choice_date`. A choice by the player, or by a
-  plain `click` / `ui click`, is not known and gives `null`. Without a
+  events=first`, or `ui click` on the option button, which adds `via: "ui
+  click"`): Tongs notes the option right after the click, with `by:
+  "tongs"`, the `client` and `choice_date`. A choice with the real mouse, a
+  plain `click`, or the game's own choice at the deadline, is not known and
+  gives `null` ([#49](https://github.com/happy-dwarf-team/tongs/issues/49)). Without a
   session (count −1), every known event closes. The main thread only runs the
   reads; it never waits for the thread.
 - **`error_log`.** A third thread follows `error.log` every 100 ms (at once
@@ -1263,12 +1310,18 @@ Findings (`tongs-notify-1` unless noted):
   date=day" --count 5 --seconds 20` stopped at 20 s with the three days there
   were. `subscribe nothing` answered `bad_command`.
 
-Not checked: the main menu and a save loaded from it (`left_game` /
-`entered_game` across saves), `restarted` on a live game, an event that pauses
-the game, a player's own choice (`chosen` is `null` for it; the game's
-`game.log` lines "Selected event option N" and "Auto-selected event option N"
-could tell, but Tongs does not follow `game.log`), ironman and multiplayer,
-and the cost of the event reads at speed 5 under `SIMULATION` conditions.
+Checked in the hardening pass: a save loaded from the main menu gave
+`entered_game` (no `left_game` before it: the menu is not a game); reloading
+the save from the in-game menu gave `speed` 2 → 1, `left_game` ("session is
+null"), `entered_game` and `speed` 1 → 2. Before the fix, `entered_game` came
+with the date 1.1.1 while the save was still being read; with it, at
+1719.3.17. A choice by `ui click` on an option is named (`via: "ui click"`).
+
+Not checked: `restarted` on a live game, an event that pauses the game (see
+"Events"), a choice with the real mouse or the game's choice at the deadline
+([#49](https://github.com/happy-dwarf-team/tongs/issues/49)), ironman and
+multiplayer, and the cost of the event reads at speed 5 under `SIMULATION`
+conditions.
 
 ## MCP adapter (0.9.0)
 
@@ -1292,6 +1345,57 @@ project; it lives in this repository instead, next to the client it reuses.
 
 Install, tools, client timeouts and the live check (2026-10-19, game driven
 through the server over stdio by a Python MCP client): [`mcp/README.md`](../mcp/README.md).
+
+## Hardening pass (0.10.0)
+
+On 2026-10-19 the open points of the sections above were checked live, the
+first time with Claude Code itself as the MCP client (`tongs_*` tools; see
+[`mcp/README.md`](../mcp/README.md)). Fixes and additions went into the
+release after 0.10.0; the sections above describe them.
+
+Setup:
+- the original `eu4.exe` (`9AD3EFE1…771A`), Anvil 0.2.0, Tongs from `main`
+  (0.10.0) in `tongs-harden-1`, then the two hardening branches;
+- the lab launcher `anvil-play.ps1 -Scenario tongs -TongsInput
+  -TongsGameCalls` under Process Lasso's `1-7`, with the lab's new
+  `-NoContinue` (no `continue=`: the game stops in the main menu) for
+  `tongs-harden-1`, `-2` and `-4` (`-4` without game calls), and with
+  `continue=` for `-3`;
+- the Russia save of 17 March 1719, loaded from the menu by `ui click` alone
+  (Single Player, the saved-games tab, "Show incompatible saved games", the
+  list's scroll bar buttons, the row, PLAY) and reloaded from the in-game
+  menu (Load Game, the row, Load, Ok);
+- read-only reads of the game's memory from outside (`ReadProcessMemory`) to
+  find the check box and edit box offsets and `mgr+0x130`.
+
+Each session ended with the save unchanged, the EXE hash unchanged,
+`settings.txt` differing only in `graceful_exit` (restored) and the rule
+`eu4.exe,0,1-7`. In `tongs-harden-3`, "Exit to Menu" and then Quit on the
+end-of-game summary made the game start itself again (`-skiplauncher`,
+`continue=` of the original command line) as a child of the verified
+session, with Anvil loaded; the launcher could not remove `version.dll`. The
+child was closed with the lab's verified-session functions (PID, path and
+creation time) and the files removed by hand.
+
+| Area | Result |
+| --- | --- |
+| Main menu | ready about 37 s after start; `state` "session object has an unexpected vtable"; `ui tree` read `country_selection_panel/mainmenu` and the lobby; `console` refused `not_in_game` |
+| Load from the menu | PLAY → 3.5 s `main thread busy`, then outer frames 16/s → 75/s; `entered_game`, then the game's own pause 1.5 s later; `game_calls_total` 0 |
+| Reload of the same save | session object at the same address, date the same: `game_calls_total` stayed 1 (fixed: load watch); `entered_game` came at 1.1.1 (fixed) |
+| Window | the whole of `tongs-harden-1` ran unfocused: `frames`, `ui find`, `ui click`, `screenshot` (`print_window`) all worked; minimizing did not happen (borderless window) |
+| `mgr+0x130` | 0 with nothing under the pointer; `covered_by: null` |
+| Speed 5 | `ui click` on the speed buttons worked while running |
+| `ui click` | the first move after a click on a scroll bar button sometimes found nothing hovered (fixed: up to three tries, then a step aside); a row's own label covers the centre of its check box, so clicking the row window works |
+| List boxes | rows are made only for what is shown and refilled as the list scrolls; the wheel did not scroll the save list ([#51](https://github.com/happy-dwarf-team/tongs/issues/51)); scroll bar rects were relative (fixed) |
+| Widgets | check box `+0x100`, edit box `+0xF8` (added); overlapping elements boxes `0x1DA4910` and grid boxes not read ([#48](https://github.com/happy-dwarf-team/tongs/issues/48)); `.gui` sizes ([#50](https://github.com/happy-dwarf-team/tongs/issues/50)) |
+| Events | seven options, one hidden: `event choose 7` refused `not_visible` (fixed: scrolls); `ui click` on an option gave `chosen: null` (fixed); no event paused the game |
+| Game calls | `clear`, `run` with a base-game file; no faulting call forced |
+| `move` | answered `in_game: false` with an empty reason (fixed) |
+| `scripts/tongs.py` | failed on `£` when piped (fixed) |
+
+Also seen: after a click on an incompatible save in the lobby, the main
+thread stayed busy for minutes (`tongs-harden-4`, until the launcher's limit);
+loading an incompatible save's summary was not investigated.
 
 ## Releases
 
@@ -1321,17 +1425,19 @@ Not in draft 4:
 
 ## Not verified yet
 
-- The open points of 0.7.0 and 0.8.0, under their live checks.
-- `paused` for pauses not caused by the pause button (event popups that pause,
-  menus, multiplayer); `paused_flag` alone was confirmed for the button.
-- Behaviour in the main menu and during save loading beyond "not in game".
-- Input in the main menu, in text fields (Space types instead of pausing),
-  with event popups, and with keyboard layouts other than US (SDL key codes
-  and the characters sent follow a US layout).
+- The open points of each section, under its live checks.
+- `paused` for pauses not caused by the pause button: message pop-ups set
+  `paused_flag` (hardening pass); events that pause, menus and multiplayer
+  were not seen.
+- Input in text fields (Space types instead of pausing) and with keyboard
+  layouts other than US (SDL key codes and the characters sent follow a US
+  layout). Input in the main menu and with event pop-ups works (hardening
+  pass).
 - Whether the speed keys need `SDL_TEXTINPUT` alone or both events; both are
   sent, as SDL does for a real key.
 - Mouse: dragging (no command yet), right and middle clicks, double clicks,
   clicks on the map (only interface buttons were tried), and the focused
   window path of `0x14E5E50` (the game was never focused in the checks).
-- `run_until` across an event that pauses the game (the mod set used does not
-  pause on events), with `max_pause` and with `events=first`.
+- `run_until` across an event that pauses the game (no event paused with the
+  lab's message settings), with `max_pause` and with `events=first`.
+- A minimized game window.
