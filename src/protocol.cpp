@@ -142,10 +142,19 @@ std::string Error(std::string_view message) {
     return "{\"ok\":false,\"error\":\"" + JsonEscape(message) + "\"}";
 }
 
+// `,"pid":N,"process_start_ms":T` when the process is known, else nothing.
+std::string ProcessFields(std::uint32_t pid, std::uint64_t start_ms) {
+    if (pid == 0) return {};
+    std::string out = ",\"pid\":" + std::to_string(pid);
+    if (start_ms != 0) out += ",\"process_start_ms\":" + std::to_string(start_ms);
+    return out;
+}
+
 // The state as JSON members without braces, shared by `state` and the input commands.
 std::string StateFields(const StateSnapshot& s) {
+    const std::string process = ProcessFields(s.pid, s.process_start_ms);
     if (!s.in_game) {
-        return std::string("\"in_game\":false,\"reason\":\"") + JsonEscape(s.reason ? s.reason : "") + "\"";
+        return std::string("\"in_game\":false,\"reason\":\"") + JsonEscape(s.reason ? s.reason : "") + "\"" + process;
     }
     const GameDate date = DecodeGameDate(s.date_raw);
     std::string out = "\"in_game\":true,\"date\":\"" + FormatGameDate(date) + "\"";
@@ -155,7 +164,7 @@ std::string StateFields(const StateSnapshot& s) {
     out += ",\"speed_internal\":" + std::to_string(s.speed);
     out += std::string(",\"paused\":") + Bool(s.paused);
     out += std::string(",\"paused_flag\":") + Bool(s.paused_flag);
-    return out;
+    return out + process;
 }
 
 // Answer of an input command: what it did, then the state read afterwards.
@@ -1355,8 +1364,10 @@ private:
 };
 
 std::string Ping(const Handlers& h) {
-    return std::string("{\"ok\":true,\"command\":\"ping\",\"pong\":true,\"version\":\"") + TONGS_VERSION +
-           "\",\"pid\":" + std::to_string(h.process_id) + "}";
+    std::string out = std::string("{\"ok\":true,\"command\":\"ping\",\"pong\":true,\"version\":\"") + TONGS_VERSION +
+                      "\",\"pid\":" + std::to_string(h.process_id);
+    if (h.process_start_ms != 0) out += ",\"process_start_ms\":" + std::to_string(h.process_start_ms);
+    return out + "}";
 }
 
 // Splits a request line into its command word and the rest.

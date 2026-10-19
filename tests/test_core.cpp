@@ -498,7 +498,18 @@ static void TestProtocol() {
     h.read_state = [&] { return snapshot; };
 
     assert(Contains(HandleRequest("ping\r\n", h), "\"pong\":true"));
-    assert(Contains(HandleRequest("ping", h), "\"pid\":1234"));
+    assert(Contains(HandleRequest("ping", h), "\"pid\":1234}"));
+    // The process identity: in ping, and in every answer that carries the state.
+    h.process_start_ms = 1'792'418'572'041ULL;
+    assert(Contains(HandleRequest("ping", h), "\"pid\":1234,\"process_start_ms\":1792418572041}"));
+    assert(!Contains(HandleRequest("state", h), "\"pid\""));
+    snapshot.pid = 1234;
+    snapshot.process_start_ms = 1'792'418'572'041ULL;
+    assert(Contains(HandleRequest("state", h), "\"in_game\":false,\"reason\":\"\",\"pid\":1234,\"process_start_ms\":1792418572041"));
+    snapshot.in_game = true;
+    snapshot.date_raw = 58'860'240;
+    assert(Contains(HandleRequest("state", h), "\"paused_flag\":false,\"pid\":1234,\"process_start_ms\":1792418572041"));
+    snapshot = StateSnapshot{};
     assert(Contains(HandleRequest("help", h), "\"state\""));
     assert(Contains(HandleRequest("", h), "\"ok\":false"));
     assert(Contains(HandleRequest("pausee", h), "unknown command: pausee"));
