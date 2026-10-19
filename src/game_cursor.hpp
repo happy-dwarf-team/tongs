@@ -1,7 +1,5 @@
 #pragma once
 
-#include <anvil/anvil_plugin.h>
-
 #include <string>
 
 namespace tongs {
@@ -11,13 +9,11 @@ namespace tongs {
 // internal mouse state. Tongs hooks that function: while a virtual cursor is
 // set, the function returns its client coordinates instead, so clicks and
 // hovering land where the mouse commands put them. The virtual cursor ends
-// with `release`, or as soon as the real cursor moves.
-struct CursorLayout {
-    unsigned rva = 0x14E5E50;  // POINT* GetGuiCursor(POINT* out, bool, bool), client coordinates
-};
+// with `release`, or as soon as the real cursor moves. The function is
+// symbols.toml's `gui_cursor`: POINT* (POINT* out, bool, bool).
 
-// Installs the hook; returns an error text, or an empty string on success.
-std::string InstallCursorHook(const AnvilHost* host, AnvilPlugin* self, const CursorLayout& layout);
+// Installs the hook while loading; returns an error text, or an empty string on success.
+std::string InstallCursorHook();
 
 void SetVirtualCursor(int x, int y);
 void ReleaseVirtualCursor();

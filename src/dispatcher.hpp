@@ -12,7 +12,7 @@ namespace tongs {
 
 // Runs jobs on the game's main thread, after an outer frame (docs/design.md,
 // "Dispatcher"). A pipe thread queues a job with Run() and waits for it; the
-// frame hook calls RunBatch() on the main thread.
+// anvil-game.frame handler calls RunBatch() on the main thread.
 //
 // - A job not started before its limit is withdrawn and never runs.
 // - CancelQueued() withdraws every job that has not started.

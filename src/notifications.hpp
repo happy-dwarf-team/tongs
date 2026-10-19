@@ -175,7 +175,7 @@ private:
 // Where the game writes error.log (plugin: game_files.cpp).
 struct ErrorLogLocation {
     std::string path;    // UTF-8, absolute
-    std::string source;  // how it was found: "physfs_write_dir" or "documents"
+    std::string source;  // how it was found: "physfs_write_dir" (PHYSFS_getWriteDir)
     std::string error;   // why there is no path (yet)
 };
 

@@ -13,7 +13,7 @@ notification and marked run are defined in [`GLOSSARY.md`](../GLOSSARY.md).
 
 Addresses marked **static** were found by static analysis only. Each release
 PR checks them on a running game before it merges. Details, the method behind
-each claim and the full `[[expect]]` bytes are on the research branches
+each claim and the full byte patterns (now `plugin/symbols.toml`) are on the research branches
 (never merged):
 [`research/main-thread-dispatch`](https://github.com/happy-dwarf-team/tongs/blob/research/main-thread-dispatch/docs/research/main-thread-dispatch.md),
 [`research/widget-tree`](https://github.com/happy-dwarf-team/tongs/blob/research/widget-tree/docs/research/widget-tree.md),
@@ -65,7 +65,8 @@ window for agents that need to look.
 - Up to 8 clients at once, one per instance; requests are lines, answers are
   single-line JSON. Input commands take turns through one lock, so presses of
   two clients never interleave; `run_until` holds it only while pressing.
-- Off unless `enabled = true` in `anvil/data/tongs/config.toml`; the input
+- Off unless `enabled = true` in `anvil/data/tongs/settings.toml` (before
+  Anvil 1.0: `config.toml`, see "Anvil 1.0 (plugin API 2)"); the input
   commands also need `input = true`, and game calls (0.7.0) need
   `game_calls = true`.
 - From 0.8.0: 8 instances, because a subscription holds one. A connection
@@ -100,8 +101,8 @@ then the date is 1 January of year 1, hour 0, for a moment. Tongs answers
 loading (date not set)". In the main menu the pointer at `root + 0x1E00`
 holds another class ("session object has an unexpected vtable").
 
-`plugin.toml` declares the code that relies on these offsets as `[[expect]]`
-entries, so Anvil skips the plugin when any of them differs.
+`plugin/symbols.toml` declares the code that holds these offsets and takes
+them from it as `values`, so Anvil skips the plugin when any of it differs.
 
 ### Threading
 
@@ -138,7 +139,7 @@ control`, `state` polled once a second:
 ## Input (EU4 1.37.5, SDL 2.0.4)
 
 Found with `dumpbin /disasm` in the lab repository and checked on a running
-game (below). RVAs relative to `eu4.exe`; `plugin.toml` checks the code.
+game (below). RVAs relative to `eu4.exe`; `plugin/symbols.toml` checks the code.
 
 - `eu4.exe` links SDL 2.0.4 statically (source paths
   `SDL2-2.0.4\src\...`) with its dynamic API: each `SDL_*` function is a
@@ -271,7 +272,7 @@ the window rectangle, without focus through `SDL_GetMouseState` (dynapi slot
 other `GetCursorPos` calls in the executable are inside SDL.
 
 With `input = true` Tongs hooks `0x14E5E50` (Anvil `hook_function`, prologue
-`48 89 5C 24 10 55 56 57 48 83 EC 40`). `move`, `click` and `scroll X Y` set
+`48 89 5C 24 10 55 56 57 48 83 EC 40`; symbol `gui_cursor` since Anvil 1.0). `move`, `click` and `scroll X Y` set
 a virtual pointer in client coordinates; while it is set, the hook writes it
 to the result instead of calling the game's code. It is dropped by `release`
 or as soon as the real cursor is somewhere else than when the pointer was
@@ -284,8 +285,9 @@ then sends button down and up.
 From the lab repository (`docs/reverse-engineering.md`, "Inicjalizacja
 puli"): two global pools at `0x242B8E0` and `0x242B950`, each with a vector of
 8-byte worker handles at +0x38 (begin), +0x40 (end), +0x48 (capacity end).
-Their static initializers (`0x8A750`, `0x8A860`) and the store of the
-`threads` option (`0x876999` to `0x1FC23AC`) are `[[expect]]` entries. The
+Their static initializers (`0x8A6D6` and `0x8A750`, `0x8A7E6` and
+`0x8A860`) and the store of the `threads` option (`0x876999` to `0x1FC23AC`)
+are symbols, whose values give the pools, their vectors and the option. The
 main thread is the thread of the game window. The pools are sized once from
 the process affinity at start-up; a mask set later (Process Lasso) does not
 change them.
@@ -362,6 +364,9 @@ sites, the counter and the session gate `0x813F95`.
 
 The hook is installed whenever `enabled = true`. The 0.4.0 `SIMULATION` A/B
 (below) showed no cost, so there is no opt-out.
+
+Since Anvil 1.0 this hook is `anvil-game`'s, not Tongs' (see "Anvil 1.0
+(plugin API 2)"); the conditions and the contract below are unchanged.
 
 **Contract** (from "What does a call dispatched to the main thread
 promise?"):
@@ -959,7 +964,9 @@ marked **live**.
 - **Switches.**
   - Game calls need `game_calls = true`; main-thread reads need only
     `enabled`.
-  - `plugin.toml` declares `affects_gameplay = true`.
+  - `plugin.toml` declares `affects_gameplay = true`; since Anvil 1.0 Anvil
+    also suspends Tongs in ironman and multiplayer unless the player allows
+    it (see "Anvil 1.0 (plugin API 2)").
 - **Always refused:**
   - `enable_all_commands`;
   - commands that act on the user's account: `debug_achievements_clear`,
@@ -1147,7 +1154,7 @@ stream in `src/pipe_server.cpp`; the file in `src/game_files.cpp`):
   subscription as well.
 - **Answer.** `subscribe` answers with `kinds`, `date_unit` (with `date`),
   `queue` (1000), `unavailable` (kinds this build cannot serve, e.g. `event`
-  without the frame hook), `error_log` (`path` and `source`, or `error`) and
+  without main-thread reads), `error_log` (`path` and `source`, or `error`) and
   the fields of `state`: the state that the first `state` notification
   changes.
 - **Queue.** Publishing copies the notification's members into the queue of
@@ -1201,10 +1208,11 @@ stream in `src/pipe_server.cpp`; the file in `src/game_files.cpp`):
   Tongs asks the game (under SEH; the function takes PhysFS's state lock for
   a moment) and uses `<write dir>\logs\error.log` (`source:
   "physfs_write_dir"`). Before the game has set it, the subscription answers
-  an `error` and the thread asks again every second. Only without the export
-  does Tongs use `SHGetKnownFolderPath(FOLDERID_Documents)\Paradox
-  Interactive\Europa Universalis IV` (`source: "documents"`), which misses a
-  `userdir`. No `[[expect]]` entry: the export is looked up by name.
+  an `error` and the thread asks again every second. Before Anvil 1.0, Tongs
+  used `SHGetKnownFolderPath(FOLDERID_Documents)\Paradox Interactive\Europa
+  Universalis IV` (`source: "documents"`) without the export; since then the
+  export is the symbol `physfs_get_write_dir`, which Anvil resolves before
+  loading, so that fallback is gone.
 - **`activity`.** Published by the commands: an input when it counts in
   `inputs` (`what: "input"`, `command`, the running total `inputs`), a game
   call when it counts in `game_calls` (`what: "game_call"`, `line`, `name`,
@@ -1332,7 +1340,7 @@ project; it lives in this repository instead, next to the client it reuses.
 
 - No new power: each tool sends one command over a connection of its own and
   returns the answer line unchanged (and parsed, with `isError` for
-  `"ok": false`). `input` and `game_calls` in the plugin's config still decide.
+  `"ok": false`). `input` and `game_calls` in the plugin's settings still decide.
   Arguments with line breaks are refused, so a tool cannot send two commands.
 - `scripts/tongs.py` is copied verbatim into the package (a test keeps the two
   equal), so the server installs on its own with `uvx` or `uv sync`.
@@ -1397,6 +1405,123 @@ Also seen: after a click on an incompatible save in the lobby, the main
 thread stayed busy for minutes (`tongs-harden-4`, until the launcher's limit);
 loading an incompatible save's summary was not investigated.
 
+## Anvil 1.0 (plugin API 2)
+
+Tongs moved to plugin API 2 for Anvil 1.0 and is released with it
+([tongs#57](https://github.com/happy-dwarf-team/tongs/issues/57); the
+Anvil side is Anvil's `docs/design.md`, §4, §5, §8, §9, §11, §13 and §22.2).
+API 1 is gone: Anvil 1.0 skips an `api = 1` plugin, and Tongs 1.0 needs
+Anvil 1.0.
+
+### Manifest
+
+`plugin/plugin.toml`: `api = 2`, `anvil = ">=1.0.0"`, `symbols`,
+`settings`, `affects_gameplay = true`, `allow_ironman` and
+`allow_multiplayer = "opt-in"`, and a dependency on `anvil-game` `^1`.
+`game_builds` and the 93 `[[expect]]` entries are gone; the build comes from
+`symbols.toml`.
+
+### Symbols
+
+`plugin/symbols.toml` declares every address Tongs uses, and the offsets the
+code reads from them as `values` (the number inside the declared bytes, or
+for `rip_relative` the RVA an instruction addresses). Anvil verifies each
+symbol before it loads `tongs.dll` (bytes, memory kind, pointer targets,
+values); `anvil gen` writes them into `symbols.gen.hpp`, and the layouts in
+`src/game_*.hpp` take their numbers from there (`sym::root_and_date.date`),
+not from a second copy in the code.
+
+- 89 of the 93 `[[expect]]` entries became symbols with the same bytes (8
+  of them longer by a few bytes, because `anvil check` requires whole
+  instructions in declared code). Every value was checked against the
+  constant the code used before.
+- 4 were dropped: the frame function's outer flag (`0x14C25BA`), the main
+  loop call (`0x14C2E0E`), the first-start language loop (`0x2006D0`) and the
+  frame counter (`0x14C2A23`). They proved what Tongs' own frame hook relied
+  on, which is now `anvil-game`'s, and `anvil-game` declares the frame
+  function, the counter and the quit flags itself.
+- New: the functions Tongs calls or hooks get a `signature`
+  (`is_paused`, `sdl_push_event`, `gui_cursor` (the hooked cursor query,
+  before only a prologue check of the hook), `console_dispatch`,
+  `string_free`, `is_multiplayer`), `physfs_get_write_dir` by its export
+  name (before `GetProcAddress`), the session vtable slot that tells the
+  game's session class (`session_speed_slot`, as in `anvil-game`; before an
+  unchecked constant), and the first store into each worker pool
+  (`worker_pool_1`, `worker_pool_2`; the pool's RVA and its vector's offset
+  were unchecked constants).
+- The console registration's 63 bytes are two symbols, its first 40 bytes the
+  same range as `anvil-game`'s `ironman_gate`, so `anvil check --game` sees one
+  shared range instead of an overlap.
+- Still in the code, marked "not in symbols.toml", because no declared
+  instruction holds them: the widget vtable slots for position and size
+  (`0xD8`, `0xE0`), the window's maps and sub-windows (`0x798`, `0x958`, their
+  counts and strides), the vector-pair stride and counts, the render node's
+  parent (`0x110`), the edit box's text (`0xF8`), the check box's byte
+  (`0x100`), the console entry vector at the manager's start, a session list's
+  head 8 bytes before its tail, and SDL 2.0.4's own event layout. They were
+  checked live in their releases, as before.
+- `plugin/symbols.lock` records the check against `eu4.exe`
+  `9AD3EFE1…771A` (`anvil check plugin --exe`); CI and `ctest` fail when it
+  does not match `symbols.toml`.
+
+### Frames and the main thread
+
+`anvil-game` hooks the frame function and publishes `anvil-game.frame` after
+each frame of the main loop, on the main thread, while the game is not
+quitting: the outer frame of the glossary, with the same three conditions as
+Tongs' hook had. Tongs runs the dispatcher's batch in that event with the
+event's frame number (`app+0x320`, as before) and counts the frame for
+`frames`; its own hook of the frame function is gone.
+
+`anvil-game` does not report nested frames. Tongs counts them with a mid hook
+at their only call site (`nested_frame`, `0x769FA6`, the call of the frame
+function with `outer` = 0 in `0x769EA0`), so `frames` keeps `nested_per_s`
+and `nested_total`. The count now starts just before the nested frame instead
+of after it, and outer frames are counted only while the game is not quitting.
+
+Not used: `anvil-game`'s `run_on_main_thread`. Tongs keeps its dispatcher,
+which withdraws jobs past their limit, cancels them, and ends a batch after a
+game call; the work queue has none of that.
+
+### Settings
+
+`plugin/settings.toml` declares `enabled`, `input`, `game_calls`,
+`console_allow` (a string: names separated by commas or spaces, since
+settings have no lists), `game_calls_ironman` and `game_calls_multiplayer`,
+all off and `restart = true`: Tongs reads them once while loading. The
+player's values are in `anvil/data/tongs/settings.toml`;
+`ANVIL_TONGS_<NAME>` variables override them for one start.
+
+Migration: when `anvil/data/tongs/config.toml` exists and `settings.toml`
+does not, Tongs writes the config's non-default values to `settings.toml`
+(through a temporary file), renames the config to `config.toml.migrated`,
+logs it, and uses the config's values already in that start (Anvil read the
+defaults before the file existed), except where an `ANVIL_TONGS_<NAME>`
+variable is set. With both files present, `config.toml` is ignored with a
+warning.
+
+### Ironman and multiplayer
+
+Anvil suspends gameplay plugins in an ironman or multiplayer session unless
+the player allows them in `anvil/anvil.toml` (`allow_ironman = ["tongs"]`,
+`allow_multiplayer = ["tongs"]`; Tongs offers both as `"opt-in"`). Suspended,
+Tongs' cursor hook and nested-frame counter are out of the game, and Tongs
+gets `anvil.suspended`: until `anvil.resumed` its input commands (except
+`release`) answer an error and `console` answers `suspended`, while reads
+(`state`, `ui`, `event list`, `frames`, notifications) go on; `help` reports
+`suspended`. Tongs' own
+`game_calls_ironman` / `game_calls_multiplayer` stay a second layer: a game
+call in ironman needs both the player's opt-in in Anvil and Tongs' switch.
+
+### Build
+
+Tongs builds with the Anvil SDK (`anvil_add_plugin` reads `plugin/plugin.toml`,
+runs `anvil gen`, builds `tongs.dll` with the static CRT and lays out
+`build/plugin/tongs/`). Before Anvil 1.0 publishes the SDK archive,
+`cmake/AnvilSdk.cmake` builds the SDK from Anvil's sources at a pinned
+commit; a TODO there names the switch to the release URL. CI runs `anvil
+check plugin --format github`, which also fails on a stale `symbols.lock`.
+
 ## Releases
 
 Each release is one PR with its live checks done before it merges; the order
@@ -1409,6 +1534,7 @@ is read-only first, then input, then game state.
 | 0.6.0 | `ui click SEL`, `event list` / `event choose`, `run_until events=first`, `inputs` | hover check, event lists, option click delay |
 | 0.7.0 | `console` game calls with ADR 0001, `game_calls`, `affects_gameplay = true` | handlers on the main thread, frontend, ironman/cheated flags |
 | 0.8.0 | `subscribe` with five kinds, 8 pipe instances | every kind, overflow, `error_log`, 8 clients |
+| API 2 | plugin API 2 with Anvil 1.0 (released with it): `symbols.toml`, `anvil-game` frames, `settings.toml` with migration, suspension in ironman/multiplayer | load and symbols, every command family, migration, `frames` outer/nested, suspension (see "Not verified yet") |
 
 Not in draft 4:
 
@@ -1425,6 +1551,13 @@ Not in draft 4:
 
 ## Not verified yet
 
+- Anvil 1.0 (plugin API 2): nothing of it ran in the game yet. To check:
+  Tongs loads after `anvil-game` with 95 symbols verified; every command
+  family answers as with 0.12; `frames` reports outer and nested frames (the
+  nested count from the new mid hook); a 0.12 `config.toml` is moved into
+  `settings.toml` and applies in that start; and in an ironman game without
+  the opt-in Tongs is suspended (input and `console` refused, reads going on)
+  and resumed after the session.
 - The open points of each section, under its live checks.
 - `paused` for pauses not caused by the pause button: message pop-ups set
   `paused_flag` (hardening pass); events that pause, menus and multiplayer

@@ -1,0 +1,742 @@
+# Every game address and offset Tongs uses on EU4 1.37.5 (Steam, win64), declared
+# once. `anvil gen` turns this file into symbols.gen.hpp (sym::<name>, each value
+# a constant); Anvil verifies every symbol against eu4.exe before it loads
+# tongs.dll and skips the plugin on any other build or on changed bytes.
+# `anvil check plugin --exe <eu4.exe>` checks it offline and rewrites symbols.lock.
+# The few offsets that no declared instruction holds stay in the code, each
+# marked "not in symbols.toml" (docs/design.md, "Symbols").
+build = "eu4-1.37.5-steam-win64"
+
+# --- Game state (docs/design.md, "State reader") ---
+
+[symbol.root_and_date]
+rva = 0x14321FC
+bytes = "48 8B 05 75 DC F0 00 8B 98 D0 1D 00 00"
+memory = "code"
+values.root = { at = 3, rip_relative = 7 }
+values.date = { at = 9, size = 4 }
+note = "top bar: the game root object (global) and its current date at root+0x1DD0"
+
+[symbol.speed_of_root]
+rva = 0x1432315
+bytes = "8B 98 08 1E 00 00 FF C3"
+memory = "code"
+values.speed = { at = 2, size = 4 }
+note = "top bar: game speed at root+0x1E08"
+
+[symbol.session_of_root]
+rva = 0x848976
+bytes = "48 8B 05 FB 74 AF 01 48 8B D9 48 8B 88 00 1E 00 00 48 8B 01 FF 90 00 01 00 00"
+memory = "code"
+values.session = { at = 13, size = 4 }
+values.speed_slot = { at = 22, size = 4 }
+note = "pause command: session at root+0x1E00, vtable slot 0x100 returns the game-speed object"
+
+[symbol.session_speed_slot]
+rva = 0x1CB8560
+memory = "read"
+points_to = 0x8024D0
+note = "slot 0x100 of the game session's vtable (the vtable is this slot - session_of_root.speed_slot); in the menu and while loading the session has another class"
+
+[symbol.speed_object]
+rva = 0x8024D0
+bytes = "48 8B 81 18 04 00 00 C3"
+memory = "code"
+values.game_speed = { at = 3, size = 4 }
+note = "session vtable slot 0x100: game-speed object at session+0x418"
+
+[symbol.is_paused]
+rva = 0x7E01B0
+bytes = """
+40 53 48 83 EC 20 80 79 48 00 48 8B D9 74 0E 33 C0 83 F8 02 0F 95 C0 48 83 C4 20 5B C3
+48 8B 49 50 E8 3A A8 F0 FF 84 C0 75 14 48 8B 43 08 48 2B 03 48 A9 F8 FF FF FF
+B8 01 00 00 00 75 05 B8 02 00 00 00 83 F8 02 0F 95 C0 48 83 C4 20 5B C3
+"""
+memory = "code"
+signature = "bool (void* game_speed)"
+values.pause_flag = { at = 8, size = 1 }
+note = "game speed: is paused; the player pause byte at +0x48"
+
+# --- Input (docs/design.md, "Input") ---
+# SDL 2.0.4 is linked into eu4.exe with its dynamic API: every SDL_* call jumps
+# through a table that SDL fills when it starts. The SDL_Event layout is SDL's own ABI.
+
+[symbol.sdl_dynapi_init]
+rva = 0x17325DD
+bytes = "48 8D 0D AC 45 01 00 48 89 0D D5 DC 87 00"
+memory = "code"
+values.push_event = { at = 3, rip_relative = 7 }
+values.push_event_slot = { at = 10, rip_relative = 14 }
+note = "SDL 2.0.4 dynapi init: slot 88 = SDL_PushEvent"
+
+[symbol.sdl_push_event]
+rva = 0x1746B90
+bytes = "40 57 48 83 EC 20 48 8B F9 E8 82 B3 01 00 89 47 04"
+memory = "code"
+signature = "int (void* event)"
+note = "SDL_PushEvent: timestamp from SDL_GetTicks"
+
+[symbol.sdl_poll_event]
+rva = 0x1569D08
+bytes = "48 8D 4D B0 E8 EF B6 1C 00 85 C0"
+memory = "code"
+note = "game event loop: SDL_PollEvent into the event at rbp-0x50"
+
+[symbol.sdl_keydown]
+rva = 0x156A043
+bytes = "44 8B 65 C4 33 C9 48 8B 95 88 00 00 00 41 81 FC 58 00 00 40 44 8B 7D C0"
+memory = "code"
+note = "game event loop, SDL_KEYDOWN: keysym.sym at +0x14, keysym.scancode at +0x10"
+
+[symbol.gui_cursor]
+rva = 0x14E5E50
+bytes = "48 89 5C 24 10 55 56 57 48 83 EC 40"
+memory = "code"
+signature = "void* (void* out, uint8_t a, uint8_t b)"
+note = "the GUI's pointer position in client coordinates (POINT* out), asked once per frame; hooked for the virtual cursor"
+
+# --- Threads (docs/design.md, "Threads") ---
+# Each worker pool is a global object; its worker threads sit in a std::vector
+# of 8-byte handles (begin, end, capacity) that the static initializer clears.
+
+[symbol.worker_pool_1]
+rva = 0x8A6D6
+bytes = "48 89 1D 03 12 3A 02"
+memory = "code"
+values.pool = { at = 3, rip_relative = 7 }
+note = "worker pool 1, static init: the first store into the pool object"
+
+[symbol.worker_pool_1_workers]
+rva = 0x8A750
+bytes = "48 89 1D C1 11 3A 02 0F 57 C0 66 0F 7F 05 BE 11 3A 02"
+memory = "code"
+values.workers = { at = 3, rip_relative = 7 }
+note = "worker pool 1, static init: its worker vector"
+
+[symbol.worker_pool_2]
+rva = 0x8A7E6
+bytes = "48 89 1D 63 11 3A 02"
+memory = "code"
+values.pool = { at = 3, rip_relative = 7 }
+note = "worker pool 2, static init: the first store into the pool object"
+
+[symbol.worker_pool_2_workers]
+rva = 0x8A860
+bytes = "48 89 1D 21 11 3A 02 0F 57 C0 66 0F 7F 05 1E 11 3A 02"
+memory = "code"
+values.workers = { at = 3, rip_relative = 7 }
+note = "worker pool 2, static init: its worker vector"
+
+[symbol.threads_option]
+rva = 0x876999
+bytes = "89 05 0D BA 74 01"
+memory = "code"
+values.threads = { at = 2, rip_relative = 6 }
+note = "start-up: the threads option stored (int32, -1 = automatic)"
+
+# --- Frames (docs/design.md, "Dispatcher") ---
+# anvil-game hooks the frame function and reports the outer frames; Tongs counts
+# the nested ones at their only call site.
+
+[symbol.nested_frame]
+rva = 0x769FA6
+bytes = "48 8B BF 30 03 00 00 33 D2 48 8B CF E8 E9 85 D5 00"
+memory = "code"
+note = "nested frame from a game update or a save load: frame(app, outer = 0)"
+
+[symbol.session_update_gate]
+rva = 0x813F95
+bytes = "45 84 FF 74 27"
+memory = "code"
+note = "session update: the game update runs only in an outer frame (one level of nesting)"
+
+# --- Widget tree (docs/design.md, "Widget tree") ---
+
+[symbol.gui_manager_store]
+rva = 0x14E8904
+bytes = "48 89 35 E5 0B E6 00"
+memory = "code"
+values.manager = { at = 3, rip_relative = 7 }
+note = "gui manager ctor: stores this to the global GUI manager pointer"
+
+[symbol.widget_registry]
+rva = 0x14E9E16
+bytes = "48 8B BE 10 01 00 00 48 8B 86 18 01 00 00"
+memory = "code"
+values.begin = { at = 3, size = 4 }
+values.end = { at = 10, size = 4 }
+note = "gui update: widget registry vector at mgr+0x110 / +0x118"
+
+[symbol.render_pick]
+rva = 0x14DEAF0
+bytes = """
+48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 56 41 57 48 83 EC 40 49 8B D8 8B EA 48 8B F1
+48 8B 79 08 48 2B 39 48 C1 FF 03 83 EF 01 0F 88 85 00 00 00 4C 8D 35 9D F2 8B 00 4C 8D 3D C6 E4
+8A 00 48 8B 06 48 8B 14 F8 48 8B 82 18 01 00 00 48 85 C0 74 16 80 B8 C5 00 00 00 00 74 0D 80 B8
+C4 00 00 00 00 75 04
+"""
+memory = "code"
+values.node_owner = { at = 76, size = 4 }
+values.shown = { at = 87, size = 4 }
+values.dead = { at = 96, size = 4 }
+note = "picking: render node owner at node+0x118, visible +0xC5, dead +0xC4"
+
+[symbol.button_hide]
+rva = 0x15AEAD0
+bytes = "40 53 48 83 EC 20 C6 81 C5 00 00 00 00"
+memory = "code"
+note = "button hide: visible byte +0xC5"
+
+[symbol.widget_name_slot]
+rva = 0xFBF480
+bytes = "48 8B 89 B0 00 00 00 48 8B 01 48 FF 60 40"
+memory = "code"
+note = "widget vtable slot 0xA0 (name): .gui type at +0xB0, its slot 0x40"
+
+[symbol.type_name_slot]
+rva = 0x9A920
+bytes = "48 8D 41 10 C3"
+memory = "code"
+values.head = { at = 3, size = 1 }
+note = "type slot 0x40 (name at type+0x10); list object slot 0x60 (head at +0x10)"
+
+[symbol.button_state]
+rva = 0x1148250
+bytes = "8B 81 24 01 00 00 C3"
+memory = "code"
+values.state = { at = 2, size = 4 }
+note = "button slot 0x258: state at +0x124 (3 = disabled)"
+
+[symbol.window_find_child]
+rva = 0x1548040
+bytes = """
+48 89 5C 24 10 57 48 83 EC 20 48 83 7A 18 10 48 8B F9 48 8B CA 48 8B DA 72 03 48 8B 0A 8B 52 10
+4C 8D 8F 88 05 00 00 4C 8D 87 A0 05 00 00
+"""
+memory = "code"
+values.pairs = { at = 35, size = 4 }
+note = "windowType find child: first button vector pair (+0x588/+0x5A0 from the widget pointer)"
+
+[symbol.container_find_child]
+rva = 0x1636A50
+bytes = """
+48 89 5C 24 08 57 48 83 EC 20 48 83 7A 18 10 48 8B F9 48 8B CA 48 8B DA 72 03 48 8B 0A 8B 52 10
+4C 8D 8F 50 06 00 00 4C 8D 87 68 06 00 00
+"""
+memory = "code"
+values.pairs = { at = 35, size = 4 }
+note = "containerWindowType find child: first vector pair (+0x650/+0x668 from the widget pointer)"
+
+[symbol.listbox_find_child]
+rva = 0x152F220
+bytes = """
+48 89 5C 24 08 57 48 83 EC 20 48 8B 41 F8 48 83 C1 F8 48 8B FA FF 50 60 48 8B 18 48 85 DB 74 4B
+48 8B 03 48 8B 48 40 48 8B 41 30 48 83 C1 30 FF 90 A0 00 00 00 48 83 7F 18 10 48 8B D7 72 03 48
+8B 17 48 83 78 18 10 4C 8B 40 10 72 03 48 8B 00 4C 3B 47 10 75 0C 48 8B C8 E8 D2 63 50 00 85 C0
+74 16 48 8B 5B 10 48 85 DB 75 B5
+"""
+memory = "code"
+values.list_object = { at = 13, size = 1 }
+values.list_slot = { at = 23, size = 1 }
+values.item_window = { at = 38, size = 1 }
+values.name_slot = { at = 49, size = 4 }
+values.next = { at = 101, size = 1 }
+note = "listboxType find child: item list through the object at -8, item window at +0x40, next node at +0x10"
+
+[symbol.listbox_items]
+rva = 0x1530600
+bytes = "48 81 C1 F8 00 00 00 48 8B 01"
+memory = "code"
+values.list = { at = 3, size = 4 }
+note = "listboxType: the item list object at +0xF0 (list head at +0x100)"
+
+[symbol.smooth_listbox_find_child]
+rva = 0x15839C0
+bytes = """
+48 89 5C 24 08 57 48 83 EC 20 48 8B 41 F8 48 83 C1 F8 48 8B FA FF 50 60 48 8B 18 48 85 DB 74 4B
+48 8B 03 48 8B 48 60 48 8B 41 30 48 83 C1 30 FF 90 A0 00 00 00 48 83 7F 18 10 48 8B D7 72 03 48
+8B 17 48 83 78 18 10 4C 8B 40 10 72 03 48 8B 00 4C 3B 47 10 75 0C 48 8B C8 E8 32 1C 4B 00 85 C0
+74 16 48 8B 5B 10 48 85 DB 75 B5
+"""
+memory = "code"
+values.item_window = { at = 38, size = 1 }
+note = "smoothListboxType find child: item window at +0x60"
+
+[symbol.listbox_scrollbar]
+rva = 0x152F51A
+bytes = "48 8B F1 48 8B FA 48 8B 89 E0 01 00 00"
+memory = "code"
+values.scrollbar = { at = 9, size = 4 }
+note = "listboxType: scroll bar at +0x1E0"
+
+[symbol.smooth_listbox_scrollbar]
+rva = 0x15833EB
+bytes = "48 8B 8E 28 02 00 00"
+memory = "code"
+values.scrollbar = { at = 3, size = 4 }
+note = "smoothListboxType: scroll bar at +0x228"
+
+[symbol.scrollbar_slider_up]
+rva = 0x1553540
+bytes = "49 8B 86 58 01 00 00 44 89 68 08 49 8B 8E E0 03 00 00"
+memory = "code"
+values.slider = { at = 3, size = 4 }
+values.up = { at = 14, size = 4 }
+note = "scrollbarType: slider button at +0x158, up button at +0x3E0"
+
+[symbol.scrollbar_down_track]
+rva = 0x1553A37
+bytes = "49 8B 8E F8 02 00 00 49 8B 86 30 01 00 00 48 89 81 80 01 00 00 49 8B 8E F0 02 00 00"
+memory = "code"
+values.down = { at = 3, size = 4 }
+values.track = { at = 24, size = 4 }
+note = "scrollbarType: down button at +0x2F8, track button at +0x2F0"
+
+# --- Widget positions: the render node each kind reads in its vtable slot 0xD8 ---
+
+[symbol.window_position]
+rva = 0x10A1030
+bytes = "40 53 48 83 EC 20 48 8B 41 D0 48 83 C1 D0 48 8B DA 48 8D 54 24 30 FF 90 68 01 00 00"
+memory = "code"
+note = "windowType slot 0xD8: the full object's slot 0x168"
+
+[symbol.window_render_node]
+rva = 0x154A7C0
+bytes = "4C 8B 81 30 0A 00 00 F3 41 0F 2C 80 DC 00 00 00"
+memory = "code"
+values.node = { at = 3, size = 4 }
+note = "windowType full slot 0x168: render node at full+0xA30"
+
+[symbol.container_render_node]
+rva = 0x1632EE0
+bytes = "4C 8B 81 50 0A 00 00 F3 41 0F 2C 80 DC 00 00 00"
+memory = "code"
+values.node = { at = 3, size = 4 }
+note = "containerWindowType slot 0xD8: render node at +0xA50"
+
+[symbol.button_render_node]
+rva = 0x15AEDE0
+bytes = "40 53 48 83 EC 20 48 8B 89 90 02 00 00 48 8B DA"
+memory = "code"
+values.node = { at = 9, size = 4 }
+note = "button slot 0xD8: render node at +0x290"
+
+[symbol.slider_render_node]
+rva = 0x1572160
+bytes = "48 89 5C 24 18 57 48 83 EC 30 48 8B D9 0F 29 74 24 20 48 8B 89 68 01 00 00 48 8B FA"
+memory = "code"
+values.node = { at = 21, size = 4 }
+note = "scroll bar slider slot 0xD8: render node at +0x168"
+
+[symbol.track_render_node]
+rva = 0x15F7500
+bytes = "48 89 5C 24 18 57 48 83 EC 30 48 8B D9 0F 29 74 24 20 48 8B 89 80 01 00 00 48 8B FA"
+memory = "code"
+values.node = { at = 21, size = 4 }
+note = "scroll bar track slot 0xD8: render node at +0x180"
+
+[symbol.icon_render_node]
+rva = 0x15861E0
+bytes = "40 53 48 83 EC 20 48 8B 89 68 01 00 00 48 8B DA"
+memory = "code"
+values.node = { at = 9, size = 4 }
+note = "icon slot 0xD8: render node at +0x168"
+
+[symbol.instant_text_render_node]
+rva = 0x152B060
+bytes = "40 53 48 83 EC 20 48 8B 89 18 01 00 00 48 8B DA"
+memory = "code"
+values.node = { at = 9, size = 4 }
+note = "instant text box slot 0xD8: render node at +0x118"
+
+[symbol.text_box_render_node]
+rva = 0x15A12D0
+bytes = "48 89 5C 24 18 57 48 83 EC 30 48 8B D9 0F 29 74 24 20 48 8B 89 D0 00 00 00 48 8B FA"
+memory = "code"
+values.node = { at = 21, size = 4 }
+note = "textBoxType slot 0xD8: render node at +0xD0"
+
+[symbol.edit_box_render_node]
+rva = 0x15357A0
+bytes = "48 89 5C 24 18 57 48 83 EC 30 48 8B D9 0F 29 74 24 20 48 8B 89 E8 01 00 00 48 8B FA"
+memory = "code"
+values.node = { at = 21, size = 4 }
+note = "edit box slot 0xD8: render node at +0x1E8"
+
+[symbol.checkbox_render_node]
+rva = 0x152D620
+bytes = "40 53 48 83 EC 20 48 8B 89 10 01 00 00 48 8B DA"
+memory = "code"
+values.node = { at = 9, size = 4 }
+note = "checkbox slot 0xD8: render node at +0x110"
+
+[symbol.listbox_render_node]
+rva = 0x152FB20
+bytes = "4C 8B 81 80 01 00 00 F3 41 0F 2C 80 DC 00 00 00"
+memory = "code"
+values.node = { at = 3, size = 4 }
+note = "listboxType slot 0xD8: render node at +0x180"
+
+[symbol.smooth_listbox_render_node]
+rva = 0x1582A90
+bytes = "4C 8B 81 18 02 00 00 F3 41 0F 2C 80 DC 00 00 00"
+memory = "code"
+values.node = { at = 3, size = 4 }
+note = "smoothListboxType slot 0xD8: render node at +0x218"
+
+# --- Displayed text ---
+
+[symbol.button_set_text]
+rva = 0x15ADFA0
+bytes = """
+48 89 5C 24 08 48 89 6C 24 18 48 89 54 24 10 56 57 41 54 41 56 41 57 48 83 EC 30 49 8B E8 48 8B
+FA 48 8B D9 4D 85 C0 75 09 48 8B A9 20 02 00 00 EB 07 4C 89 81 20 02 00 00 48 8D B1 00 02 00 00
+"""
+memory = "code"
+values.text = { at = 60, size = 4 }
+note = "button set text: label at +0x200"
+
+[symbol.instant_text_set_text]
+rva = 0x152AE10
+bytes = "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 48 8D B9 70 01 00 00"
+memory = "code"
+values.text = { at = 23, size = 4 }
+note = "instant text box set text: string at +0x170"
+
+[symbol.text_box_destructor]
+rva = 0x15A124F
+bytes = """
+48 8D 05 DA 7F 7F 00 48 89 01 48 8B 91 D0 00 00 00 48 8B 89 C8 00 00 00 E8 34 A4 F3 FF 48 8D 8F
+78 01 00 00 E8 E8 43 AF FE
+"""
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+values.text = { at = 32, size = 4 }
+note = "textBoxType destructor: its vtable, the text at +0x178"
+
+# --- Vtables that tell the kinds apart (stored by their constructors) ---
+
+[symbol.window_vtable]
+rva = 0x1543FF4
+bytes = "48 8D 05 D5 E9 84 00 48 89 01"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "windowType vtable"
+
+[symbol.eu3dialog_vtable]
+rva = 0x10A1879
+bytes = "48 8D 05 90 5C CB 00 48 89 46 30"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+values.window_part = { at = 10, size = 1 }
+note = "eu3dialogtype vtable (widget part at +0x30)"
+
+[symbol.container_vtable]
+rva = 0x1630821
+bytes = "48 8D 05 68 38 77 00 48 89 01"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "containerWindowType vtable"
+
+[symbol.gui_button_vtable]
+rva = 0x10B55FC
+bytes = "48 8D 05 15 2C CA 00 49 89 04 24"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "guiButtonType vtable"
+
+[symbol.button_vtable]
+rva = 0x15AC6BB
+bytes = "48 8D 05 7E DC 7E 00 49 89 06"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "buttonType vtable"
+
+[symbol.slider_vtable]
+rva = 0x1570EAA
+bytes = "48 8D 05 FF 45 82 00 48 89 07"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "scroll bar slider vtable"
+
+[symbol.track_vtable]
+rva = 0x15F6B9B
+bytes = "48 8D 05 9E BD 7A 00 48 89 07"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "scroll bar track vtable"
+
+[symbol.icon_type_vtable]
+rva = 0x10B5823
+bytes = "48 8D 05 9E 2D CA 00"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "iconType vtable"
+
+[symbol.icon_vtable]
+rva = 0x15857FC
+bytes = "48 8D 05 FD 14 81 00 48 89 07"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "icon vtable"
+
+[symbol.instant_text_vtable]
+rva = 0x1529D66
+bytes = "48 8D 0D A3 5F 86 00 48 89 0E"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "instantTextBoxType vtable"
+
+[symbol.edit_box_vtable]
+rva = 0x15333D7
+bytes = "48 8D 05 7A DF 85 00 49 89 06"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "editBoxType vtable"
+
+[symbol.checkbox_vtable]
+rva = 0x152B9A7
+bytes = "48 8D 05 1A 46 86 00 48 89 01"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "checkboxType vtable"
+
+[symbol.listbox_vtable]
+rva = 0x152E2C6
+bytes = "48 8D 05 0B 2D 86 00 49 89 46 08"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "listboxType vtable"
+
+[symbol.smooth_listbox_vtable]
+rva = 0x1583116
+bytes = "48 8D 05 5B 34 81 00 49 89 07"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "smoothListboxType vtable"
+
+[symbol.grid_box_vtable]
+rva = 0x15907EF
+bytes = "48 8D 05 FA 76 80 00 49 89 06"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "gridBoxType vtable"
+
+[symbol.scrollbar_vtable]
+rva = 0x1552BFC
+bytes = "48 8D 05 45 0B 84 00 48 89 01"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "scrollbarType vtable"
+
+# --- Hovering and clicking widgets ---
+
+[symbol.hover_callback]
+rva = 0x15528D0
+bytes = "48 89 5C 24 08 57 48 83 EC 20 48 8B 01 8B FA 48 8B D9 FF 10 84 C0 74 2F 8B 4B 60 83 F9 FF 74 12 3B F9 0F 9E C0 88 83 8F 00 00 00 83 F9 FE 7E 17 EB 07 C6 83 8F 00 00 00 01 48 8B 83 B8 00 00 00 48 89 98 30 01 00 00"
+memory = "code"
+values.hovered = { at = 67, size = 4 }
+note = "GuiObject hover callback: +0x8F hovered this frame, manager+0x130 = this (manager at +0xB8)"
+
+[symbol.hover_order]
+rva = 0x14DEFFA
+bytes = "48 8B 5E 08 48 2B 1E 48 C1 FB 04 83 EB 01 78 34 48 89 7C 24 30 48 63 FB 48 C1 E7 04 66 66 0F 1F 84 00 00 00 00 00 48 8B 06 8B D3 48 8B 4C 07 08 48 8B 01 FF 50 08 83 EB 01 48 8D 7F F0 79 E7"
+memory = "code"
+note = "hover: picked owners called from the last to the first, so the topmost (first) stays in manager+0x130"
+
+# --- Events (docs/design.md, "Events") ---
+# Session lists are {head, tail, count}, their nodes {value, prev, next, being-removed byte}.
+
+[symbol.event_popup]
+rva = 0x828C20
+bytes = "48 8B 05 51 72 B1 01 80 B8 E0 74 00 00 00 74 30 B9 E8 03 00 00 E8 9A A6 20 01 48 89 44 24 30 89 7C 24 20 4C 8B CE 4C 8B C5 48 8B D3 48 8B C8 E8 FC 0D 89 00 90 48 8B D0 48 8B CB E8 80 3E EC FF"
+memory = "code"
+note = "session slot 0x108: a new event controller, appended to the session pop-up list"
+
+[symbol.popup_list_append]
+rva = 0x6ECB39
+bytes = "48 8B 9E 80 00 00 00 B9 20 00 00 00 E8 8A 67 34 01 48 89 38 48 89 58 08 48 C7 40 10 00 00 00 00 C6 40 18 00"
+memory = "code"
+values.tail = { at = 3, size = 4 }
+values.node_next = { at = 27, size = 1 }
+values.node_removed = { at = 34, size = 1 }
+note = "pop-up list append: the list's tail at session+0x80, node {popup, prev, next +0x10, flag +0x18}"
+
+[symbol.event_controller]
+rva = 0x10B9B3B
+bytes = "48 8D 05 B6 F5 C9 00 48 89 03 48 8D 05 94 F5 C9 00 48 89 43 08 C7 43 30 FF FF FF FF 33 F6 48 89 73 38 48 89 7B 40 4C 89 7B 48"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+values.window = { at = 33, size = 1 }
+values.event = { at = 41, size = 1 }
+note = "event controller ctor: vtable, +0x30 = -1, window +0x38, session +0x40, event +0x48"
+
+[symbol.event_window_store]
+rva = 0x10BA234
+bytes = "48 8D 54 24 50 41 FF D0 49 89 47 38"
+memory = "code"
+note = "event fill: created EventWindow stored at controller+0x38"
+
+[symbol.event_options]
+rva = 0x10BB593
+bytes = "49 8B 47 48 48 8B 88 90 07 00 00 48 8B 80 98 07 00 00"
+memory = "code"
+values.options = { at = 7, size = 4 }
+note = "event fill: options vector at event+0x790/+0x798"
+
+[symbol.event_numeric_id]
+rva = 0x10BB74C
+bytes = "49 8B 4F 48 8B 51 14 48 8D 4D 68 E8 A4 82 64 00"
+memory = "code"
+values.numeric_id = { at = 6, size = 1 }
+note = "event fill: numeric event id at event+0x14 for the button string"
+
+[symbol.event_button_scope]
+rva = 0x10BB7A8
+bytes = "49 8B 04 24 48 8D 54 24 70 49 8B CC FF 90 18 01 00 00 49 8D 47 50 49 89 44 24 10"
+memory = "code"
+note = "event fill: button slot 0x118 gets '<id>_<index>', button+0x10 = controller+0x50"
+
+[symbol.event_button_append]
+rva = 0x10BB81F
+bytes = "49 8D 8F 08 02 00 00 48 8D 95 18 01 00 00 E8 EE 38 02 FF"
+memory = "code"
+values.buttons = { at = 3, size = 4 }
+note = "event fill: append option button to controller+0x208"
+
+[symbol.event_window_register]
+rva = 0x10BBAE8
+bytes = "48 8B 05 89 43 28 01 48 8B 88 00 1E 00 00 48 8B 01 4D 8B 4F 38 4D 8B C4 49 8B 57 48"
+memory = "code"
+note = "event fill: session slot 0x2F0 gets (event, scope, window)"
+
+[symbol.event_window_list]
+rva = 0x82B055
+bytes = "48 89 18 48 89 78 08 48 89 70 10 48 8B 9D A0 04 00 00"
+memory = "code"
+values.window = { at = 10, size = 1 }
+values.tail = { at = 14, size = 4 }
+note = "session slot 0x2F0: entry {event, scope, window}, the event window list's tail at session+0x4A0"
+
+[symbol.event_window_count]
+rva = 0x82B07F
+bytes = "8B 95 A8 04 00 00 48 89 85 A0 04 00 00 8D 4A 01 89 8D A8 04 00 00"
+memory = "code"
+values.count = { at = 2, size = 4 }
+note = "session slot 0x2F0: event window list count at session+0x4A8"
+
+[symbol.gui_object_assign_string]
+rva = 0x1552930
+bytes = "48 83 7A 18 10 72 03 48 8B 12 49 C7 C0 FF FF FF FF 49 FF C0 42 80 3C 02 00 75 F6 48 83 C1 38 E9 BC 27 B4 FE"
+memory = "code"
+values.text = { at = 30, size = 1 }
+note = "GuiObject slot 0x118: assign string at +0x38"
+
+[symbol.option_click]
+rva = 0x10BC220
+bytes = "40 57 48 83 EC 40 80 B9 24 01 00 00 00 48 8B F9 0F 84 92 00 00 00 4C 8B 81 08 02 00 00 4D 85 C0 0F 84 82 00 00 00 49 39 10 4D 8B 40 10 74 0B 4D 85 C0 75 F2 48 83 C4 40 5F C3 48 85 D2 74 69 48 8D 4A 38 41 B0 5F"
+memory = "code"
+values.waiting = { at = 8, size = 4 }
+note = "option click: +0x124 active, button in +0x208 list, split button+0x38 at '_'"
+
+[symbol.event_id_parser]
+rva = 0x6EEC19
+bytes = "4C 8D 61 20 49 8B D6 49 8B CC E8 E8 64 9A FF 49 8B CE E8 A8 A3 35 01 44 8B E8 41 BF 04 00 00 00 3D A0 86 01 00"
+memory = "code"
+values.script_id = { at = 3, size = 1 }
+note = "event parser, token id: text to event+0x20, atoi, limit 100000"
+
+[symbol.option_name_parser]
+rva = 0x6F6C5F
+bytes = "48 81 C2 44 04 00 00 49 C7 C0 FF FF FF FF 0F 1F 00 49 FF C0 42 80 3C 02 00 75 F6 48 81 C1 88 00 00 00 48 83 C4 20 5F E9 85 E4 99 FF"
+memory = "code"
+values.name = { at = 30, size = 4 }
+note = "option parser, token name: text to option+0x88"
+
+[symbol.option_delay]
+rva = 0x10BBEE1
+bytes = "48 8B 9E 08 02 00 00 F2 0F 5C 86 20 02 00 00 F3 0F 10 0D 5C 29 28 01 0F 5A C9 66 0F 2F C8 76 29"
+memory = "code"
+values.delay = { at = 19, rip_relative = 23 }
+note = "event update: option buttons stay disabled while less than this float define has passed since +0x220"
+
+# --- Game calls (docs/design.md, "Game calls (0.7.0)"; ADR 0001) ---
+
+[symbol.console_dispatch]
+rva = 0x1721320
+bytes = "48 89 5C 24 10 48 89 4C 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 D0 48 81 EC 30 01 00 00 49 8B F0 48 8B FA 4C 8B E1"
+memory = "code"
+signature = "void* (void* manager, void* result, void* tokens)"
+note = "console dispatcher: (manager, result, tokens) -> result; runs one tokenised line"
+
+[symbol.console_dispatch_gates]
+rva = 0x172136E
+bytes = "41 B0 01 48 8B 16 E8 87 FC FF FF 48 89 85 80 00 00 00 48 85 C0 0F 84 39 06 00 00 38 18 75 61 41 38 5C 24 18 74 5A"
+memory = "code"
+values.developer_lock = { at = 35, size = 1 }
+note = "console dispatcher: lookup 0x1721000, entry+0x00 release byte, manager+0x18 developer gate"
+
+[symbol.console_mode_gate]
+rva = 0x1721463
+bytes = "41 80 7C 24 19 00"
+memory = "code"
+values.mode_lock = { at = 4, size = 1 }
+note = "console dispatcher: manager+0x19 multiplayer/ironman gate"
+
+[symbol.console_pre_command]
+rva = 0x172174E
+bytes = "48 8B 05 FB 63 C3 00 48 85 C0 74 02 FF D0 49 8B 47 38 4D 8B 47 40 48 8D 54 24 28 48 8D 4D 08 FF D0"
+memory = "code"
+note = "console dispatcher: pre-command hook 0x2357B50, then entry+0x38(result, args, entry+0x40)"
+
+[symbol.console_lookup]
+rva = 0x1721066
+bytes = "48 69 E8 A8 00 00 00 48 03 E9 48 83 7B 18 10 72 03 48 8B 13 48 8B 4D 08 E8 9D 6F 32 00 85 C0 74 6A 33 FF 39 7D 10 7E 28 48 8D 75 18"
+memory = "code"
+values.entry_size = { at = 3, size = 4 }
+values.name = { at = 23, size = 1 }
+values.alias_count = { at = 37, size = 1 }
+values.aliases = { at = 43, size = 1 }
+note = "console lookup: entries of 0xA8 bytes, name at +0x08, alias count at +0x10, aliases from +0x18"
+
+[symbol.console_manager_get]
+rva = 0x6E74C0
+bytes = "48 83 EC 28 48 8B 05 8D 06 C7 01 48 85 C0 75 3D"
+memory = "code"
+values.manager = { at = 7, rip_relative = 11 }
+note = "console manager getter: the singleton pointer"
+
+[symbol.string_free]
+rva = 0x95660
+bytes = "40 53 48 83 EC 20 48 8B 51 18 48 8B D9 48 83 FA 10 72 2C 48 8B 09"
+memory = "code"
+signature = "void (void* text)"
+note = "the game's std::string destructor, to free the result text"
+
+[symbol.console_registration]
+rva = 0x6E9128
+bytes = "48 8B 0D 49 6D C5 01 C6 40 18 01 48 8B 89 00 1E 00 00 E8 D1 18 00 00 48 8B 0D 32 6D C5 01 0F B6 D8 0F B6 B9 D0 24 00 00"
+memory = "code"
+values.ironman = { at = 36, size = 4 }
+note = "console registration: the multiplayer/ironman gate reads is_multiplayer(session) and the root byte +0x24D0 (ironman)"
+
+[symbol.console_mode_store]
+rva = 0x6E9150
+bytes = "E8 6B E3 FF FF 84 DB 75 09 40 84 FF 75 04 33 C9 EB 02 B1 01 88 48 19"
+memory = "code"
+values.mode_lock = { at = 22, size = 1 }
+note = "console registration: manager+0x19 = multiplayer or ironman"
+
+[symbol.is_multiplayer]
+rva = 0x6EAA10
+bytes = "48 89 5C 24 08 57 48 83 EC 20 48 8B 01 48 8B F9 FF 90 18 03 00 00"
+memory = "code"
+signature = "bool (void* session)"
+note = "multiplayer check through session vtable slot 0x318"
+
+# --- Files (docs/design.md, "Notifications") ---
+
+[symbol.physfs_get_write_dir]
+export = "PHYSFS_getWriteDir"
+signature = "const char* ()"
+note = "PhysFS's write directory, where the game writes logs/error.log"

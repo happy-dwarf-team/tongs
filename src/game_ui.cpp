@@ -97,13 +97,13 @@ std::vector<std::uintptr_t> HeldBy(std::uintptr_t widget, const UiKind& kind, co
     const std::uintptr_t full = widget - l.window_part;
     switch (kind.children) {
         case UiKind::Children::Window:
-            for (unsigned i = 0; i < l.window_pair_count; ++i) ReadVector(full + l.window_pairs + i * l.pair_stride, 8, 0, out);
+            for (unsigned i = 0; i < l.window_pair_count; ++i) ReadVector(widget + l.window_pairs + i * l.pair_stride, 8, 0, out);
             for (unsigned i = 0; i < l.window_map_count; ++i) ReadList(full + l.window_maps + i * l.map_stride + l.map_list_head, l, 0, out);
             ReadVector(full + l.window_subwindows, l.subwindow_size, l.subwindow_pointer, out);
             break;
         case UiKind::Children::Container:
             for (unsigned i = 0; i < l.container_pair_count; ++i) {
-                ReadVector(full + l.container_pairs + i * l.pair_stride, 8, 0, out);
+                ReadVector(widget + l.container_pairs + i * l.pair_stride, 8, 0, out);
             }
             break;
         case UiKind::Children::Listbox:

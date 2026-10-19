@@ -1,6 +1,7 @@
 #pragma once
 
 #include "console.hpp"
+#include "game_symbols.hpp"
 
 #include <cstdint>
 #include <string>
@@ -8,24 +9,34 @@
 
 namespace tongs {
 
-// The console of EU4 1.37.5 (docs/design.md, "Game calls (0.7.0)"). RVAs are
-// relative to eu4.exe; plugin.toml checks the code that uses them.
+// The console of EU4 1.37.5 (docs/design.md, "Game calls (0.7.0)"), from
+// plugin/symbols.toml. RVAs are relative to eu4.exe.
 struct ConsoleLayout {
-    unsigned manager_rva = 0x2357B58;   // pointer to the console manager; null before its first use
-    unsigned dispatch_rva = 0x1721320;  // (manager, result, tokens) -> result: runs one tokenised line
-    unsigned string_free_rva = 0x95660; // the game's std::string destructor, for the result text
-    unsigned entries = 0x00;            // manager: vector of command entries (begin, end)
-    unsigned entry_size = 0xA8;
-    unsigned entry_name = 0x08;         // const char*
-    unsigned entry_alias_count = 0x10;  // int32, up to 3
-    unsigned entry_aliases = 0x18;      // const char*[3]
-    unsigned developer_lock = 0x18;     // manager byte: developer commands locked
-    unsigned mode_lock = 0x19;          // manager byte: multiplayer/ironman lock, set at registration
-    unsigned root_rva = 0x233FE78;
-    unsigned session = 0x1E00;          // root: the session
-    unsigned session_vtable_rva = 0x1CB8460;
-    unsigned ironman = 0x24D0;          // root byte: ironman, as the registration 0x6E90F0 reads it
-    unsigned multiplayer_rva = 0x6EAA10;  // bool (session*): multiplayer, as the registration calls it
+    unsigned manager_rva = U32(sym::console_manager_get.manager);  // pointer to the console manager; null before its first use
+    unsigned dispatch_rva = 0;      // RvaOf(sym::console_dispatch): (manager, result, tokens) -> result, one tokenised line
+    unsigned string_free_rva = 0;   // RvaOf(sym::string_free): the game's std::string destructor, for the result text
+    unsigned entries = 0x00;        // not in symbols.toml: manager, vector of command entries (begin, end)
+    unsigned entry_size = U32(sym::console_lookup.entry_size);
+    unsigned entry_name = U32(sym::console_lookup.name);                // const char*
+    unsigned entry_alias_count = U32(sym::console_lookup.alias_count);  // int32, up to 3
+    unsigned entry_aliases = U32(sym::console_lookup.aliases);          // const char*[3]
+    unsigned developer_lock = U32(sym::console_dispatch_gates.developer_lock);  // manager byte: developer commands locked
+    unsigned mode_lock = U32(sym::console_mode_gate.mode_lock);  // manager byte: multiplayer/ironman lock, set at registration
+    unsigned root_rva = U32(sym::root_and_date.root);
+    unsigned session = U32(sym::session_of_root.session);  // root: the session
+    unsigned session_vtable_rva = 0;                        // SessionVtableRva(), set when loading
+    unsigned ironman = U32(sym::console_registration.ironman);  // root byte: ironman, as the registration reads it
+    unsigned multiplayer_rva = 0;  // RvaOf(sym::is_multiplayer): bool (session*), as the registration calls it
+
+    // The members only Anvil knows: call when the plugin is loading.
+    static ConsoleLayout Load() {
+        ConsoleLayout l;
+        l.dispatch_rva = RvaOf(sym::console_dispatch);
+        l.string_free_rva = RvaOf(sym::string_free);
+        l.session_vtable_rva = SessionVtableRva();
+        l.multiplayer_rva = RvaOf(sym::is_multiplayer);
+        return l;
+    }
 };
 
 // Main thread only. Reads the manager, its commands and the game's mode;

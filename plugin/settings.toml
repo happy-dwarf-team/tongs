@@ -1,0 +1,46 @@
+# Tongs' switches. Anvil keeps the player's values that differ from these
+# defaults in anvil/data/tongs/settings.toml (e.g. `enabled = true`), and
+# ANVIL_TONGS_<NAME> environment variables override them for one start. Tongs
+# reads them once when it loads; a change applies at the next start.
+# An anvil/data/tongs/config.toml from Tongs 0.12 or older is moved into that
+# file on the first start (docs/design.md, "Settings").
+
+[setting.enabled]
+type = "bool"
+default = false
+label = "Open the pipe"
+description = "Opens the local pipe \\\\.\\pipe\\tongs for the current Windows user, so that scripts and agents can read the game's state."
+
+[setting.input]
+type = "bool"
+default = false
+label = "Keyboard and mouse commands"
+description = "Also accepts the keyboard and mouse commands (pause, speed, run_until, key, text, click...): input queued in the game's own SDL input, as a player's would be, and a hook so that the interface sees the mouse pointer."
+
+[setting.game_calls]
+type = "bool"
+default = false
+label = "Game calls (console commands)"
+description = "Also accepts `console LINE`: console commands run by the game's own code on its main thread. They CHANGE GAME STATE; every call is counted and logged. enable_all_commands and the achievement and social commands are always refused."
+group = "Game calls"
+
+[setting.console_allow]
+type = "string"
+default = ""
+label = "Allowed danger commands"
+description = "Danger commands that game calls may run besides the safe ones, as names separated by commas or spaces, e.g. \"leak\"."
+group = "Game calls"
+
+[setting.game_calls_ironman]
+type = "bool"
+default = false
+label = "Game calls in ironman"
+description = "Game calls in an ironman game. Anvil also has to allow Tongs in ironman (allow_ironman = [\"tongs\"] in anvil/anvil.toml)."
+group = "Game calls"
+
+[setting.game_calls_multiplayer]
+type = "bool"
+default = false
+label = "Game calls in multiplayer"
+description = "Game calls in a multiplayer game. Anvil also has to allow Tongs in multiplayer (allow_multiplayer = [\"tongs\"] in anvil/anvil.toml)."
+group = "Game calls"

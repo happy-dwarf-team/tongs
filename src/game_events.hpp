@@ -1,37 +1,49 @@
 #pragma once
 
 #include "events.hpp"
+#include "game_symbols.hpp"
 
 #include <cstdint>
 #include <string>
 
 namespace tongs {
 
-// Where EU4 1.37.5 keeps its open events (docs/design.md, "Events"). RVAs are
-// relative to eu4.exe. Lists are doubly linked with nodes {value*, prev, next
-// at +0x10, "being removed" byte at +0x18}.
+// Where EU4 1.37.5 keeps its open events (docs/design.md, "Events"), from
+// plugin/symbols.toml. RVAs are relative to eu4.exe. The session's lists are
+// {head, tail, count}; the game's code names the tail, and the head is the
+// pointer before it (not in symbols.toml). Their nodes are {value*, prev,
+// next, "being removed" byte}.
 struct EventLayout {
-    unsigned root_rva = 0x233FE78;
-    unsigned session = 0x1E00;              // root: the session
-    unsigned session_vtable_rva = 0x1CB8460;
-    unsigned popups = 0x78;                 // session: every open pop-up, event controllers among them
-    unsigned windows = 0x498;               // session: {event, scope, window} of every filled event window
-    unsigned window_count = 0x4A8;          // session: int32 entries in that list
-    unsigned node_next = 0x10;
-    unsigned node_removed = 0x18;
-    unsigned entry_window = 0x10;           // the full window object in a {event, scope, window} entry
-    unsigned controller_vtable_rva = 0x1D590F8;
-    unsigned controller_window = 0x38;      // full windowType object; 0 before the window is filled
-    unsigned controller_event = 0x48;
-    unsigned controller_waiting = 0x124;    // byte: no option chosen yet
-    unsigned controller_buttons = 0x208;    // list of option buttons
-    unsigned window_part = 0x30;            // full window object -> widget pointer
-    unsigned event_id = 0x20;               // std::string: the script id
-    unsigned event_numeric_id = 0x14;       // int32, assigned at load
-    unsigned event_options = 0x790;         // std::vector<option*>
-    unsigned option_name = 0x88;            // std::string
-    unsigned button_scope = 0x38;           // std::string on the button: "<numeric id>_<option index>"
-    unsigned option_delay_rva = 0x233E854;  // float define: options stay disabled this long after opening
+    static constexpr unsigned kHeadBeforeTail = 8;  // not in symbols.toml
+
+    unsigned root_rva = U32(sym::root_and_date.root);
+    unsigned session = U32(sym::session_of_root.session);  // root: the session
+    unsigned session_vtable_rva = 0;                        // SessionVtableRva(), set when loading
+    unsigned popups = U32(sym::popup_list_append.tail) - kHeadBeforeTail;  // session: every open pop-up, event controllers among them
+    unsigned windows = U32(sym::event_window_list.tail) - kHeadBeforeTail;  // session: {event, scope, window} of every filled event window
+    unsigned window_count = U32(sym::event_window_count.count);  // session: int32 entries in that list
+    unsigned node_next = U32(sym::popup_list_append.node_next);
+    unsigned node_removed = U32(sym::popup_list_append.node_removed);
+    unsigned entry_window = U32(sym::event_window_list.window);  // the full window object in a {event, scope, window} entry
+    unsigned controller_vtable_rva = U32(sym::event_controller.vtable);
+    unsigned controller_window = U32(sym::event_controller.window);  // full windowType object; 0 before the window is filled
+    unsigned controller_event = U32(sym::event_controller.event);
+    unsigned controller_waiting = U32(sym::option_click.waiting);   // byte: no option chosen yet
+    unsigned controller_buttons = U32(sym::event_button_append.buttons);  // list of option buttons
+    unsigned window_part = U32(sym::eu3dialog_vtable.window_part);  // full window object -> widget pointer
+    unsigned event_id = U32(sym::event_id_parser.script_id);        // std::string: the script id
+    unsigned event_numeric_id = U32(sym::event_numeric_id.numeric_id);  // int32, assigned at load
+    unsigned event_options = U32(sym::event_options.options);       // std::vector<option*>
+    unsigned option_name = U32(sym::option_name_parser.name);       // std::string
+    unsigned button_scope = U32(sym::gui_object_assign_string.text);  // std::string on the button: "<numeric id>_<option index>"
+    unsigned option_delay_rva = U32(sym::option_delay.delay);       // float define: options stay disabled this long after opening
+
+    // The members only Anvil knows: call when the plugin is loading.
+    static EventLayout Load() {
+        EventLayout l;
+        l.session_vtable_rva = SessionVtableRva();
+        return l;
+    }
 };
 
 // Main thread only: the game creates and deletes event windows in its frame.

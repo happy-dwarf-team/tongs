@@ -1,28 +1,21 @@
 #include "game_files.hpp"
 
+#include "game_symbols.hpp"
+
 #include <windows.h>
-#include <shlobj.h>
 
 #include <string>
 
 namespace tongs {
 namespace {
 
-using GetWriteDirFn = const char* (*)();
+using GetWriteDirFn = sym::Types::physfs_get_write_dir::Pointer;
 
 std::wstring Wide(const std::string& utf8) {
     if (utf8.empty()) return {};
     const int n = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
     std::wstring out(static_cast<std::size_t>(n), L'\0');
     MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), out.data(), n);
-    return out;
-}
-
-std::string Utf8(const wchar_t* text) {
-    const int n = WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0, nullptr, nullptr);
-    if (n <= 1) return {};
-    std::string out(static_cast<std::size_t>(n - 1), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, text, -1, out.data(), n, nullptr, nullptr);
     return out;
 }
 
@@ -48,29 +41,15 @@ std::string WithLogFile(std::string dir) {
 
 }  // namespace
 
-ErrorLogLocation LocateErrorLog(std::uintptr_t image_base) {
+ErrorLogLocation LocateErrorLog() {
     ErrorLogLocation out;
-    const auto get = reinterpret_cast<GetWriteDirFn>(
-        GetProcAddress(reinterpret_cast<HMODULE>(image_base), "PHYSFS_getWriteDir"));
-    if (get != nullptr) {
-        char dir[MAX_PATH * 3] = {};
-        if (!CopyWriteDir(get, dir, sizeof dir)) {
-            out.error = "the game has not set its PhysFS write directory yet";
-            return out;
-        }
-        out.path = WithLogFile(dir);
-        out.source = "physfs_write_dir";
+    char dir[MAX_PATH * 3] = {};
+    if (!CopyWriteDir(anvil::Host{}.function(sym::physfs_get_write_dir), dir, sizeof dir)) {
+        out.error = "the game has not set its PhysFS write directory yet";
         return out;
     }
-    PWSTR documents = nullptr;
-    if (FAILED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &documents))) {
-        CoTaskMemFree(documents);
-        out.error = "no PHYSFS_getWriteDir export and no Documents folder";
-        return out;
-    }
-    out.path = WithLogFile(Utf8(documents) + "\\Paradox Interactive\\Europa Universalis IV");
-    out.source = "documents";
-    CoTaskMemFree(documents);
+    out.path = WithLogFile(dir);
+    out.source = "physfs_write_dir";
     return out;
 }
 

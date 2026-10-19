@@ -1,5 +1,6 @@
 #pragma once
 
+#include "game_symbols.hpp"
 #include "ui_tree.hpp"
 
 #include <cstdint>
@@ -21,70 +22,90 @@ struct UiKind {
     unsigned checked = 0;  // byte: the check box is ticked; 0 = none
 };
 
-// Where EU4 1.37.5 keeps its widgets (docs/design.md, "Widget tree"). RVAs are
-// relative to eu4.exe; offsets are from the widget pointer the registry holds,
-// except "full" ones, which start 0x30 before it (the whole window object).
+// Where EU4 1.37.5 keeps its widgets (docs/design.md, "Widget tree"), from
+// plugin/symbols.toml. RVAs are relative to eu4.exe; offsets are from the
+// widget pointer the registry holds, except "full" ones, which start
+// window_part before it (the whole window object).
 struct UiLayout {
-    unsigned manager_rva = 0x23494F0;   // GUI manager pointer
-    unsigned registry_begin = 0x110;    // mgr: std::vector<widget*> of every live widget
-    unsigned registry_end = 0x118;
-    unsigned dead = 0xC4;               // byte: waiting for the registry sweep
-    unsigned shown = 0xC5;              // byte: visible (children of a hidden window may keep it)
-    unsigned slot_position = 0xD8;      // vtable slots writing two int32: position in client pixels
-    unsigned slot_size = 0xE0;          // and size
-    unsigned slot_name = 0xA0;          // returns const std::string*
-    unsigned button_state = 0x124;
-    unsigned hovered = 0x130;           // mgr: the topmost widget under the GUI pointer, written once per frame
+    unsigned manager_rva = U32(sym::gui_manager_store.manager);  // GUI manager pointer
+    unsigned registry_begin = U32(sym::widget_registry.begin);    // mgr: std::vector<widget*> of every live widget
+    unsigned registry_end = U32(sym::widget_registry.end);
+    unsigned dead = U32(sym::render_pick.dead);                   // byte: waiting for the registry sweep
+    unsigned shown = U32(sym::render_pick.shown);                 // byte: visible (children of a hidden window may keep it)
+    unsigned slot_position = 0xD8;  // not in symbols.toml: vtable slots writing two int32, position in client pixels
+    unsigned slot_size = 0xE0;      // not in symbols.toml: and size
+    unsigned slot_name = U32(sym::listbox_find_child.name_slot);  // returns const std::string*
+    unsigned button_state = U32(sym::button_state.state);
+    unsigned hovered = U32(sym::hover_callback.hovered);          // mgr: the topmost widget under the GUI pointer, written once per frame
 
-    unsigned window_part = 0x30;        // full window object -> widget pointer
-    // windowType children (full object): ten vector pairs {pointers, names}, seven
-    // named maps with an insertion list, and sub-windows {std::string name; window*}.
-    unsigned window_pairs = 0x5B8;
-    unsigned window_pair_count = 10;
-    unsigned window_maps = 0x798;
-    unsigned window_map_count = 7;
-    unsigned map_stride = 0x40;
-    unsigned map_list_head = 0x20;      // first list node {entry*, prev, next}; the entry holds the value at +0
-    unsigned list_node_next = 0x10;
-    unsigned window_subwindows = 0x958;
-    unsigned subwindow_size = 0x28;
-    unsigned subwindow_pointer = 0x20;
-    // containerWindowType children (full object): fifteen vector pairs.
-    unsigned container_pairs = 0x680;
-    unsigned container_pair_count = 15;
-    unsigned pair_stride = 0x30;
-    // List boxes: an insertion list of items at +0x100; the item holds the full
-    // object of its window. The scroll bar is a separate pointer.
-    unsigned list_items = 0x100;
-    unsigned listbox_item_window = 0x40;
-    unsigned listbox_scrollbar = 0x1E0;
-    unsigned smooth_item_window = 0x60;
-    unsigned smooth_scrollbar = 0x228;
+    unsigned window_part = U32(sym::eu3dialog_vtable.window_part);  // full window object -> widget pointer
+    // windowType children: ten vector pairs {pointers, names} from the widget
+    // pointer, then (full object) seven named maps with an insertion list, and
+    // sub-windows {std::string name; window*}.
+    unsigned window_pairs = U32(sym::window_find_child.pairs);
+    unsigned window_pair_count = 10;    // not in symbols.toml
+    unsigned window_maps = 0x798;       // not in symbols.toml (full object)
+    unsigned window_map_count = 7;      // not in symbols.toml
+    unsigned map_stride = 0x40;         // not in symbols.toml
+    unsigned map_list_head = 0x20;      // not in symbols.toml: first list node {entry*, prev, next}; the entry holds the value at +0
+    unsigned list_node_next = U32(sym::listbox_find_child.next);
+    unsigned window_subwindows = 0x958;  // not in symbols.toml (full object)
+    unsigned subwindow_size = 0x28;      // not in symbols.toml
+    unsigned subwindow_pointer = 0x20;   // not in symbols.toml
+    // containerWindowType children: fifteen vector pairs from the widget pointer.
+    unsigned container_pairs = U32(sym::container_find_child.pairs);
+    unsigned container_pair_count = 15;  // not in symbols.toml
+    unsigned pair_stride = 0x30;         // not in symbols.toml
+    // List boxes: an insertion list of items. Find child takes the list object
+    // `list_object` (-8) before the address listbox_items computes, and the
+    // object's slot gives its head at +head. The item holds the full object of
+    // its window. The scroll bar is a separate pointer.
+    unsigned list_items =
+        Displaced(sym::listbox_items.list, S8(sym::listbox_find_child.list_object)) + U32(sym::type_name_slot.head);
+    unsigned listbox_item_window = U32(sym::listbox_find_child.item_window);
+    unsigned listbox_scrollbar = U32(sym::listbox_scrollbar.scrollbar);
+    unsigned smooth_item_window = U32(sym::smooth_listbox_find_child.item_window);
+    unsigned smooth_scrollbar = U32(sym::smooth_listbox_scrollbar.scrollbar);
     // Scroll bars hold their four buttons: slider, track, down, up.
-    unsigned scrollbar_parts[4] = {0x158, 0x2F0, 0x2F8, 0x3E0};
+    unsigned scrollbar_parts[4] = {U32(sym::scrollbar_slider_up.slider), U32(sym::scrollbar_down_track.track),
+                                   U32(sym::scrollbar_down_track.down), U32(sym::scrollbar_slider_up.up)};
     // Render nodes: the owning widget and the parent node. Widgets the game's
     // own code holds (not a window) are placed under the owner of the parent node.
-    unsigned node_owner = 0x118;
-    unsigned node_parent = 0x110;
+    unsigned node_owner = U32(sym::render_pick.node_owner);
+    unsigned node_parent = 0x110;  // not in symbols.toml
 
+    // The vtables, from each class's constructor, and where each class keeps
+    // its render node (read by its slot 0xD8) and its text.
     std::vector<UiKind> kinds = {
-        {0x1D929D0, UiType::Window, 0xA00, 0, false, UiKind::Children::Window},     // windowType
-        {0x1D57510, UiType::Window, 0xA00, 0, false, UiKind::Children::Window},     // eu3dialogtype
-        {0x1DA4090, UiType::Window, 0xA50, 0, false, UiKind::Children::Container},  // containerWindowType
-        {0x1D58218, UiType::Button, 0x290, 0x200, true},                            // guiButtonType
-        {0x1D9A340, UiType::Button, 0x290, 0x200, true},                            // buttonType
-        {0x1D954B0, UiType::Button, 0x168},                                         // scroll bar slider
-        {0x1DA2940, UiType::Button, 0x180},                                         // scroll bar track
-        {0x1D585C8, UiType::Icon, 0x168},                                           // iconType
-        {0x1D96D00, UiType::Icon, 0x168},
-        {0x1D8FD10, UiType::Text, 0x118, 0x170},                                    // instantTextBoxType
-        {0x1D99230, UiType::Text, 0xD0, 0x178},                                     // textBoxType
-        {0x1D91358, UiType::Editbox, 0x1E8, 0xF8},                                  // editBoxType
-        {0x1D8FFC8, UiType::Checkbox, 0x110, 0, false, UiKind::Children::None, 0x100},  // checkboxType
-        {0x1D90FD8, UiType::Listbox, 0x180, 0, false, UiKind::Children::Listbox},   // listboxType
-        {0x1D96578, UiType::Listbox, 0x218, 0, false, UiKind::Children::SmoothListbox},  // smoothListboxType
-        {0x1D97EF0, UiType::Listbox},                                               // gridBoxType
-        {0x1D93748, UiType::Other, 0, 0, false, UiKind::Children::Scrollbar},       // scrollbarType
+        {U32(sym::window_vtable.vtable), UiType::Window, U32(sym::window_render_node.node) - window_part, 0, false,
+         UiKind::Children::Window},
+        {U32(sym::eu3dialog_vtable.vtable), UiType::Window, U32(sym::window_render_node.node) - window_part, 0, false,
+         UiKind::Children::Window},
+        {U32(sym::container_vtable.vtable), UiType::Window, U32(sym::container_render_node.node), 0, false,
+         UiKind::Children::Container},
+        {U32(sym::gui_button_vtable.vtable), UiType::Button, U32(sym::button_render_node.node),
+         U32(sym::button_set_text.text), true},
+        {U32(sym::button_vtable.vtable), UiType::Button, U32(sym::button_render_node.node), U32(sym::button_set_text.text),
+         true},
+        {U32(sym::slider_vtable.vtable), UiType::Button, U32(sym::slider_render_node.node)},
+        {U32(sym::track_vtable.vtable), UiType::Button, U32(sym::track_render_node.node)},
+        {U32(sym::icon_type_vtable.vtable), UiType::Icon, U32(sym::icon_render_node.node)},
+        {U32(sym::icon_vtable.vtable), UiType::Icon, U32(sym::icon_render_node.node)},
+        {U32(sym::instant_text_vtable.vtable), UiType::Text, U32(sym::instant_text_render_node.node),
+         U32(sym::instant_text_set_text.text)},
+        {U32(sym::text_box_destructor.vtable), UiType::Text, U32(sym::text_box_render_node.node),
+         U32(sym::text_box_destructor.text)},
+        // The edit box's text at +0xF8 is not in symbols.toml.
+        {U32(sym::edit_box_vtable.vtable), UiType::Editbox, U32(sym::edit_box_render_node.node), 0xF8},
+        // The check box's ticked byte at +0x100 is not in symbols.toml.
+        {U32(sym::checkbox_vtable.vtable), UiType::Checkbox, U32(sym::checkbox_render_node.node), 0, false,
+         UiKind::Children::None, 0x100},
+        {U32(sym::listbox_vtable.vtable), UiType::Listbox, U32(sym::listbox_render_node.node), 0, false,
+         UiKind::Children::Listbox},
+        {U32(sym::smooth_listbox_vtable.vtable), UiType::Listbox, U32(sym::smooth_listbox_render_node.node), 0, false,
+         UiKind::Children::SmoothListbox},
+        {U32(sym::grid_box_vtable.vtable), UiType::Listbox},
+        {U32(sym::scrollbar_vtable.vtable), UiType::Other, 0, 0, false, UiKind::Children::Scrollbar},
     };
 };
 

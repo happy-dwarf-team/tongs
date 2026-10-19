@@ -12,10 +12,9 @@ namespace tongs {
 //
 // The game writes its logs to `logs/` in PhysFS's write directory, which it
 // sets at start-up (Documents\Paradox Interactive\Europa Universalis IV, or
-// what userdir= / userdir.txt choose). eu4.exe exports PHYSFS_getWriteDir, so
-// Tongs asks the game; only without the export does it fall back to the
-// Documents folder (SHGetKnownFolderPath).
-ErrorLogLocation LocateErrorLog(std::uintptr_t image_base);
+// what userdir= / userdir.txt choose). eu4.exe exports PHYSFS_getWriteDir
+// (symbols.toml `physfs_get_write_dir`), so Tongs asks the game.
+ErrorLogLocation LocateErrorLog();
 
 // Reads up to `max` bytes at `offset`, with the file's size and identity
 // (volume serial and file index). The file is opened only for the read, with

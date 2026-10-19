@@ -5,10 +5,10 @@
 
 namespace tongs {
 
-// Counts the game's frames, as the frame hook sees them (docs/design.md,
-// "Dispatcher"): outer frames of the main loop and nested frames drawn from
-// inside a game update or a save load. The hook reports on the main thread;
-// `frames` reads on a pipe thread.
+// Counts the game's frames (docs/design.md, "Dispatcher"): outer frames of
+// the main loop, from anvil-game.frame, and nested frames drawn from inside a
+// game update or a save load, from Tongs' mid hook at their call site. Both
+// report on the main thread; `frames` reads on a pipe thread.
 class FrameStats {
 public:
     struct Snapshot {
