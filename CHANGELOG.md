@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/happy-dwarf-team/tongs/compare/v0.9.0...v0.10.0) (2026-10-19)
+
+
+### Features
+
+* **mcp:** keep paused waits alive with a progress heartbeat ([#45](https://github.com/happy-dwarf-team/tongs/issues/45)) ([8a19a83](https://github.com/happy-dwarf-team/tongs/commit/8a19a8357639a080df9646e46b660da8df2b0542))
+
 ## [0.9.0](https://github.com/happy-dwarf-team/tongs/compare/v0.8.0...v0.9.0) (2026-10-19)
 
 
