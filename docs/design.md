@@ -6,8 +6,8 @@ Layer 3 is implemented: the dispatcher (0.4.0), the widget tree (0.5.0), and
 widget clicks and events (0.6.0). Layer 4, console game calls, is implemented
 (0.7.0), and so are notifications (0.8.0), the last release of draft 4 (see
 "Releases"). After draft 4, an MCP server in `mcp/` (0.9.0) offers the
-pipe to agents as tools (see "MCP adapter"). The decisions behind them are on the planning map
-[Map: game calls and the widget tree](https://github.com/happy-dwarf-team/tongs/issues/15).
+pipe to agents as tools (see "MCP adapter"). The decisions behind them are on
+the planning map [Map: game calls and the widget tree](https://github.com/happy-dwarf-team/tongs/issues/15).
 Words such as game call, main-thread read, outer frame, widget path, event,
 notification and marked run are defined in [`GLOSSARY.md`](../GLOSSARY.md).
 
