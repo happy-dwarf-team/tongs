@@ -251,12 +251,18 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         wants_progress = progress and (ctx.request_context.meta or {}).get("progress_token") is not None
         if not wants_progress:
             return _answer(await send(line, cancel_on_abort=True))
+        failure: ToolError | None = None
         async with anyio.create_task_group() as tg:
             tg.start_soon(report_dates, ctx, game_days(date))
             try:
-                return _answer(await send(line, cancel_on_abort=True))
+                text = await send(line, cancel_on_abort=True)
+            except ToolError as e:
+                failure = e  # raised outside the group, which would wrap it in an ExceptionGroup
             finally:
                 tg.cancel_scope.cancel()
+        if failure is not None:
+            raise failure
+        return _answer(text)
 
     # --- reads ---
 

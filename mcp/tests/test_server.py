@@ -329,6 +329,50 @@ async def test_cancelling_a_wait_sends_cancel():
     assert "cancel" in pipe.sent
 
 
+async def test_pipe_error_during_a_wait_with_progress_keeps_its_message():
+    def connect():
+        raise FileNotFoundError(2, "not found")
+
+    async def on_progress(*_):
+        pass
+
+    async with Client(build_server(connect)) as client:
+        result = await client.call_tool(
+            "tongs_run_until", {"date": "1720.1.1"}, progress_callback=on_progress, meta={"progress_token": "t"}
+        )
+    assert result.is_error
+    assert "enabled = true" in result.content[0].text
+
+
+async def test_cancelling_a_wait_with_progress_sends_cancel():
+    pipe = FakePipe()
+    cancelled = threading.Event()
+
+    def handler(line):
+        if line == "subscribe date date=day":
+            return {"ok": True, "command": "subscribe", "date": "1719.3.17"}
+        if line == "cancel":
+            cancelled.set()
+            return {"ok": True, "command": "cancel"}
+        cancelled.wait(5)
+        return {"ok": False, "command": "wait_until", "error": "cancelled"}
+
+    pipe.handler = handler
+
+    async def on_progress(*_):
+        pass
+
+    async with Client(build_server(pipe.connect)) as client:
+        with anyio.move_on_after(0.5):
+            await client.call_tool(
+                "tongs_wait_until", {"date": "1720.1.1"}, progress_callback=on_progress, meta={"progress_token": "t"}
+            )
+        with anyio.fail_after(5):
+            while not cancelled.is_set():
+                await anyio.sleep(0.02)
+    assert "cancel" in pipe.sent
+
+
 def test_game_days():
     assert game_days("1719.3.17") == 1719 * 365 + 59 + 16
     assert game_days("1720.1.1.12") == 1720 * 365 + 0.5
