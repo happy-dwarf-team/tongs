@@ -758,6 +758,15 @@ ClickOutcome ClickWidget(const Handlers& h, std::uintptr_t target, const UiRect&
     h.set_cursor(x, y);
     UiCoverCheck cover;
     for (int attempt = 1;; ++attempt) {
+        if (attempt > 1) {
+            // A move to where the pointer already is does not make the game pick again
+            // (live: repeated clicks on a scroll bar button); step one pixel aside first.
+            const int aside = x + 1 < rect.x + rect.w ? x + 1 : x - 1;
+            h.set_cursor(aside, y);
+            if (std::string error = h.send_input({MoveTo(aside, y)}); !error.empty()) return fail(error);
+            h.sleep_ms(kClickMoveSettleMs);
+            h.set_cursor(x, y);
+        }
         if (std::string error = h.send_input({MoveTo(x, y)}); !error.empty()) return fail(error);
         h.sleep_ms(kClickMoveSettleMs);
         // The game picks the widget under the pointer once per frame. A job may run

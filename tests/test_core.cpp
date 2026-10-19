@@ -1201,15 +1201,17 @@ static void TestUiClickCommand() {
     flaky.read_hovered = [&screen, &misses] { return misses-- > 0 ? std::uintptr_t{0} : screen.Hovered(); };
     out = HandleRequest("ui click speed_controls/button_speedup", flaky);
     assert(Contains(out, "\"ok\":true") && Contains(out, "\"hover_attempts\":2"));
-    assert(screen.game.events.size() == 4 && screen.game.events[1].type == InputEvent::Type::MouseMove &&
-           screen.game.events[2].type == InputEvent::Type::MouseDown);
+    // The second try steps one pixel aside and back, so the game sees the pointer move.
+    assert(screen.game.events.size() == 5 && screen.game.events[1].type == InputEvent::Type::MouseMove &&
+           screen.game.events[1].x == 3351 && screen.game.events[2].x == 3350 &&
+           screen.game.events[3].type == InputEvent::Type::MouseDown && screen.game.cursor.first == 3350);
     // Nothing under the pointer at all: three moves, then `covered` without a press.
     screen.game.events.clear();
     flaky.read_hovered = [] { return std::uintptr_t{0}; };
     out = HandleRequest("ui click speed_controls/button_speedup", flaky);
     assert(Contains(out, "\"error\":\"covered\"") && Contains(out, "\"hover_attempts\":3") &&
            Contains(out, "\"covered_by\":null"));
-    assert(screen.game.events.size() == 3 && screen.game.events[2].type == InputEvent::Type::MouseMove);
+    assert(screen.game.events.size() == 5 && screen.game.events[4].type == InputEvent::Type::MouseMove);
     screen.game.events.clear();
     out = HandleRequest("ui click speed_controls/button_speeddown", h);
     assert(Contains(out, "{\"ok\":false,\"error\":\"disabled\"") && Contains(out, "\"path\":\"speed_controls/button_speeddown\""));
