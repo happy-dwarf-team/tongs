@@ -33,6 +33,8 @@ struct UiLayout {
     unsigned slot_size = 0xE0;          // and size
     unsigned slot_name = 0xA0;          // returns const std::string*
     unsigned button_state = 0x124;
+    unsigned hovered = 0x130;           // mgr: the topmost widget under the GUI pointer, written once per frame
+    unsigned hovered_flag = 0x8F;       // byte: the widget was hovered this frame
 
     unsigned window_part = 0x30;        // full window object -> widget pointer
     // windowType children (full object): ten vector pairs {pointers, names}, seven
@@ -89,5 +91,10 @@ struct UiLayout {
 // Reads the widget tree. Main thread only: the game deletes widgets in its GUI
 // update. Every read and call is guarded; returns an error text, or empty on success.
 std::string ReadUiTree(std::uintptr_t image_base, const UiLayout& layout, UiTree& out);
+
+// Main thread: the widget the game hovers (mgr+0x130), 0 when none or unreadable;
+// and a widget's "hovered this frame" byte, -1 when unreadable.
+std::uintptr_t ReadHoveredWidget(std::uintptr_t image_base, const UiLayout& layout);
+int ReadHoverFlag(std::uintptr_t widget, const UiLayout& layout);
 
 }  // namespace tongs

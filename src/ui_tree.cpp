@@ -352,8 +352,11 @@ std::string ParseUiRequest(std::string_view argument, UiRequest& out) {
     } else if (verb == "tree") {
         out.verb = UiRequest::Verb::Tree;
         out.limit = kUiTreeLimit;
+    } else if (verb == "click") {
+        out.verb = UiRequest::Verb::Click;
     } else {
-        return fail("bad_command", "usage: ui find SEL [all] [limit=N] | ui tree [SEL] [depth=N] [limit=N] [all]");
+        return fail("bad_command",
+                    "usage: ui find SEL [all] [limit=N] | ui tree [SEL] [depth=N] [limit=N] [all] | ui click SEL");
     }
     // The selector is the first word; spaces inside [...] belong to it.
     std::size_t end = 0;
@@ -383,7 +386,9 @@ std::string ParseUiRequest(std::string_view argument, UiRequest& out) {
         options = rest;
         first = {};
     }
-    if (out.verb == UiRequest::Verb::Find && first.empty()) return fail("bad_selector", "ui find needs a selector");
+    if (out.verb != UiRequest::Verb::Tree && first.empty()) {
+        return fail("bad_selector", std::string("ui ") + std::string(verb) + " needs a selector");
+    }
     if (!first.empty()) {
         out.selector_text = std::string(first);
         if (std::string error = ParseUiSelector(first, out.selector); !error.empty()) return fail("bad_selector", error);
@@ -393,6 +398,9 @@ std::string ParseUiRequest(std::string_view argument, UiRequest& out) {
         const std::string_view word = options.substr(0, cut);
         options = cut == std::string_view::npos ? std::string_view{} : Trim(options.substr(cut));
         int number = 0;
+        if (out.verb == UiRequest::Verb::Click && !word.starts_with("timeout=")) {
+            return fail("bad_command", "bad option: " + std::string(word.substr(0, 40)) + " (ui click takes only timeout=1..600)");
+        }
         if (word == "all") {
             out.all = true;
         } else if (word.starts_with("limit=") && ParseNumber(word.substr(6), number) && number >= 1 &&
@@ -515,6 +523,56 @@ std::string UiAnswer(const UiTree& tree, const UiRequest& request, bool& found) 
     out += ",\"count\":" + Num(writer.count) + ",\"truncated\":" + (writer.truncated ? "true" : "false") +
            ",\"widgets\":[" + widgets + "]";
     return out;
+}
+
+UiClickTarget ResolveClickTarget(const UiTree& tree, const UiSelector& selector) {
+    UiClickTarget t;
+    const UiView view(tree, false);
+    std::vector<int> hits = view.Resolve(selector);
+    const UiView all(tree, true);
+    const UiView* used = &view;
+    if (hits.empty()) {
+        hits = all.Resolve(selector);
+        used = &all;
+        t.error = hits.empty() ? "not_found" : "not_visible";
+    } else if (hits.size() > 1) {
+        t.error = "ambiguous";
+    }
+    t.count = static_cast<int>(hits.size());
+    if (!t.error.empty()) {
+        for (int i = 0; i < t.count && i < kUiClickPaths; ++i) t.paths.push_back(used->PathOf(hits[i]));
+        return t;
+    }
+    t.widget = hits[0];
+    t.path = view.PathOf(t.widget);
+    const UiWidget& w = tree.widgets[t.widget];
+    if (w.has_enabled && !w.enabled) t.error = "disabled";
+    return t;
+}
+
+UiCoverCheck CheckCover(const UiTree& tree, std::uintptr_t target, std::uintptr_t hovered) {
+    UiCoverCheck c;
+    if (hovered == 0) return c;
+    int hit = -1;
+    for (int i = 0; i < static_cast<int>(tree.widgets.size()) && hit == -1; ++i) {
+        if (tree.widgets[i].address == hovered) hit = i;
+    }
+    if (hit == -1) {
+        c.covered = hovered != target;
+        return c;
+    }
+    const UiView view(tree, false);
+    const UiView all(tree, true);
+    const std::string path = view.Visible(hit) ? view.PathOf(hit) : all.PathOf(hit);
+    for (int w = hit; w != -1; w = all.Parent(w)) {
+        if (tree.widgets[w].address == target) {
+            c.covered = false;
+            c.hovered = path;
+            return c;
+        }
+    }
+    c.covered_by = path;
+    return c;
 }
 
 std::string GameTextToUtf8(std::string_view text) {

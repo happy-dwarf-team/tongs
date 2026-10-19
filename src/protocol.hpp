@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dispatcher.hpp"
+#include "events.hpp"
 #include "frame_stats.hpp"
 #include "input.hpp"
 #include "ui_tree.hpp"
@@ -71,9 +72,10 @@ struct ScreenshotResult {
 
 // Protocol: UTF-8 lines. A request is one command line; the answer is one
 // JSON object on one line. Commands: ping, state, window, threads, screenshot,
-// frames, ui, help, wait_until, cancel, and with input enabled key, text, move, click,
-// scroll, release, pause, resume, speed, run_until. Input commands answer with
-// the state read after the action; they take turns across clients.
+// frames, ui, event, help, wait_until, cancel, and with input enabled key, text, move,
+// click, scroll, release, pause, resume, speed, run_until, ui click, event choose.
+// Input commands answer with the state read after the action; they take turns
+// across clients.
 struct Handlers {
     std::function<StateSnapshot()> read_state;
     std::function<WindowSnapshot()> read_window;
@@ -100,6 +102,15 @@ struct Handlers {
     // Reads the widget tree (game_ui.cpp); called on the main thread through the
     // dispatcher. Returns an error text, or an empty string on success.
     std::function<std::string(UiTree&)> read_ui;
+    // Main thread: the widget under the GUI pointer (mgr+0x130, 0 = none), and a
+    // widget's "hovered this frame" byte (+0x8F; -1 = unreadable).
+    std::function<std::uintptr_t()> read_hovered;
+    std::function<int(std::uintptr_t widget)> read_hover_flag;
+    // Main thread: the open events (game_events.cpp). Returns an error text, or empty.
+    std::function<std::string(EventsRaw&)> read_events;
+    // Pipe thread, one word: entries in the session's event window list; -1 = unreadable.
+    // run_until events=first reads the events on the main thread only while it is above 0.
+    std::function<int()> count_event_windows;
     std::uint32_t process_id = 0;
     // How long pause/resume/speed wait for the game to react. Right after a save
     // loads, the main loop handled a key press only 2-7 s later.

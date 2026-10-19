@@ -6,10 +6,11 @@ and scripts talk to a running game through a local named pipe, instead of
 reading pixels from screenshots. Like a smith's tongs, it holds the work from
 outside the forge.
 
-> Status: early. It reads game state and the interface's widget tree, takes
-> screenshots and, when you allow it, uses the keyboard and mouse in the game
-> (pause, speed, run to a date, keys, text, clicks) through the game's own SDL
-> input, so the window does not need focus. It never writes game state. Supported game build: EU4 1.37.5
+> Status: early. It reads game state, the interface's widget tree and the open
+> events, takes screenshots and, when you allow it, uses the keyboard and mouse
+> in the game (pause, speed, run to a date, keys, text, clicks on points or on
+> widgets by name, event choices) through the game's own SDL input, so the
+> window does not need focus. It never writes game state. Supported game build: EU4 1.37.5
 > (Steam, Windows 64-bit); Anvil skips it on other builds. Design and the
 > addresses it relies on: [docs/design.md](docs/design.md).
 
@@ -29,6 +30,7 @@ can wait in `run_until` while another reads `state` or sends `cancel`.
 | `frames [timeout=S]` | read on the game's main thread after a frame of its main loop: frames per second (`outer_per_s`, and `nested_per_s` for frames drawn inside a game update or a save load), counts and the longest gap between main-loop frames since the previous `frames`, and the main thread's `thread_id`; with `queued_ms`, `run_ms` and the game's `frame` counter. Waits up to 10 s (`timeout=` up to 600) for a frame; while a save loads none comes, and the answer is `main thread busy` |
 | `ui find SEL [all] [limit=N]` | widgets that match the selector `SEL` (see "Widgets"): `count`, `truncated` and up to 50 `matches` (`limit=` up to 5000), each with `path`, `type`, `visible`, `rect` and `click_point` in client pixels, and `text` / `enabled` where they apply. Read on the main thread, like `frames` |
 | `ui tree [SEL] [depth=N] [limit=N] [all]` | the widget tree from the top-level windows, or from the matches of `SEL`, as nested `widgets` (up to 200, `limit=` up to 5000); `depth=N` gives deeper levels only as `children_count` |
+| `event list [timeout=S]` | the open events, topmost first (see "Events"), read on the main thread |
 | `wait_until DATE [timeout=S] [max_pause=S]` | waits (without touching the game) until the date reaches `DATE` (`1720.1.1` or `1720.1.1.12`); answers with the timing below |
 | `cancel` | ends every `wait_until` / `run_until` in progress and withdraws main-thread jobs still waiting for a frame (`withdrawn`) |
 | `help` | list of commands and whether input commands are enabled |
@@ -40,13 +42,15 @@ With `input = true` in the config, also:
 | `pause` | presses Space unless the player pause is already on, then waits until it is |
 | `resume` | presses Space if the player pause is on, then waits until the game runs; refuses when something else holds the game paused |
 | `speed N` | presses keypad `+` / `-` one step at a time until the speed is `N` (1–5, as in the UI); works while paused |
-| `run_until DATE [speed=N] [timeout=S] [max_pause=S]` | sets the speed, resumes, waits for the date and pauses again; for measuring how fast the game runs |
+| `run_until DATE [speed=N] [timeout=S] [max_pause=S] [events=first\|stop]` | sets the speed, resumes, waits for the date and pauses again; for measuring how fast the game runs. `events=first` chooses the first enabled option of every event that opens on the way |
 | `key NAME` | presses one key: `a`–`z`, `0`–`9`, `f1`–`f12`, `space`, `return`, `escape`, `tab`, `backspace`, `delete`, `minus`, `equals`, `grave` (the console key on a US layout), `kp_plus`, `kp_minus`, `kp_enter`, arrows (`up`, `down`, `left`, `right`), `home`, `end`, `page_up`, `page_down` |
 | `text STRING` | types the rest of the line into the focused text field (characters U+0020–U+007E and U+00A0–U+00FF) |
 | `move X Y` | points the mouse at client coordinates `X Y` (hovering shows tooltips) |
 | `click X Y [left\|right\|middle] [double]` | moves there and clicks |
 | `scroll STEPS [X Y]` | turns the wheel; positive scrolls up (zooms in on the map), negative down |
 | `release` | hands the pointer back to the real mouse |
+| `ui click SEL [timeout=S]` | clicks the centre of the one widget the selector matches (see "Widgets") |
+| `event choose N\|text^="..." [event=N\|event=title^="..."] [timeout=S]` | clicks an option of an open event (see "Events") |
 
 Input commands answer once the game has reacted (or after 10 s) with
 `command`, `presses`, `waited_ms` and the fields of `state`. When the game
@@ -59,7 +63,9 @@ different clients take turns.
 `reached_date`, `game_days`, `wall_ms` (from the start of the wait until the
 target date was first seen), `days_per_second`, `paused_ms` (time seen paused
 while waiting, e.g. an event that pauses the game; with `paused_date`, the
-date of the last pause) and `first_change_ms`;
+date of the last pause), `first_change_ms` and `inputs` (input commands any
+client sent during the wait; `run_until` does not count its own presses
+before and after it, so a measurement can reject a run with `inputs` above 0);
 `run_until` also `start_speed` and `overshoot_hours` (game hours past the
 target when the pause took hold, usually 0). Both wait at most 1 hour by
 default (`timeout=` up to 14 400 s). `max_pause=S` ends the wait with an error
@@ -107,6 +113,13 @@ prefer names and `[n]`. `click_point` is the centre of `rect` and can be
 passed to `click`. Window sizes may not cover the drawn panel; positions are
 right.
 
+`ui click SEL` resolves the selector, moves the pointer to the centre of the
+widget, checks that the game sees that widget (or one inside it) under the
+pointer, and only then clicks. It refuses without clicking: `not_found`,
+`ambiguous` (with up to 10 `matches`), `not_visible` (only hidden widgets
+match), `disabled`, or `covered` (with `covered_by`, the widget that would get
+the click). The answer has `clicked`, `point` and the state after the click.
+
 ```powershell
 .\scripts\tongs.ps1 'ui find speed_controls/button_speedup'
 # {"ok":true,"command":"ui find","selector":"speed_controls/button_speedup","count":1,"truncated":false,
@@ -114,6 +127,29 @@ right.
 #  "rect":{"x":3335,"y":18,"w":30,"h":30},"click_point":{"x":3350,"y":33},"enabled":true}],...}
 .\scripts\tongs.ps1 'ui tree depth=0'
 ```
+
+## Events
+
+`event list` reports each open event window, topmost (newest) first, with its
+`number`, `id` (the script id, e.g. `flavor_rus.1`), `title`, `description`,
+widget `path`, and its options: `number` on screen (from 1), `text`,
+`enabled`, `option_index` (the option in the event file; options hidden by
+their trigger are skipped on screen but keep their index), `option_key` (the
+option's `name`, which may be empty or repeated) and `path`.
+
+`event choose` clicks an option, as a player would: by number
+(`event choose 2`) or by text (`event choose text^="Accept"`, also `text=` and
+`text~=`). With several events open it needs `event=N` or
+`event=title^="..."`, and refuses `ambiguous` otherwise. The game keeps the
+options disabled for a moment after the window opens; meanwhile `event choose`
+refuses `disabled`. The answer has the game `date`, the `event` and `option`,
+`closed` (the event left the game's lists within 3 s) and the state after.
+
+`run_until DATE events=first` does the same for every event that opens during
+the run: it waits for the first enabled option of the topmost event, clicks it
+and lists the choices in `events`; when no option becomes enabled, the run
+ends with `no_enabled_option` and the event. An event that paused the game is
+resumed after the choice. Every choice counts in `inputs`.
 
 ## Clients
 
@@ -137,9 +173,10 @@ right.
 - Local clients of the Windows user running the game only (pipe DACL, remote
   clients rejected). No network listener.
 - Game state is never written. Keys, text and mouse buttons go into the
-  game's SDL event queue, as a player's would.
+  game's SDL event queue, as a player's would; widget clicks and event choices
+  are mouse clicks too.
 - Patches: with `enabled = true` the plugin hooks the game's frame function
-  to run main-thread reads such as `frames` and `ui` after a frame of the main loop
+  to run main-thread reads such as `frames`, `ui` and `event list` after a frame of the main loop
   (the frame itself runs unchanged). With `input = true` it also hooks the
   interface's cursor query to answer with the pointer set by the mouse
   commands. `affects_gameplay = false`.

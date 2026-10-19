@@ -1,5 +1,7 @@
 #include "game_ui.hpp"
 
+#include "game_memory.hpp"
+
 #include <windows.h>
 
 #include <cstring>
@@ -10,43 +12,8 @@ namespace {
 
 constexpr std::size_t kMaxWidgets = 200000;  // the registry reserves 64 000
 constexpr std::size_t kMaxChildren = 20000;  // per container
-constexpr std::size_t kMaxText = 65536;  // longer strings are taken as garbage
 constexpr int kMaxNodeClimb = 8;
 constexpr int kMaxDepth = 256;
-
-// Each read of game memory is guarded on its own, so a widget that changes
-// under us costs that widget, not the whole tree.
-bool ReadRaw(std::uintptr_t address, void* out, std::size_t size) {
-    __try {
-        std::memcpy(out, reinterpret_cast<const void*>(address), size);
-        return true;
-    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
-        return false;
-    }
-}
-
-template <typename T>
-bool Read(std::uintptr_t address, T& out) {
-    return ReadRaw(address, &out, sizeof(T));
-}
-
-// MSVC std::string: 16-byte buffer or pointer, size at +0x10, capacity at +0x18.
-bool ReadString(std::uintptr_t address, std::string& out) {
-    unsigned char raw[0x20];
-    if (!ReadRaw(address, raw, sizeof raw)) return false;
-    std::uint64_t size = 0, capacity = 0;
-    std::memcpy(&size, raw + 0x10, 8);
-    std::memcpy(&capacity, raw + 0x18, 8);
-    if (size > capacity || size > kMaxText) return false;
-    if (capacity < 16) {
-        out.assign(reinterpret_cast<const char*>(raw), static_cast<std::size_t>(size));
-        return true;
-    }
-    std::uintptr_t data = 0;
-    std::memcpy(&data, raw, 8);
-    out.resize(static_cast<std::size_t>(size));
-    return size == 0 || ReadRaw(data, out.data(), out.size());
-}
 
 // The executable sections of eu4.exe: a vtable slot is called only when it points there.
 struct Code {
@@ -257,6 +224,7 @@ private:
 
     void Describe(const Entry& e, UiWidget& w) const {
         w.type = e.kind ? e.kind->type : UiType::Other;
+        w.address = e.pointer;
         std::uint8_t shown = 0;
         w.shown = tongs::Read(e.pointer + l_.shown, shown) && shown != 0;
         std::uintptr_t function = 0, name = 0;
@@ -294,6 +262,18 @@ private:
 std::string ReadUiTree(std::uintptr_t image_base, const UiLayout& layout, UiTree& out) {
     out = {};
     return Reader(layout, image_base).Read(out);
+}
+
+std::uintptr_t ReadHoveredWidget(std::uintptr_t image_base, const UiLayout& layout) {
+    std::uintptr_t manager = 0, hovered = 0;
+    if (!Read(image_base + layout.manager_rva, manager) || manager == 0 || !Read(manager + layout.hovered, hovered)) return 0;
+    return hovered;
+}
+
+int ReadHoverFlag(std::uintptr_t widget, const UiLayout& layout) {
+    std::uint8_t flag = 0;
+    if (widget == 0 || !Read(widget + layout.hovered_flag, flag)) return -1;
+    return flag != 0 ? 1 : 0;
 }
 
 }  // namespace tongs

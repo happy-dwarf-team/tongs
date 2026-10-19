@@ -20,6 +20,31 @@ constexpr int kMaxRunTimeoutS = 4 * 3600;
 // every wait_until / run_until that started before it.
 std::mutex g_input_mutex;
 std::atomic<std::uint64_t> g_cancel_generation{0};
+// Input commands sent by any client, for `inputs` in wait_until / run_until.
+std::atomic<std::uint64_t> g_inputs{0};
+
+// The handlers with a send_input that notices whether anything was queued; the
+// command counts as one input when it was.
+class CountedInput {
+public:
+    explicit CountedInput(const Handlers& h) : handlers_(h) {
+        handlers_.send_input = [this, send = h.send_input](const std::vector<InputEvent>& events) {
+            std::string error = send(events);
+            if (error.empty()) sent_ = true;
+            return error;
+        };
+    }
+    CountedInput(const CountedInput&) = delete;
+    CountedInput& operator=(const CountedInput&) = delete;
+    ~CountedInput() {
+        if (sent_) g_inputs.fetch_add(1);
+    }
+    const Handlers& handlers() const { return handlers_; }
+
+private:
+    Handlers handlers_;
+    bool sent_ = false;
+};
 
 std::string_view Trim(std::string_view s) {
     while (!s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r' || s.front() == '\n')) {
@@ -204,12 +229,14 @@ private:
     const Handlers& h_;
 };
 
-// wait_until / run_until arguments: DATE [speed=N] [timeout=SECONDS] [max_pause=SECONDS].
+// wait_until / run_until arguments: DATE [speed=N] [timeout=SECONDS] [max_pause=SECONDS]
+// [events=first|stop] (run_until only for speed and events).
 struct RunRequest {
     std::int32_t target = 0;
     int speed = 0;  // 0 = keep the current speed
     int timeout_s = kDefaultRunTimeoutS;
     int max_pause_s = 0;  // stop when the game stays paused this long; 0 = wait until the timeout
+    bool events_first = false;  // choose the first enabled option of every event that opens
 };
 
 std::string ParseRunRequest(std::string_view argument, bool allow_speed, RunRequest& out) {
@@ -223,6 +250,10 @@ std::string ParseRunRequest(std::string_view argument, bool allow_speed, RunRequ
         const std::size_t eq = word.find('=');
         const std::string_view key = word.substr(0, eq);
         const std::string_view value = eq == std::string_view::npos ? std::string_view{} : word.substr(eq + 1);
+        if (key == "events" && allow_speed && (value == "first" || value == "stop")) {
+            out.events_first = value == "first";
+            continue;
+        }
         int number = 0;
         if (eq == std::string_view::npos || !ParseInt(value, number)) {
             return "bad option: " + std::string(word.substr(0, 32)) + " (expected name=number)";
@@ -235,7 +266,7 @@ std::string ParseRunRequest(std::string_view argument, bool allow_speed, RunRequ
             out.speed = number;
         } else {
             return "bad option: " + std::string(word.substr(0, 32)) +
-                   (allow_speed ? " (speed=1..5, timeout and max_pause 1.." : " (timeout and max_pause 1..") +
+                   (allow_speed ? " (speed=1..5, events=first|stop, timeout and max_pause 1.." : " (timeout and max_pause 1..") +
                    std::to_string(kMaxRunTimeoutS) + ")";
         }
     }
@@ -256,13 +287,19 @@ struct WaitResult {
     std::uint64_t paused_ms = 0;   // time seen paused while waiting
     std::uint64_t first_change_ms = 0;  // start of the wait -> first new date (0 = none)
     std::int32_t first_change_raw = 0;
+    std::uint64_t inputs = 0;      // input commands of any client during the wait
+    bool stopped = false;          // the poll hook ended the wait
     StateSnapshot state;
 };
 
+// Called between the polls of a wait with the game in it; returns false to end the wait.
+using PollHook = std::function<bool(WaitResult&)>;
+
 // Polls the date until it reaches `target`, a cancel, a timeout or the game is left.
-WaitResult WaitForDate(const Handlers& h, std::int32_t target, int timeout_s, int max_pause_s) {
+WaitResult WaitForDate(const Handlers& h, std::int32_t target, int timeout_s, int max_pause_s, const PollHook& hook = {}) {
     WaitResult w;
     const std::uint64_t generation = g_cancel_generation.load();
+    const std::uint64_t inputs = g_inputs.load();
     const std::uint64_t start = h.now_ms();
     const std::uint64_t deadline = start + static_cast<std::uint64_t>(timeout_s) * 1000;
     w.state = h.read_state();
@@ -307,10 +344,15 @@ WaitResult WaitForDate(const Handlers& h, std::int32_t target, int timeout_s, in
             w.timed_out = true;
             break;
         }
+        if (hook && !hook(w)) {
+            w.stopped = true;
+            break;
+        }
         h.sleep_ms(h.poll_interval_ms);
         w.state = h.read_state();
     }
     if (!w.reached) w.wall_ms = h.now_ms() - start;
+    w.inputs = g_inputs.load() - inputs;
     return w;
 }
 
@@ -331,6 +373,7 @@ std::string WaitFields(const WaitResult& w, std::int32_t target) {
     }
     out += ",\"wall_ms\":" + std::to_string(w.wall_ms);
     out += ",\"paused_ms\":" + std::to_string(w.paused_ms);
+    out += ",\"inputs\":" + std::to_string(w.inputs);
     if (w.paused_ms > 0) out += ",\"paused_date\":\"" + DateText(w.pause_raw) + "\"";
     if (w.first_change_ms > 0) {
         out += ",\"first_change_ms\":" + std::to_string(w.first_change_ms);
@@ -357,47 +400,6 @@ std::string WaitUntil(const Handlers& h, std::string_view argument) {
     std::string out = std::string("{\"ok\":") + Bool(error == nullptr);
     if (error) out += ",\"error\":\"" + std::string(error) + "\"";
     out += ",\"command\":\"wait_until\"" + WaitFields(w, request.target) + "," + StateFields(w.state) + "}";
-    return out;
-}
-
-// Sets the speed, resumes, waits for the date and pauses again. The wait runs
-// without the input lock, so other clients can read the state or cancel.
-std::string RunUntil(const Handlers& h, std::string_view argument) {
-    RunRequest request;
-    if (std::string error = ParseRunRequest(argument, true, request); !error.empty()) return Error(error);
-    Actions actions(h);
-    std::string fail;
-    StateSnapshot before;
-    {
-        std::lock_guard lock(g_input_mutex);
-        before = h.read_state();
-        if (!before.in_game) return Error("no game loaded");
-        if (before.date_raw >= request.target) return Error("the game is already at or past " + DateText(request.target));
-        if (request.speed != 0) {
-            const ActionResult speed = actions.SetSpeed(request.speed);
-            if (!speed.ok) return ActionJson("run_until", speed);
-        }
-        const ActionResult resume = actions.SetPaused(false);
-        if (!resume.ok) return ActionJson("run_until", resume);
-    }
-    const WaitResult w = WaitForDate(h, request.target, request.timeout_s, request.max_pause_s);
-    ActionResult pause;
-    {
-        std::lock_guard lock(g_input_mutex);
-        pause = actions.SetPaused(true);
-    }
-    const char* error = WaitError(w);
-    std::string message = error ? error : "";
-    if (!pause.ok) message += std::string(message.empty() ? "" : "; ") + "pause after the run failed: " + pause.error;
-    std::string out = std::string("{\"ok\":") + Bool(message.empty());
-    if (!message.empty()) out += ",\"error\":\"" + JsonEscape(message) + "\"";
-    out += ",\"command\":\"run_until\"" + WaitFields(w, request.target);
-    out += ",\"start_speed\":" + std::to_string(before.speed + 1);
-    if (w.reached && pause.state.in_game) {
-        // Game hours past the target when the pause took hold.
-        out += ",\"overshoot_hours\":" + std::to_string(static_cast<std::int64_t>(pause.state.date_raw) - request.target);
-    }
-    out += "," + StateFields(pause.state) + "}";
     return out;
 }
 
@@ -575,6 +577,7 @@ std::string TextCommand(const Handlers& h, std::string_view text) {
 
 bool InputReady(const Handlers& h) { return h.send_input && h.read_state && h.sleep_ms && h.now_ms; }
 
+constexpr char kInputDisabled[] = "input commands are disabled (set input = true in anvil/data/tongs/config.toml)";
 constexpr char kNoDispatch[] = "main-thread commands are unavailable (the frame hook is not installed)";
 constexpr int kMaxDispatchTimeoutS = 600;
 
@@ -619,6 +622,403 @@ std::string FramesCommand(const Handlers& h, std::string_view argument) {
     return MainThreadJson("frames", outcome);
 }
 
+std::string Quote(std::string_view text) { return "\"" + JsonEscape(text) + "\""; }
+
+std::string DispatchTimes(const Dispatcher::Outcome& o) {
+    return ",\"queued_ms\":" + std::to_string(o.queued_ms) + ",\"run_ms\":" + std::to_string(o.run_ms) +
+           ",\"frame\":" + std::to_string(o.frame);
+}
+
+// The widget tree, and with it the open events, read in one main-thread job.
+struct Screen {
+    UiTree tree;
+    EventsRaw raw;
+    std::vector<EventView> events;
+    std::string error;  // a reader's
+    Dispatcher::Outcome outcome;
+
+    std::string Error() const { return outcome.ran ? error : outcome.error; }
+};
+
+// False when the job did not run or a reader failed; Screen::Error() says why.
+bool ReadScreen(const Handlers& h, int timeout_ms, bool with_events, Screen& s) {
+    s = {};
+    const auto& read_ui = h.read_ui;
+    const auto& read_events = h.read_events;
+    s.outcome = h.dispatcher->Run(
+        Dispatcher::Kind::Read,
+        [&s, &read_ui, &read_events, with_events] {
+            s.error = read_ui(s.tree);
+            if (s.error.empty() && with_events) s.error = read_events(s.raw);
+            return std::string();
+        },
+        timeout_ms);
+    if (!s.outcome.ran || !s.error.empty()) return false;
+    if (with_events) s.events = BuildEvents(s.tree, s.raw);
+    return true;
+}
+
+// The answer of a command whose main-thread read failed.
+std::string ScreenFailure(std::string_view command, const Screen& s) {
+    if (!s.outcome.ran) return MainThreadJson(command, s.outcome);
+    return "{\"ok\":false,\"error\":" + Quote(s.error) + ",\"command\":" + Quote(command) + DispatchTimes(s.outcome) + "}";
+}
+
+// What clicking a widget needs: input, the cursor hook and main-thread reads.
+std::string ClickUnavailable(const Handlers& h) {
+    if (!InputReady(h)) return kInputDisabled;
+    if (!h.dispatcher || !h.read_ui || !h.read_hovered) return kNoDispatch;
+    if (!h.set_cursor) return "clicking a widget needs the cursor hook, which is not installed";
+    return {};
+}
+
+struct ClickOutcome {
+    bool ok = false;
+    std::string error;    // "covered", or an error text
+    std::string members;  // the point and the hover check
+    std::uint64_t clicked_at = 0;  // when the button events were queued
+    std::uint64_t frame = 0;       // the frame of the hover check
+    StateSnapshot state;
+};
+
+// Moves the GUI pointer to the centre of the widget, checks on the main thread
+// that the game hovers the widget (or one inside it) there, then presses and
+// releases the left button. With `settle`, the state is read a moment after the
+// click; event choices watch the event instead. The caller holds the input lock.
+ClickOutcome ClickWidget(const Handlers& h, std::uintptr_t target, const UiRect& rect, int timeout_ms, bool settle) {
+    ClickOutcome c;
+    const int x = rect.x + rect.w / 2;
+    const int y = rect.y + rect.h / 2;
+    c.members = ",\"point\":{\"x\":" + std::to_string(x) + ",\"y\":" + std::to_string(y) + "}";
+    const auto fail = [&c, &h](std::string error) -> ClickOutcome {
+        c.error = std::move(error);
+        c.state = h.read_state();
+        return c;
+    };
+    if (std::string error = CheckPoint(h, x, y); !error.empty()) return fail(error);
+    h.set_cursor(x, y);
+    if (std::string error = h.send_input({MoveTo(x, y)}); !error.empty()) return fail(error);
+    h.sleep_ms(kClickMoveSettleMs);
+    // The game picks the widget under the pointer once per frame. A job may run
+    // after a frame that began before the move; one queued after it returned cannot.
+    Dispatcher::Outcome o = h.dispatcher->Run(Dispatcher::Kind::Read, [] { return std::string(); }, timeout_ms);
+    UiTree tree;
+    std::uintptr_t hovered = 0;
+    int flag = -1;
+    std::string read_error;
+    if (o.ran) {
+        o = h.dispatcher->Run(
+            Dispatcher::Kind::Read,
+            [&] {
+                read_error = h.read_ui(tree);
+                hovered = h.read_hovered();
+                if (h.read_hover_flag) flag = h.read_hover_flag(target);
+                return std::string();
+            },
+            timeout_ms);
+    }
+    if (!o.ran) return fail(o.error);
+    if (!read_error.empty()) return fail(read_error);
+    c.frame = o.frame;
+    if (flag >= 0) c.members += std::string(",\"target_hovered\":") + Bool(flag != 0);
+    const UiCoverCheck cover = CheckCover(tree, target, hovered);
+    if (cover.covered) {
+        c.members += ",\"covered_by\":" + (cover.covered_by.empty() ? std::string("null") : Quote(cover.covered_by));
+        return fail("covered");
+    }
+    if (!cover.hovered.empty()) c.members += ",\"hovered\":" + Quote(cover.hovered);
+    InputEvent down;
+    down.type = InputEvent::Type::MouseDown;
+    down.x = x;
+    down.y = y;
+    InputEvent up = down;
+    up.type = InputEvent::Type::MouseUp;
+    if (std::string error = h.send_input({down, up}); !error.empty()) return fail(error);
+    c.clicked_at = h.now_ms();
+    if (settle) h.sleep_ms(h.key_settle_ms);
+    c.ok = true;
+    c.state = h.read_state();
+    return c;
+}
+
+int TimeoutOr(const Handlers& h, int timeout_ms) { return timeout_ms > 0 ? timeout_ms : h.dispatch_timeout_ms; }
+
+// ui click SEL [timeout=S]: resolves the selector on the main thread, then clicks.
+std::string UiClick(const Handlers& handlers, const UiRequest& request) {
+    if (std::string error = ClickUnavailable(handlers); !error.empty()) return Error(error);
+    std::lock_guard lock(g_input_mutex);
+    const CountedInput counted(handlers);
+    const Handlers& h = counted.handlers();
+    const int timeout_ms = TimeoutOr(h, request.timeout_ms);
+    const std::uint64_t start = h.now_ms();
+    Screen s;
+    if (!ReadScreen(h, timeout_ms, false, s)) return ScreenFailure("ui click", s);
+    const std::string head = ",\"command\":\"ui click\",\"selector\":" + Quote(request.selector_text);
+    const UiClickTarget target = ResolveClickTarget(s.tree, request.selector);
+    if (!target.error.empty()) {
+        std::string out = "{\"ok\":false,\"error\":\"" + target.error + "\"" + head;
+        if (target.widget != -1) return out + ",\"path\":" + Quote(target.path) + "}";
+        out += ",\"count\":" + std::to_string(target.count) + ",\"matches\":[";
+        for (std::size_t i = 0; i < target.paths.size(); ++i) out += (i ? "," : "") + Quote(target.paths[i]);
+        return out + "]}";
+    }
+    const UiWidget& w = s.tree.widgets[target.widget];
+    const ClickOutcome c = ClickWidget(h, w.address, w.rect, timeout_ms, true);
+    std::string out = std::string("{\"ok\":") + Bool(c.ok);
+    if (!c.ok) out += ",\"error\":" + Quote(c.error);
+    out += head + (c.ok ? ",\"clicked\":" : ",\"path\":") + Quote(target.path) + c.members;
+    out += ",\"waited_ms\":" + std::to_string(h.now_ms() - start);
+    return out + "," + StateFields(c.state) + "}";
+}
+
+constexpr int kCloseLimitMs = 3000;   // how long a chosen event may take to close
+constexpr int kOptionWaitMs = 10000;  // how long events=first waits for an enabled option
+constexpr int kOptionPollMs = 100;
+constexpr int kEventLookMs = 250;     // events=first: between reads while the window list is not empty
+
+std::string EventList(const Handlers& h, const EventRequest& r) {
+    if (!h.dispatcher || !h.read_ui || !h.read_events || !h.now_ms) return Error(kNoDispatch);
+    Screen s;
+    if (!ReadScreen(h, TimeoutOr(h, r.timeout_ms), true, s)) return ScreenFailure("event list", s);
+    std::string out = "{\"ok\":true,\"command\":\"event list\",\"count\":" + std::to_string(s.events.size()) + ",\"events\":[";
+    for (std::size_t i = 0; i < s.events.size(); ++i) out += (i ? "," : "") + EventJson(s.events[i]);
+    out += "],\"controllers\":" + std::to_string(s.raw.events.size()) +
+           ",\"listed_windows\":" + std::to_string(s.raw.listed_windows.size());
+    if (s.raw.has_delay) {
+        char delay[32];
+        std::snprintf(delay, sizeof delay, "%.3f", static_cast<double>(s.raw.option_delay));
+        out += std::string(",\"option_delay\":") + delay;
+    }
+    return out + DispatchTimes(s.outcome) + "}";
+}
+
+struct CloseWatch {
+    bool chosen = false;  // the controller stopped waiting or left the pop-up list
+    bool closed = false;  // it left the pop-up list and its window the event window list
+    std::uint64_t chosen_ms = 0;
+    std::uint64_t closed_ms = 0;
+    std::uint64_t closed_frames = 0;  // frames after the hover check
+};
+
+// Polls the open events on the main thread after a click on an option.
+CloseWatch WatchClose(const Handlers& h, const EventView& event, std::uint64_t since, std::uint64_t frame) {
+    CloseWatch w;
+    for (;;) {
+        EventsRaw raw;
+        std::string error;
+        const auto& read = h.read_events;
+        const Dispatcher::Outcome o = h.dispatcher->Run(
+            Dispatcher::Kind::Read,
+            [&raw, &error, &read] {
+                error = read(raw);
+                return std::string();
+            },
+            kCloseLimitMs);
+        const std::uint64_t now = h.now_ms();
+        if (o.ran && error.empty()) {
+            const OpenEventRaw* open = nullptr;
+            for (const OpenEventRaw& e : raw.events) {
+                if (e.controller == event.controller) open = &e;
+            }
+            bool listed = false;
+            for (const std::uintptr_t window : raw.listed_windows) listed = listed || window == event.window_address;
+            if (!w.chosen && (!open || !open->waiting)) {
+                w.chosen = true;
+                w.chosen_ms = now - since;
+            }
+            if (!open && !listed) {
+                w.closed = true;
+                w.closed_ms = now - since;
+                w.closed_frames = o.frame > frame ? o.frame - frame : 0;
+                return w;
+            }
+        }
+        if (now - since >= static_cast<std::uint64_t>(kCloseLimitMs)) return w;
+        h.sleep_ms(h.poll_interval_ms);
+    }
+}
+
+std::string CloseFields(const CloseWatch& w) {
+    std::string out = std::string(",\"closed\":") + Bool(w.closed);
+    if (w.chosen) out += ",\"chosen_ms\":" + std::to_string(w.chosen_ms);
+    if (w.closed) out += ",\"closed_ms\":" + std::to_string(w.closed_ms) + ",\"closed_frames\":" + std::to_string(w.closed_frames);
+    return out;
+}
+
+std::string NotChosen() {
+    return "the event was still waiting for a choice " + std::to_string(kCloseLimitMs) + " ms after the click";
+}
+
+// event choose N | text^="..." [event=N | event=title^="..."] [timeout=S]
+std::string EventChoose(const Handlers& handlers, const EventRequest& r) {
+    if (std::string error = ClickUnavailable(handlers); !error.empty()) return Error(error);
+    if (!handlers.read_events) return Error(kNoDispatch);
+    std::lock_guard lock(g_input_mutex);
+    const CountedInput counted(handlers);
+    const Handlers& h = counted.handlers();
+    const int timeout_ms = TimeoutOr(h, r.timeout_ms);
+    const std::uint64_t start = h.now_ms();
+    Screen s;
+    if (!ReadScreen(h, timeout_ms, true, s)) return ScreenFailure("event choose", s);
+    const EventChoice choice = ChooseEvent(s.events, r);
+    if (!choice.error.empty()) {
+        return "{\"ok\":false,\"error\":\"" + choice.error + "\",\"command\":\"event choose\"" + choice.members + "}";
+    }
+    const EventView& e = s.events[choice.event];
+    const EventOption& o = e.options[choice.option];
+    const StateSnapshot before = h.read_state();
+    const UiWidget& button = s.tree.widgets[o.widget];
+    const ClickOutcome c = ClickWidget(h, button.address, button.rect, timeout_ms, false);
+    std::string error = c.error;
+    std::string fields = c.members;
+    StateSnapshot state = c.state;
+    if (c.ok) {
+        const CloseWatch w = WatchClose(h, e, c.clicked_at, c.frame);
+        if (!w.chosen) error = NotChosen();
+        fields += CloseFields(w);
+        state = h.read_state();
+    }
+    std::string out = std::string("{\"ok\":") + Bool(error.empty());
+    if (!error.empty()) out += ",\"error\":" + Quote(error);
+    out += ",\"command\":\"event choose\"";
+    if (before.in_game) out += ",\"date\":\"" + DateText(before.date_raw) + "\"";
+    out += ChoiceMembers(e, o) + fields + ",\"waited_ms\":" + std::to_string(h.now_ms() - start);
+    return out + "," + StateFields(state) + "}";
+}
+
+std::string EventCommand(const Handlers& h, std::string_view argument) {
+    EventRequest request;
+    if (std::string error = ParseEventRequest(argument, request); !error.empty()) {
+        const bool choose = argument.starts_with("choose");
+        return "{\"ok\":false" + error + ",\"command\":\"" + (choose ? "event choose" : "event") + "\"}";
+    }
+    return request.verb == EventRequest::Verb::List ? EventList(h, request) : EventChoose(h, request);
+}
+
+// run_until events=first: between the polls of the wait, chooses the first
+// enabled option of the topmost open event, as `event choose` would.
+struct EventsFirst {
+    const Handlers& h;
+    std::string choices;  // JSON objects, comma separated
+    std::string error;    // why the run ends
+    std::string members;  // with the error: the event
+    std::uint64_t next_look = 0;
+
+    bool Stop(std::string why) {
+        error = std::move(why);
+        return false;
+    }
+
+    bool Poll() {
+        // One word from the pipe thread; the main thread is asked only while events are open.
+        if (h.now_ms() < next_look || h.count_event_windows() <= 0) return true;
+        std::lock_guard lock(g_input_mutex);
+        Screen s;
+        if (!ReadScreen(h, h.dispatch_timeout_ms, true, s)) return Stop(s.Error());
+        if (s.events.empty()) {
+            next_look = h.now_ms() + kEventLookMs;
+            return true;
+        }
+        const std::uintptr_t controller = s.events[0].controller;
+        const EventView* e = &s.events[0];
+        int option = FirstEnabledOption(*e);
+        // The game keeps the options disabled for a moment after the window opens.
+        const std::uint64_t deadline = h.now_ms() + kOptionWaitMs;
+        while (option == -1 && h.now_ms() < deadline) {
+            h.sleep_ms(kOptionPollMs);
+            if (!ReadScreen(h, h.dispatch_timeout_ms, true, s)) return Stop(s.Error());
+            e = nullptr;
+            for (const EventView& v : s.events) {
+                if (v.controller == controller) e = &v;
+            }
+            if (!e) return true;  // chosen meanwhile
+            option = FirstEnabledOption(*e);
+        }
+        if (option == -1) {
+            members = ",\"event\":" + EventJson(*e);
+            return Stop("no_enabled_option");
+        }
+        const EventOption& o = e->options[option];
+        const StateSnapshot before = h.read_state();
+        const UiWidget& button = s.tree.widgets[o.widget];
+        ClickOutcome c;
+        {
+            const CountedInput counted(h);
+            c = ClickWidget(counted.handlers(), button.address, button.rect, h.dispatch_timeout_ms, false);
+        }
+        if (!c.ok) {
+            members = ",\"event\":" + EventJson(*e) + c.members;
+            return Stop(c.error);
+        }
+        if (!choices.empty()) choices += ',';
+        choices += ChoiceJson(*e, o, before.in_game ? DateText(before.date_raw) : std::string());
+        const CloseWatch w = WatchClose(h, *e, c.clicked_at, c.frame);
+        if (!w.chosen) {
+            members = ",\"event\":" + EventJson(*e);
+            return Stop(NotChosen());
+        }
+        // An event that paused the game with the player pause leaves it paused.
+        const StateSnapshot after = h.read_state();
+        if (after.in_game && after.paused_flag) {
+            const CountedInput counted(h);
+            Actions actions(counted.handlers());
+            const ActionResult resume = actions.SetPaused(false);
+            if (!resume.ok) return Stop("resume after choosing an event failed: " + resume.error);
+        }
+        next_look = 0;
+        return true;
+    }
+};
+
+// Sets the speed, resumes, waits for the date and pauses again. The wait runs
+// without the input lock, so other clients can read the state or cancel.
+std::string RunUntil(const Handlers& h, std::string_view argument) {
+    RunRequest request;
+    if (std::string error = ParseRunRequest(argument, true, request); !error.empty()) return Error(error);
+    if (request.events_first) {
+        std::string missing = ClickUnavailable(h);
+        if (missing.empty() && (!h.read_events || !h.count_event_windows)) missing = kNoDispatch;
+        if (!missing.empty()) return Error("events=first: " + missing);
+    }
+    Actions actions(h);
+    StateSnapshot before;
+    {
+        std::lock_guard lock(g_input_mutex);
+        before = h.read_state();
+        if (!before.in_game) return Error("no game loaded");
+        if (before.date_raw >= request.target) return Error("the game is already at or past " + DateText(request.target));
+        if (request.speed != 0) {
+            const ActionResult speed = actions.SetSpeed(request.speed);
+            if (!speed.ok) return ActionJson("run_until", speed);
+        }
+        const ActionResult resume = actions.SetPaused(false);
+        if (!resume.ok) return ActionJson("run_until", resume);
+    }
+    EventsFirst events{h};
+    PollHook hook;
+    if (request.events_first) hook = [&events](WaitResult&) { return events.Poll(); };
+    const WaitResult w = WaitForDate(h, request.target, request.timeout_s, request.max_pause_s, hook);
+    ActionResult pause;
+    {
+        std::lock_guard lock(g_input_mutex);
+        pause = actions.SetPaused(true);
+    }
+    const char* wait_error = WaitError(w);
+    std::string message = w.stopped ? events.error : wait_error ? wait_error : "";
+    if (!pause.ok) message += std::string(message.empty() ? "" : "; ") + "pause after the run failed: " + pause.error;
+    std::string out = std::string("{\"ok\":") + Bool(message.empty());
+    if (!message.empty()) out += ",\"error\":\"" + JsonEscape(message) + "\"";
+    out += ",\"command\":\"run_until\"" + WaitFields(w, request.target);
+    if (request.events_first) out += ",\"events\":[" + events.choices + "]" + events.members;
+    out += ",\"start_speed\":" + std::to_string(before.speed + 1);
+    if (w.reached && pause.state.in_game) {
+        // Game hours past the target when the pause took hold.
+        out += ",\"overshoot_hours\":" + std::to_string(static_cast<std::int64_t>(pause.state.date_raw) - request.target);
+    }
+    out += "," + StateFields(pause.state) + "}";
+    return out;
+}
+
 // ui find SEL [all] [limit=N] / ui tree [SEL] [depth=N] [limit=N] [all]: the selector is
 // checked on the pipe thread, the tree is read on the main thread, and the answer is
 // built back on the pipe thread.
@@ -626,8 +1026,9 @@ std::string UiCommand(const Handlers& h, std::string_view argument) {
     UiRequest request;
     const std::string parse_error = ParseUiRequest(argument, request);
     const std::string_view verb = argument.substr(0, argument.find_first_of(" 	"));
-    const std::string command = verb == "find" || verb == "tree" ? "ui " + std::string(verb) : "ui";
+    const std::string command = verb == "find" || verb == "tree" || verb == "click" ? "ui " + std::string(verb) : "ui";
     if (!parse_error.empty()) return "{\"ok\":false" + parse_error + ",\"command\":\"" + command + "\"}";
+    if (request.verb == UiRequest::Verb::Click) return UiClick(h, request);
     if (!h.dispatcher || !h.read_ui || !h.now_ms) return Error(kNoDispatch);
     UiTree tree;
     std::string read_error;
@@ -650,8 +1051,6 @@ std::string UiCommand(const Handlers& h, std::string_view argument) {
            ",\"frame\":" + std::to_string(outcome.frame);
     return out + "}";
 }
-
-constexpr char kInputDisabled[] = "input commands are disabled (set input = true in anvil/data/tongs/config.toml)";
 
 }  // namespace
 
@@ -714,7 +1113,7 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers) {
         return "{\"ok\":true," + WindowFields(handlers.read_window()) + "}";
     }
     if (command == "help" && argument.empty()) {
-        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"frames\",\"ui\",\"help\",") +
+        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"frames\",\"ui\",\"event\",\"help\",") +
                "\"wait_until\",\"cancel\",\"key\",\"text\",\"move\",\"click\",\"scroll\",\"release\",\"pause\",\"resume\",\"speed\"," +
                "\"run_until\"],\"input\":" + Bool(InputReady(handlers)) + ",\"main_thread\":" +
                Bool(handlers.dispatcher != nullptr) + "}";
@@ -726,6 +1125,7 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers) {
     }
     if (command == "frames") return FramesCommand(handlers, argument);
     if (command == "ui") return UiCommand(handlers, argument);
+    if (command == "event") return EventCommand(handlers, argument);
     if (command == "wait_until") {
         if (!handlers.read_state || !handlers.sleep_ms || !handlers.now_ms) return Error("state reader unavailable");
         return WaitUntil(handlers, argument);
@@ -742,13 +1142,15 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers) {
     if (command == "text" || command == "move" || command == "click" || command == "scroll") {
         if (!InputReady(handlers)) return Error(kInputDisabled);
         std::lock_guard lock(g_input_mutex);
-        if (command == "text") return TextCommand(handlers, argument);
-        return MouseCommand(handlers, command, argument);
+        const CountedInput counted(handlers);
+        if (command == "text") return TextCommand(counted.handlers(), argument);
+        return MouseCommand(counted.handlers(), command, argument);
     }
     if (command == "key" || command == "pause" || command == "resume" || command == "speed") {
         if (!InputReady(handlers)) return Error(kInputDisabled);
         std::lock_guard lock(g_input_mutex);
-        Actions actions(handlers);
+        const CountedInput counted(handlers);
+        Actions actions(counted.handlers());
         if (command == "key") {
             const auto key = FindKey(argument);
             if (!key) return Error("unknown key: " + std::string(argument.substr(0, 32)));

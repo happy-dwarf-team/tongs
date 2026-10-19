@@ -303,7 +303,7 @@ static void TestUiRequests() {
     assert(Contains(ParseUiRequest("find a depth=1", r), "\"error\":\"bad_command\""));
     assert(Contains(ParseUiRequest("tree limit=0", r), "\"error\":\"bad_command\""));
     assert(Contains(ParseUiRequest("tree a b", r), "\"error\":\"bad_command\""));
-    assert(Contains(ParseUiRequest("click a", r), "\"error\":\"bad_command\""));
+    assert(Contains(ParseUiRequest("press a", r), "\"error\":\"bad_command\""));
 
     const UiTree t = SampleTree();
     bool found = false;
@@ -867,7 +867,409 @@ static void TestScreenshot() {
     assert(Contains(HandleRequest("screenshot", Handlers{}), "unavailable"));
 }
 
+static int AddWidget(UiTree& t, const char* name, UiType type, bool shown, UiRect rect, int parent = -1) {
+    UiWidget w;
+    w.name = name;
+    w.type = type;
+    w.shown = shown;
+    w.rect = rect;
+    if (type == UiType::Button) {
+        w.has_enabled = true;
+        w.enabled = true;
+    }
+    t.widgets.push_back(w);
+    const int id = static_cast<int>(t.widgets.size()) - 1;
+    t.widgets[id].address = 0x1000 + static_cast<std::uintptr_t>(id) * 0x10;
+    if (parent == -1) {
+        t.roots.push_back(id);
+    } else {
+        t.widgets[parent].children.push_back(id);
+    }
+    return id;
+}
+
+static std::uintptr_t Address(int widget) { return 0x1000 + static_cast<std::uintptr_t>(widget) * 0x10; }
+
+// SampleTree with two event windows on screen: "Tariffs on Fish" (widget 8, options
+// 11, 13 and the disabled 15) and "Plague" (widget 17, one option).
+static UiTree EventTree() {
+    UiTree t = SampleTree();
+    for (int i = 0; i < static_cast<int>(t.widgets.size()); ++i) t.widgets[i].address = Address(i);
+    const auto text = [&t](int parent, const char* name, const char* value) {
+        const UiRect& r = t.widgets[parent].rect;  // a strip at the top of the window
+        const int w = AddWidget(t, name, UiType::Text, true, {r.x, r.y + 10, r.w, 40}, parent);
+        t.widgets[w].has_text = true;
+        t.widgets[w].text = value;
+    };
+    text(8, "Title", "Tariffs on Fish");
+    text(8, "Description", "The merchants of Novgorod...");
+    t.widgets[17].shown = true;
+    t.widgets[17].rect = {100, 100, 700, 800};
+    text(17, "Title", "Plague");
+    const int list = AddWidget(t, "event_option_listbox", UiType::Listbox, true, {150, 700, 547, 60}, 17);
+    const int entry = AddWidget(t, "event_option_entry", UiType::Window, true, {150, 700, 547, 56}, list);
+    const int button = AddWidget(t, "event_option_button", UiType::Button, true, {150, 700, 500, 56}, entry);
+    t.widgets[button].has_text = true;
+    t.widgets[button].text = "Pray";
+    return t;
+}
+
+static int FindWidget(const UiTree& t, const char* text) {
+    for (int i = 0; i < static_cast<int>(t.widgets.size()); ++i) {
+        if (t.widgets[i].text == text) return i;
+    }
+    return -1;
+}
+
+// Plague opened first, Tariffs on Fish later (on top); one more event was already chosen.
+static EventsRaw EventRaw(const UiTree& t) {
+    EventsRaw raw;
+    OpenEventRaw chosen;
+    chosen.controller = 0xC0;
+    chosen.window = 0x9990;
+    raw.events.push_back(chosen);
+    OpenEventRaw plague;
+    plague.controller = 0xC1;
+    plague.waiting = true;
+    plague.window = Address(17);
+    plague.id = "flavor_x.2";
+    plague.numeric_id = 7;
+    plague.option_keys = {"flavor_x.2.a"};
+    plague.buttons = {{Address(FindWidget(t, "Pray")), "7_0"}};
+    raw.events.push_back(plague);
+    OpenEventRaw fish;
+    fish.controller = 0xC2;
+    fish.waiting = true;
+    fish.window = Address(8);
+    fish.id = "flavor_rus.1";
+    fish.numeric_id = 5;
+    fish.option_keys = {"flavor_rus.1.a", "flavor_rus.1.b", "flavor_rus.1.hidden", ""};
+    fish.buttons = {{Address(11), "5_0"}, {Address(13), "5_1"}, {Address(15), "5_3"}};
+    raw.events.push_back(fish);
+    raw.listed_windows = {Address(17), Address(8)};
+    raw.has_delay = true;
+    raw.option_delay = 0.5f;
+    return raw;
+}
+
+static void TestEvents() {
+    assert(ParseOptionScope("5_3", 5) == 3 && ParseOptionScope("5_-1", 5) == -1 && ParseOptionScope("6_0", 5) == -1);
+    assert(ParseOptionScope("5", 5) == -1 && ParseOptionScope("x_1", 5) == -1 && ParseOptionScope("5_1x", 5) == -1);
+
+    const UiTree t = EventTree();
+    const std::vector<EventView> events = BuildEvents(t, EventRaw(t));
+    assert(events.size() == 2);  // the chosen one is left out; the newest comes first
+    const EventView& fish = events[0];
+    assert(fish.number == 1 && fish.id == "flavor_rus.1" && fish.title == "Tariffs on Fish" &&
+           fish.description == "The merchants of Novgorod..." && fish.path == "EventWindow[1]");
+    assert(fish.options.size() == 3 && fish.options[1].number == 2 && fish.options[1].index == 1 &&
+           fish.options[1].key == "flavor_rus.1.b" && fish.options[1].text == "Refuse them" && fish.options[1].enabled);
+    assert(fish.options[1].path == "EventWindow[1]/event_option_listbox/event_option_entry[2]/event_option_button");
+    // A hidden option uses up an index; the last one has no name and is disabled.
+    assert(fish.options[2].index == 3 && fish.options[2].key.empty() && !fish.options[2].enabled);
+    assert(events[1].id == "flavor_x.2" && events[1].title == "Plague" && events[1].number == 2);
+    assert(FirstEnabledOption(fish) == 0);
+    const std::string json = EventJson(fish);
+    assert(Contains(json, "{\"number\":1,\"id\":\"flavor_rus.1\",\"title\":\"Tariffs on Fish\",\"description\":") &&
+           Contains(json, "{\"number\":3,\"text\":\"Ask the merchants\",\"enabled\":false,\"option_index\":3,\"option_key\":\"\""));
+
+    EventRequest r;
+    for (const char* bad : {"", "foo", "choose", "choose 0", "choose 1 2", "choose text", "choose text^=\"a", "choose 1 event=0",
+                            "choose 1 event=x", "list 1", "choose 1 timeout=0", "choose 1 event=1 event=2", "choose text^="}) {
+        assert(Contains(ParseEventRequest(bad, r), "\"error\":\"bad_command\""));
+    }
+    assert(ParseEventRequest("list timeout=2", r).empty() && r.verb == EventRequest::Verb::List && r.timeout_ms == 2000);
+    assert(ParseEventRequest("choose text^=\"Refuse THEM\" event=title~=fish", r).empty() &&
+           r.option == EventRequest::Match::Starts && r.option_text == "refuse them" &&
+           r.event == EventRequest::Match::Contains && r.event_title == "fish");
+
+    const auto choose = [&events](const char* request) {
+        EventRequest q;
+        const std::string error = ParseEventRequest(request, q);
+        assert(error.empty());
+        return ChooseEvent(events, q);
+    };
+    EventChoice c = choose("choose 1");
+    assert(c.error == "ambiguous" && Contains(c.members, "\"events\":[{\"number\":1,\"id\":\"flavor_rus.1\""));
+    c = choose("choose 1 event=1");
+    assert(c.error.empty() && c.event == 0 && c.option == 0);
+    c = choose("choose 1 event=2");
+    assert(c.error.empty() && c.event == 1 && c.option == 0);
+    assert(choose("choose 3 event=1").error == "disabled");
+    c = choose("choose 4 event=1");
+    assert(c.error == "not_found" && Contains(c.members, "\"options\":["));
+    assert(choose("choose 1 event=3").error == "not_found");
+    c = choose("choose text^=refuse event=title^=TARIFFS");
+    assert(c.error.empty() && c.event == 0 && c.option == 1);
+    assert(choose("choose text~=e event=1").error == "ambiguous");
+    assert(choose("choose text=pray event=title=plague").option == 0);
+    assert(choose("choose 1 event=title~=x").error == "not_found");
+    assert(choose("choose text=nothing event=1").error == "not_found");
+    assert(ChooseEvent({}, r).error == "not_found");
+    const std::vector<EventView> one(events.begin() + 1, events.end());
+    EventRequest q;
+    assert(ParseEventRequest("choose 1", q).empty() && ChooseEvent(one, q).error.empty());
+    assert(Contains(ChoiceMembers(fish, fish.options[1]), "\"option\":{\"number\":2,\"text\":\"Refuse them\",\"option_index\":1"));
+    assert(Contains(ChoiceJson(fish, fish.options[0], "1719.3.17"),
+                    "{\"date\":\"1719.3.17\",\"id\":\"flavor_rus.1\",\"title\":\"Tariffs on Fish\",\"option\":1,"));
+}
+
+static void TestUiClickTarget() {
+    UiTree t = EventTree();
+    const auto target = [&t](const char* selector) {
+        UiSelector sel;
+        assert(ParseUiSelector(selector, sel).empty());
+        return ResolveClickTarget(t, sel);
+    };
+    UiClickTarget c = target("speed_controls/button_speedup");
+    assert(c.error.empty() && c.widget == 3 && c.path == "speed_controls/button_speedup");
+    assert(target("speed_controls/button_speeddown").error == "disabled");
+    c = target("//nothing");
+    assert(c.error == "not_found" && c.count == 0);
+    c = target("//timeline_pause");
+    assert(c.error == "not_visible" && c.paths == std::vector<std::string>{"timeline_controls/timeline_pause"});
+    c = target("//event_option_button");
+    assert(c.error == "ambiguous" && c.count == 4 && c.paths.size() == 4);
+    for (int i = 0; i < 12; ++i) AddWidget(t, "many", UiType::Button, true, {0, 0, 1, 1});
+    c = target("many");
+    assert(c.error == "ambiguous" && c.count == 12 && c.paths.size() == 10 && c.paths[9] == "many[10]");
+
+    // The hovered widget is the target, inside it, something else, or nothing.
+    assert(!CheckCover(t, Address(3), Address(3)).covered);
+    UiCoverCheck cover = CheckCover(t, Address(10), Address(11));  // the button inside the option entry
+    assert(!cover.covered && cover.hovered == "EventWindow[1]/event_option_listbox/event_option_entry[1]/event_option_button");
+    cover = CheckCover(t, Address(11), Address(10));
+    assert(cover.covered && cover.covered_by == "EventWindow[1]/event_option_listbox/event_option_entry[1]");
+    cover = CheckCover(t, Address(3), 0);
+    assert(cover.covered && cover.covered_by.empty());
+    cover = CheckCover(t, Address(3), 0x77777);  // not in the tree
+    assert(cover.covered && cover.covered_by.empty());
+}
+
+// A game with a widget tree and events: the GUI hovers the last visible widget
+// under the virtual cursor, and a click on an option button chooses that option.
+struct FakeScreen {
+    FakeGame game = LoadedGame();
+    UiTree tree = EventTree();
+    EventsRaw raw = EventRaw(tree);
+    std::vector<std::string> chosen;  // scopes of the clicked option buttons
+    Dispatcher dispatcher{SteadyMs};
+
+    std::uintptr_t Hovered() const {
+        if (game.cursor.first < 0) return 0;
+        const UiView view(tree, false);
+        std::uintptr_t hit = 0;
+        for (int i = 0; i < static_cast<int>(tree.widgets.size()); ++i) {
+            const UiRect& r = tree.widgets[i].rect;
+            if (view.Visible(i) && game.cursor.first >= r.x && game.cursor.first < r.x + r.w &&
+                game.cursor.second >= r.y && game.cursor.second < r.y + r.h) {
+                hit = tree.widgets[i].address;
+            }
+        }
+        return hit;
+    }
+
+    Handlers Make() {
+        game.window.found = true;
+        game.window.width = 3440;
+        game.window.height = 1440;
+        Handlers h = game.Make();
+        const auto send = h.send_input;
+        h.send_input = [this, send](const std::vector<InputEvent>& batch) {
+            std::string error = send(batch);
+            for (const InputEvent& e : batch) {
+                if (e.type != InputEvent::Type::MouseUp) continue;
+                const std::uintptr_t under = Hovered();
+                for (OpenEventRaw& ev : raw.events) {
+                    for (const EventButtonRaw& b : ev.buttons) {
+                        const int w = static_cast<int>((b.widget - 0x1000) / 0x10);
+                        if (b.widget == under && ev.waiting && tree.widgets[w].enabled) {
+                            ev.waiting = false;
+                            chosen.push_back(b.scope);
+                        }
+                    }
+                }
+            }
+            return error;
+        };
+        h.dispatcher = &dispatcher;
+        h.read_ui = [this](UiTree& out) {
+            out = tree;
+            return std::string();
+        };
+        h.read_hovered = [this] { return Hovered(); };
+        h.read_hover_flag = [this](std::uintptr_t widget) { return widget == Hovered() ? 1 : 0; };
+        // A chosen event is gone by the next read, with its window.
+        h.read_events = [this](EventsRaw& out) {
+            out = raw;
+            for (std::size_t i = raw.events.size(); i-- > 0;) {
+                if (raw.events[i].waiting || raw.events[i].controller == 0xC0) continue;
+                const std::uintptr_t window = raw.events[i].window;
+                std::erase(raw.listed_windows, window);
+                raw.events.erase(raw.events.begin() + static_cast<std::ptrdiff_t>(i));
+            }
+            return std::string();
+        };
+        h.count_event_windows = [this] { return static_cast<int>(raw.listed_windows.size()); };
+        return h;
+    }
+};
+
+static void TestUiClickCommand() {
+    FakeScreen screen;
+    // A tooltip over the speed-up button, drawn last.
+    AddWidget(screen.tree, "tooltip", UiType::Window, true, {3300, 0, 140, 40});
+    const Handlers h = screen.Make();
+    FakeMainThread main(screen.dispatcher);
+
+    std::string out = HandleRequest("ui click speed_controls/button_speedup", h);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"covered\",\"command\":\"ui click\"") &&
+           Contains(out, "\"covered_by\":\"tooltip\"") && Contains(out, "\"point\":{\"x\":3350,\"y\":32}"));
+    assert(screen.game.events.size() == 1 && screen.game.events[0].type == InputEvent::Type::MouseMove);  // no press
+    screen.tree.widgets.back().shown = false;
+    screen.game.events.clear();
+    out = HandleRequest("ui click speed_controls/button_speedup timeout=5", h);
+    assert(Contains(out, "{\"ok\":true,\"command\":\"ui click\",\"selector\":\"speed_controls/button_speedup\"") &&
+           Contains(out, "\"clicked\":\"speed_controls/button_speedup\"") && Contains(out, "\"target_hovered\":true") &&
+           Contains(out, "\"hovered\":\"speed_controls/button_speedup\"") && Contains(out, "\"in_game\":true"));
+    assert(screen.game.events.size() == 3 && screen.game.events[1].type == InputEvent::Type::MouseDown &&
+           screen.game.events[1].x == 3350 && screen.game.events[2].type == InputEvent::Type::MouseUp);
+    screen.game.events.clear();
+    out = HandleRequest("ui click speed_controls/button_speeddown", h);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"disabled\"") && Contains(out, "\"path\":\"speed_controls/button_speeddown\""));
+    out = HandleRequest("ui click //event_option_button", h);
+    assert(Contains(out, "\"error\":\"ambiguous\"") && Contains(out, "\"count\":4,\"matches\":[\"EventWindow[1]/"));
+    assert(Contains(HandleRequest("ui click //timeline_pause", h), "\"error\":\"not_visible\""));
+    assert(Contains(HandleRequest("ui click //nothing", h), "\"error\":\"not_found\",\"command\":\"ui click\""));
+    assert(screen.game.events.empty());  // refusals send nothing
+    assert(Contains(HandleRequest("ui click", h), "\"error\":\"bad_selector\""));
+    assert(Contains(HandleRequest("ui click a all", h), "\"error\":\"bad_command\""));
+
+    Handlers no_input = h;
+    no_input.send_input = nullptr;
+    assert(Contains(HandleRequest("ui click speed_controls/button_speedup", no_input), "input = true"));
+    Handlers no_hook = h;
+    no_hook.set_cursor = nullptr;
+    assert(Contains(HandleRequest("ui click speed_controls/button_speedup", no_hook), "cursor hook"));
+}
+
+static void TestEventCommands() {
+    FakeScreen screen;
+    const Handlers h = screen.Make();
+    assert(Contains(HandleRequest("event list", Handlers{}), "frame hook is not installed"));
+    assert(Contains(HandleRequest("event choose 0", h), "{\"ok\":false,\"error\":\"bad_command\""));
+    FakeMainThread main(screen.dispatcher);
+
+    std::string out = HandleRequest("event list", h);
+    assert(Contains(out, "{\"ok\":true,\"command\":\"event list\",\"count\":2,\"events\":[{\"number\":1,\"id\":\"flavor_rus.1\"") &&
+           Contains(out, "\"controllers\":3,\"listed_windows\":2,\"option_delay\":0.500") && Contains(out, "\"frame\":"));
+
+    out = HandleRequest("event choose 1", h);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"ambiguous\",\"command\":\"event choose\""));
+    assert(Contains(HandleRequest("event choose 3 event=1", h), "\"error\":\"disabled\""));
+    assert(screen.game.events.empty() && screen.chosen.empty());
+
+    out = HandleRequest("event choose text^=refuse event=title^=tariffs", h);
+    std::fprintf(stderr, "%s\n", out.c_str());
+    assert(Contains(out, "{\"ok\":true,\"command\":\"event choose\",\"date\":\"1719.3.17\",\"event\":{\"number\":1,\"id\":\"flavor_rus.1\"") &&
+           Contains(out, "\"option\":{\"number\":2,\"text\":\"Refuse them\",\"option_index\":1,\"option_key\":\"flavor_rus.1.b\"") &&
+           Contains(out, "\"closed\":true,\"chosen_ms\":") && Contains(out, "\"closed_frames\":") && Contains(out, "\"in_game\":true"));
+    assert(screen.chosen == std::vector<std::string>{"5_1"});
+
+    // One event left: no event= needed.
+    out = HandleRequest("event choose 1", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"id\":\"flavor_x.2\"") && screen.chosen.back() == "7_0");
+    out = HandleRequest("event list", h);
+    assert(Contains(out, "\"count\":0,\"events\":[],\"controllers\":1,\"listed_windows\":0"));
+    assert(Contains(HandleRequest("event choose 1", h), "\"error\":\"not_found\""));
+
+    // A click the game ignores: the event stays open.
+    screen.raw = EventRaw(screen.tree);
+    screen.tree.widgets[11].enabled = false;  // the game sees it disabled, the read before the click did not
+    Handlers stale = h;
+    stale.read_ui = [&screen](UiTree& out) {
+        out = screen.tree;
+        out.widgets[11].enabled = true;
+        return std::string();
+    };
+    out = HandleRequest("event choose 1 event=1", stale);
+    assert(Contains(out, "\"ok\":false,\"error\":\"the event was still waiting for a choice 3000 ms after the click\"") &&
+           Contains(out, "\"closed\":false"));
+}
+
+static void TestInputsCount() {
+    FakeGame game = LoadedGame();
+    game.clock_runs_date = true;
+    game.state.paused_flag = false;
+    const Handlers h = game.Make();
+    // Another client presses a key while wait_until waits.
+    int ticks = 0;
+    game.on_sleep = [&] {
+        if (++ticks == 5) assert(Contains(HandleRequest("key a", h), "\"ok\":true"));
+    };
+    std::string out = HandleRequest("wait_until 1719.4.1", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"inputs\":1,"));
+    game.on_sleep = nullptr;
+    out = HandleRequest("wait_until 1719.5.1", h);
+    assert(Contains(out, "\"inputs\":0,"));
+    // run_until does not count its own presses.
+    assert(Contains(HandleRequest("pause", h), "\"ok\":true"));
+    out = HandleRequest("run_until 1719.6.1 speed=3", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"inputs\":0,"));
+    assert(Contains(HandleRequest("run_until 1719.7.1 events=never", h), "bad option"));
+    assert(Contains(HandleRequest("wait_until 1719.7.1 events=first", h), "bad option"));
+}
+
+static void TestRunUntilEventsFirst() {
+    FakeScreen screen;
+    screen.game.clock_runs_date = true;
+    const EventsRaw opened = screen.raw;
+    screen.raw = {};
+    const Handlers h = screen.Make();
+    FakeMainThread main(screen.dispatcher);
+    assert(Contains(HandleRequest("run_until 1719.4.1 events=first", Handlers{}), "input = true"));
+
+    // Two events open (and pause the game) on 1719.3.25; both are chosen, topmost first.
+    const std::int32_t opens = *ParseGameDate("1719.3.25");
+    bool open = false;
+    screen.game.on_sleep = [&] {
+        if (!open && screen.game.state.date_raw >= opens) {
+            open = true;
+            screen.raw = opened;
+            screen.game.state.paused_flag = true;
+        }
+    };
+    std::string out = HandleRequest("run_until 1719.4.1 speed=1 events=first", h);
+    assert(Contains(out, "{\"ok\":true,\"command\":\"run_until\"") && Contains(out, "\"reached\":true"));
+    assert(Contains(out, "\"events\":[{\"date\":\"1719.3.25\",\"id\":\"flavor_rus.1\",\"title\":\"Tariffs on Fish\",\"option\":1,") &&
+           Contains(out, "\"id\":\"flavor_x.2\",\"title\":\"Plague\",\"option\":1,\"text\":\"Pray\""));
+    // Two choices and one resume after the pause the first event set.
+    assert(Contains(out, "\"inputs\":3,") && screen.chosen == std::vector<std::string>({"5_0", "7_0"}));
+    assert(screen.game.state.paused_flag);
+
+    // No option enabled: the run ends with the event.
+    screen.game.on_sleep = nullptr;
+    screen.raw = opened;
+    screen.raw.events.erase(screen.raw.events.begin(), screen.raw.events.begin() + 2);  // only Tariffs on Fish
+    screen.raw.listed_windows = {Address(8)};
+    for (const int b : {11, 13}) screen.tree.widgets[b].enabled = false;
+    screen.game.state.date_raw = *ParseGameDate("1719.4.2");
+    out = HandleRequest("run_until 1719.5.1 events=first", h);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"no_enabled_option\"") && Contains(out, "\"events\":[],\"event\":{\"number\":1,") &&
+           screen.game.state.paused_flag);
+    // events=stop (the default) leaves events alone.
+    screen.game.state.date_raw = *ParseGameDate("1719.4.2");
+    out = HandleRequest("run_until 1719.5.1 events=stop", h);
+    assert(Contains(out, "\"ok\":true") && !Contains(out, "\"events\":"));
+}
+
 int main() {
+    TestEvents();
+    TestUiClickTarget();
+    TestUiClickCommand();
+    TestEventCommands();
+    TestInputsCount();
+    TestRunUntilEventsFirst();
     TestDate();
     TestScreenshot();
     TestThreads();
