@@ -831,7 +831,10 @@ std::string UiClick(const Handlers& handlers, const UiRequest& request) {
     // With event windows open, the events too: a click on an option is a choice Tongs can name.
     const bool events = h.read_events && h.count_event_windows && h.count_event_windows() > 0;
     Screen s;
-    if (!ReadScreen(h, timeout_ms, events, s)) return ScreenFailure("ui click", s);
+    // A failed event read costs only the choice note, not the click.
+    if (!ReadScreen(h, timeout_ms, events, s) && !(events && s.outcome.ran && ReadScreen(h, timeout_ms, false, s))) {
+        return ScreenFailure("ui click", s);
+    }
     const std::string head = ",\"command\":\"ui click\",\"selector\":" + Quote(request.selector_text);
     const UiClickTarget target = ResolveClickTarget(s.tree, request.selector);
     if (!target.error.empty()) {

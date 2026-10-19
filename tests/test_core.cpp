@@ -1294,6 +1294,11 @@ static void TestUiClickChoice() {
     // Any other widget: no event_option, nothing noted.
     out = HandleRequest("ui click speed_controls/button_speedup", h);
     assert(Contains(out, "\"ok\":true") && !Contains(out, "event_option"));
+    // The events cannot be read: the click still happens, without the note.
+    Handlers broken = h;
+    broken.read_events = [](EventsRaw&) { return std::string("access violation while reading events"); };
+    out = HandleRequest("ui click speed_controls/button_speedup", broken);
+    assert(Contains(out, "\"ok\":true") && !Contains(out, "event_option"));
 }
 
 static void TestEventChooseScrolls() {
