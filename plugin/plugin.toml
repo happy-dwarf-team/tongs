@@ -2,15 +2,15 @@ id = "tongs"
 name = "Tongs"
 version = "0.6.0"
 authors = ["Happy Dwarf Team"]
-description = "Control EU4 from scripts and agents: a local command pipe that reads the state of a running game and, when allowed, uses its keyboard and mouse."
+description = "Control EU4 from scripts and agents: a local command pipe that reads the state of a running game and, when allowed, uses its keyboard and mouse and runs console commands."
 api = 1
 anvil = ">=0.2.0"
 entry = "tongs.dll"
 phase = "main"
-affects_gameplay = false
+affects_gameplay = true
 game_builds = ["eu4-1.37.5-steam-win64"]
 
-# Game code and data layout the state reader and the key input depend on (see docs/design.md).
+# Game code and data layout the state reader, the input and the game calls depend on (see docs/design.md).
 
 [[expect]]
 build = "eu4-1.37.5-steam-win64"
@@ -565,3 +565,59 @@ build = "eu4-1.37.5-steam-win64"
 rva = 0x10BBEE1
 bytes = "48 8B 9E 08 02 00 00 F2 0F 5C 86 20 02 00 00 F3 0F 10 0D 5C 29 28 01 0F 5A C9 66 0F 2F C8 76 29"
 name = "event update: option buttons disabled while less than the float at 0x233E854 has passed since +0x220"
+
+# Game calls (0.7.0): the console dispatcher and what Tongs reads before it calls.
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x1721320
+bytes = "48 89 5C 24 10 48 89 4C 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 D0 48 81 EC 30 01 00 00 49 8B F0 48 8B FA 4C 8B E1"
+name = "console dispatcher: (manager RCX, result RDX, tokens R8)"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x172136E
+bytes = "41 B0 01 48 8B 16 E8 87 FC FF FF 48 89 85 80 00 00 00 48 85 C0 0F 84 39 06 00 00 38 18 75 61 41 38 5C 24 18 74 5A"
+name = "console dispatcher: lookup 0x1721000, entry+0x00 release byte, manager+0x18 developer gate"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x1721463
+bytes = "41 80 7C 24 19 00"
+name = "console dispatcher: manager+0x19 multiplayer/ironman gate"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x172174E
+bytes = "48 8B 05 FB 63 C3 00 48 85 C0 74 02 FF D0 49 8B 47 38 4D 8B 47 40 48 8D 54 24 28 48 8D 4D 08 FF D0"
+name = "console dispatcher: pre-command hook 0x2357B50, then entry+0x38(result, args, entry+0x40)"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x1721066
+bytes = "48 69 E8 A8 00 00 00 48 03 E9 48 83 7B 18 10 72 03 48 8B 13 48 8B 4D 08 E8 9D 6F 32 00 85 C0 74 6A 33 FF 39 7D 10 7E 28 48 8D 75 18"
+name = "console lookup: entries of 0xA8 bytes, name at +0x08, alias count at +0x10, aliases from +0x18"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x6E74C0
+bytes = "48 83 EC 28 48 8B 05 8D 06 C7 01 48 85 C0 75 3D"
+name = "console manager getter: singleton pointer at 0x2357B58"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x95660
+bytes = "40 53 48 83 EC 20 48 8B 51 18 48 8B D9 48 83 FA 10 72 2C 48 8B 09"
+name = "std::string destructor used to free the result text"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x6E9128
+bytes = "48 8B 0D 49 6D C5 01 C6 40 18 01 48 8B 89 00 1E 00 00 E8 D1 18 00 00 48 8B 0D 32 6D C5 01 0F B6 D8 0F B6 B9 D0 24 00 00 E8 6B E3 FF FF 84 DB 75 09 40 84 FF 75 04 33 C9 EB 02 B1 01 88 48 19"
+name = "console registration: manager+0x19 = 0x6EAA10(session) or root byte +0x24D0 (multiplayer or ironman)"
+
+[[expect]]
+build = "eu4-1.37.5-steam-win64"
+rva = 0x6EAA10
+bytes = "48 89 5C 24 08 57 48 83 EC 20 48 8B 01 48 8B F9 FF 90 18 03 00 00"
+name = "multiplayer check (session*): session vtable slot 0x318"

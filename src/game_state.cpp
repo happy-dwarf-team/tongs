@@ -37,6 +37,7 @@ void ReadUnguarded(std::uintptr_t base, const GameLayout& layout, StateSnapshot&
         out.reason = "no game loaded (game-speed object is null)";
         return;
     }
+    out.session = session;
     out.date_raw = At<std::int32_t>(root + layout.date_offset);
     out.speed = At<std::int32_t>(root + layout.speed_offset);
     out.paused_flag = At<std::uint8_t>(game_speed + layout.pause_flag_offset) != 0;
