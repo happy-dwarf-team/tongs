@@ -146,6 +146,28 @@ async def test_lists_every_tool_with_safety_notes():
     assert tools["tongs_state"].annotations.read_only_hint is True
 
 
+# Tools that act as the player (a key or click can confirm, choose or quit) or remove something.
+DESTRUCTIVE_TOOLS = {
+    "tongs_run_until", "tongs_key", "tongs_click_point", "tongs_ui_click", "tongs_event_choose",
+    "tongs_cancel", "tongs_screenshot", "tongs_console", "tongs_raw",
+}  # fmt: skip
+READ_ONLY_TOOLS = {
+    "tongs_state", "tongs_window", "tongs_threads", "tongs_frames",
+    "tongs_ui_find", "tongs_ui_tree", "tongs_event_list",
+}  # fmt: skip
+
+
+async def test_annotations_declare_the_effects():
+    async with Client(build_server(FakePipe().connect)) as client:
+        tools = {t.name: t.annotations for t in (await client.list_tools()).tools}
+    for name, annotations in tools.items():
+        assert annotations.read_only_hint is (name in READ_ONLY_TOOLS), name
+        assert annotations.destructive_hint is (name in DESTRUCTIVE_TOOLS), name
+    # The screenshot writes a file and prunes old ones; a wait's cancel ends every client's waits.
+    assert tools["tongs_screenshot"].idempotent_hint is False
+    assert tools["tongs_wait_until"].read_only_hint is False
+
+
 @pytest.mark.parametrize(("tool", "args", "line"), LINES)
 async def test_request_line(tool, args, line):
     pipe = FakePipe()
@@ -227,6 +249,72 @@ async def test_pipe_closing_without_answer_is_reported():
     result = await call(FakePipe(handler), "tongs_state")
     assert result.is_error
     assert "did the game exit" in result.content[0].text
+    assert "may or may not have been carried out" in result.content[0].text
+
+
+def texts(result) -> list[str]:
+    return [c.text for c in result.content if c.type == "text"]
+
+
+async def test_a_cancelled_call_is_told_unknown_then_answered():
+    """The plugin still has a cancelled click: later answers say so, then quote its answer, once each."""
+    pipe = FakePipe()
+    clicked = threading.Event()
+
+    def handler(line):
+        if line.startswith("ui click"):
+            clicked.wait(5)
+            return {"ok": True, "command": "ui click", "clicked": "speed_controls/button_speedup"}
+        return {"ok": True, "in_game": False}
+
+    pipe.handler = handler
+    async with Client(build_server(pipe.connect)) as client:
+        with anyio.move_on_after(0.3):
+            await client.call_tool("tongs_ui_click", {"selector": "speed_controls/button_speedup"})
+        pending = await client.call_tool("tongs_state", {})
+        assert not pending.is_error
+        assert len(texts(pending)) == 2
+        assert "`ui click speed_controls/button_speedup` was cancelled before the plugin answered" in texts(pending)[1]
+        assert "effect is unknown" in texts(pending)[1]
+        assert len(texts(await client.call_tool("tongs_state", {}))) == 1  # told once while unanswered
+
+        clicked.set()
+        with anyio.fail_after(5):
+            while True:
+                answered = await client.call_tool("tongs_state", {})
+                if len(texts(answered)) > 1:
+                    break
+                await anyio.sleep(0.02)
+        assert "the plugin answered it afterwards" in texts(answered)[1]
+        assert '"clicked": "speed_controls/button_speedup"' in texts(answered)[1]
+        assert len(texts(await client.call_tool("tongs_state", {}))) == 1  # and once when settled
+    assert pipe.closed == pipe.sent.count("state") + 1
+
+
+async def test_a_cancelled_call_without_answer_is_told_on_the_next_error():
+    pipe = FakePipe()
+    release = threading.Event()
+
+    def handler(line):
+        if line == "key return":
+            release.wait(5)
+            raise ConnectionError("the pipe closed without an answer")
+        if line == "frames":
+            raise ConnectionError("the pipe closed without an answer")
+        return {"ok": True, "in_game": False}
+
+    pipe.handler = handler
+    async with Client(build_server(pipe.connect)) as client:
+        with anyio.move_on_after(0.3):
+            await client.call_tool("tongs_key", {"name": "return"})
+        release.set()
+        with anyio.fail_after(5):
+            while pipe.closed < 1:
+                await anyio.sleep(0.02)
+        failed = await client.call_tool("tongs_frames", {})
+    assert failed.is_error
+    assert "`key return` was cancelled and ended without an answer" in failed.content[0].text
+    assert "its effect is unknown" in failed.content[0].text
 
 
 async def test_screenshot_attaches_small_images(tmp_path: Path):

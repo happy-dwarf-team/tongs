@@ -3,7 +3,8 @@
 Each tool builds one request line, sends it over its own connection to
 \\\\.\\pipe\\tongs and returns the plugin's JSON answer unchanged: the answer
 line as text, the parsed object as structured content, and `isError` when the
-answer has `"ok": false`. The adapter adds nothing the pipe does not offer:
+answer has `"ok": false`. Later text items can follow: notes on the outcome of
+calls the client cancelled. The adapter adds nothing the pipe does not offer:
 input and game calls still depend on `input` and `game_calls` in the plugin's
 config.
 """
@@ -12,7 +13,9 @@ import base64
 import inspect
 import json
 import os
+import threading
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from typing import Annotated, Any, Literal, Protocol
 
@@ -33,6 +36,8 @@ HEARTBEAT_S = float(os.environ.get("TONGS_MCP_HEARTBEAT_S", "60"))
 # Progress values must increase (MCP spec), so each heartbeat adds this many days: well
 # under one day for the 240 heartbeats of the longest wait (4 hours at 60 s).
 HEARTBEAT_STEP = 0.001
+# A late answer is quoted in its note up to this many characters.
+NOTE_ANSWER_CHARS = 2000
 
 
 class Connection(Protocol):
@@ -81,6 +86,16 @@ def _answer(text: str) -> CallToolResult:
     )
 
 
+@dataclass
+class Abandoned:
+    """A call whose MCP request was cancelled while the plugin still had its line: the plugin
+    may carry it out anyway, so its outcome is told in the notes of later answers."""
+
+    line: str
+    outcome: tuple[str, str] | None = None  # ("answer", the answer line) or ("failure", why), once known
+    told: str | None = None  # what the notes said last: None, "pending", "answer" or "failure"
+
+
 # --- game dates (EU4: 365 days, no leap years) -------------------------------
 
 _MONTH_START = (0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
@@ -115,12 +130,22 @@ JSON answer unchanged; "ok": false answers come back as errors with an "error" f
   the date is reached, the timeout passes or tongs_cancel ends it. Progress
   notifications report the game date when the client asks for progress, and a heartbeat
   while the game is paused; max_pause ends a wait the game keeps paused.
+- Cancelling a call does not take it back: the plugin may still carry it out. Later
+  answers then carry a note: first that its effect is unknown, then the plugin's answer
+  (or why none came) once it is known.
 """
 
 READ = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
-WAIT = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=False, open_world_hint=False)
+# Writes a PNG and deletes the oldest beyond the newest 100.
+FILES = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=False)
+# Touches nothing, but cancelling it sends `cancel`, which ends the waits of every client.
+WAIT = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False)
+# Input that can be taken back: pause, speed, the pointer, the wheel, typing into a field.
 INPUT = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False)
-CONTROL = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
+# Input that acts as the player: a key or click can confirm a dialog, choose an option or leave the game.
+PLAYER = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=False)
+# Ends the waits of every client and withdraws their queued main-thread jobs.
+CONTROL = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=True, open_world_hint=False)
 GAME_CALL = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=False)
 
 INPUT_NOTE = (
@@ -207,16 +232,74 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         try:
             return conn.raw(line)
         except (ConnectionError, OSError) as e:
-            raise ToolError(f"the pipe closed without an answer ({e}); did the game exit?") from None
+            raise ToolError(
+                f"the pipe closed without an answer ({e}); did the game exit? The command may or may not "
+                "have been carried out."
+            ) from None
         finally:
             conn.close()
 
+    abandoned: list[Abandoned] = []
+    abandoned_lock = threading.Lock()
+
+    def late_notes() -> list[str]:
+        """Notes on cancelled calls: each is told once while the plugin has not answered it and
+        once when its outcome is known."""
+        notes = []
+        with abandoned_lock:
+            for entry in list(abandoned):
+                kind = entry.outcome[0] if entry.outcome else "pending"
+                if kind == entry.told:
+                    continue
+                entry.told = kind
+                if entry.outcome is None:
+                    notes.append(
+                        f"An earlier call `{entry.line}` was cancelled before the plugin answered; the plugin "
+                        "may still carry it out, so its effect is unknown until the answer comes."
+                    )
+                    continue
+                abandoned.remove(entry)
+                text = entry.outcome[1]
+                if len(text) > NOTE_ANSWER_CHARS:
+                    text = text[:NOTE_ANSWER_CHARS] + "..."
+                if kind == "answer":
+                    notes.append(
+                        f"An earlier call `{entry.line}` was cancelled; the plugin answered it afterwards: {text}"
+                    )
+                else:
+                    notes.append(
+                        f"An earlier call `{entry.line}` was cancelled and ended without an answer ({text}); "
+                        "its effect is unknown."
+                    )
+        return notes
+
+    def finish(result: CallToolResult) -> CallToolResult:
+        """Appends the notes on cancelled calls to an answer."""
+        result.content.extend(TextContent(type="text", text=note) for note in late_notes())
+        return result
+
     async def send(line: str, *, cancel_on_abort: bool = False) -> str:
         """Sends one line on a connection of its own and returns the answer line.
-        When the MCP request is cancelled and `cancel_on_abort`, sends `cancel`."""
+        When the MCP request is cancelled, the line stays with the plugin and its outcome goes into
+        the notes of later answers; with `cancel_on_abort` it also sends `cancel`."""
+        entry = Abandoned(line)
+
+        def run() -> tuple[str, str]:
+            try:
+                outcome = ("answer", exchange(line))
+            except ToolError as e:
+                outcome = ("failure", str(e))
+            except Exception as e:  # noqa: BLE001 - kept for the note on a cancelled call, and raised below
+                outcome = ("failure", f"{type(e).__name__}: {e}")
+            with abandoned_lock:
+                entry.outcome = outcome
+            return outcome
+
         try:
-            return await anyio.to_thread.run_sync(exchange, line, abandon_on_cancel=True)
+            kind, text = await anyio.to_thread.run_sync(run, abandon_on_cancel=True)
         except anyio.get_cancelled_exc_class():
+            with abandoned_lock:
+                abandoned.append(entry)
             if cancel_on_abort:
                 with anyio.CancelScope(shield=True), anyio.move_on_after(5):
                     try:
@@ -224,9 +307,12 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
                     except ToolError:
                         pass
             raise
+        if kind == "failure":
+            raise ToolError(" ".join([text, *late_notes()]))
+        return text
 
     async def call(line: str) -> CallToolResult:
-        return _answer(await send(line))
+        return finish(_answer(await send(line)))
 
     async def report_dates(ctx: Context, target: float | None) -> None:
         """Reports the game date as progress until cancelled; quietly stops on any pipe trouble.
@@ -271,7 +357,7 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
     async def wait(line: str, date: str, progress: bool, ctx: Context) -> CallToolResult:
         wants_progress = progress and (ctx.request_context.meta or {}).get("progress_token") is not None
         if not wants_progress:
-            return _answer(await send(line, cancel_on_abort=True))
+            return finish(_answer(await send(line, cancel_on_abort=True)))
         failure: ToolError | None = None
         async with anyio.create_task_group() as tg:
             tg.start_soon(report_dates, ctx, game_days(date))
@@ -283,7 +369,7 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
                 tg.cancel_scope.cancel()
         if failure is not None:
             raise failure
-        return _answer(text)
+        return finish(_answer(text))
 
     # --- reads ---
 
@@ -312,7 +398,7 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         `main thread busy`."""
         return await call(_line("frames", timeout=timeout))
 
-    @tool(READ)
+    @tool(FILES)
     async def tongs_screenshot(
         name: Annotated[
             str | None, Field(pattern=r"^[A-Za-z0-9_.-]{1,64}$", description="Optional file name stem.")
@@ -343,7 +429,7 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
                     )
             except (OSError, TypeError) as e:
                 result.content.append(TextContent(type="text", text=f"image not attached: cannot read {path!r} ({e})"))
-        return result
+        return finish(result)
 
     # --- waits ---
 
@@ -363,7 +449,7 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         `cancel`, which ends every wait in progress."""
         return await wait(_line("wait_until", date, timeout=timeout, max_pause=max_pause), date, progress, ctx)
 
-    @tool(INPUT, INPUT_NOTE)
+    @tool(PLAYER, INPUT_NOTE)
     async def tongs_run_until(
         date: Date,
         ctx: Context,
@@ -409,7 +495,7 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         """Presses keypad +/- until the game speed is `speed` (1-5 as in the UI); works while paused."""
         return await call(_line("speed", speed))
 
-    @tool(INPUT, INPUT_NOTE)
+    @tool(PLAYER, INPUT_NOTE)
     async def tongs_key(
         name: Annotated[
             str,
@@ -440,7 +526,7 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         not move. The game sees this point until tongs_release or until the real mouse moves."""
         return await call(_line("move", x, y))
 
-    @tool(INPUT, INPUT_NOTE)
+    @tool(PLAYER, INPUT_NOTE)
     async def tongs_click_point(
         x: X,
         y: Y,
@@ -492,7 +578,7 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         _check(selector)
         return await call(_line("ui tree", selector, "all" if all else None, depth=depth, limit=limit))
 
-    @tool(INPUT, INPUT_NOTE)
+    @tool(PLAYER, INPUT_NOTE)
     async def tongs_ui_click(selector: Selector, timeout: Timeout = None) -> CallToolResult:
         """Clicks the centre of the one widget the selector matches, after checking that the game sees
         it under the pointer. Refuses without clicking: not_found, ambiguous (with matches),
@@ -508,7 +594,7 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         options (number on screen from 1, text, enabled, option_index, option_key, path)."""
         return await call(_line("event list", timeout=timeout))
 
-    @tool(INPUT, INPUT_NOTE)
+    @tool(PLAYER, INPUT_NOTE)
     async def tongs_event_choose(
         option: Annotated[int | None, Field(ge=1, description="Option number on screen, from 1.")] = None,
         option_text: Annotated[
