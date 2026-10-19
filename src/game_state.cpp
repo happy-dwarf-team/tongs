@@ -1,5 +1,7 @@
 #include "game_state.hpp"
 
+#include "game_date.hpp"
+
 #include <windows.h>
 
 #include <cstring>
@@ -37,8 +39,13 @@ void ReadUnguarded(std::uintptr_t base, const GameLayout& layout, StateSnapshot&
         out.reason = "no game loaded (game-speed object is null)";
         return;
     }
+    const auto date_raw = At<std::int32_t>(root + layout.date_offset);
+    if (IsUnsetGameDate(date_raw)) {
+        out.reason = "save still loading (date not set)";
+        return;
+    }
     out.session = session;
-    out.date_raw = At<std::int32_t>(root + layout.date_offset);
+    out.date_raw = date_raw;
     out.speed = At<std::int32_t>(root + layout.speed_offset);
     out.paused_flag = At<std::uint8_t>(game_speed + layout.pause_flag_offset) != 0;
     out.paused = reinterpret_cast<IsPausedFn>(base + layout.is_paused_rva)(reinterpret_cast<void*>(game_speed));

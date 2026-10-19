@@ -10,6 +10,7 @@
 #include "game_threads.hpp"
 #include "game_ui.hpp"
 #include "game_window.hpp"
+#include "load_watch.hpp"
 #include "notify_sources.hpp"
 #include "pipe_server.hpp"
 #include "screenshot.hpp"
@@ -23,6 +24,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -67,7 +69,13 @@ extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* ho
     handlers.process_id = GetCurrentProcessId();
     handlers.log = [](int level, const std::string& message) { Log(level, message); };
     handlers.game_calls = config.game_calls;
-    handlers.read_state = [image_base] { return tongs::ReadState(image_base, tongs::GameLayout{}); };
+    // Every state read also tells LoadWatch whether a game was loaded, so a reloaded save starts game_calls_total again.
+    static tongs::LoadWatch load_watch;
+    handlers.read_state = [image_base] {
+        tongs::StateSnapshot s = tongs::ReadState(image_base, tongs::GameLayout{});
+        load_watch.Observe(s);
+        return s;
+    };
     handlers.read_window = [] { return tongs::ReadGameWindow(); };
     handlers.take_screenshot = [folder = data_dir / "screenshots"](std::string_view name) {
         return tongs::TakeScreenshot(folder, name);
@@ -125,6 +133,14 @@ extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* ho
                                    (allowed.empty() ? "" : "; console_allow: " + allowed) +
                                    (config.game_calls.ironman ? "; allowed in ironman" : "") +
                                    (config.game_calls.multiplayer ? "; allowed in multiplayer" : ""));
+        // The moment without a game while a save loads lasts a second or more; reads every
+        // 20 ms see it even when no client asks. Only with game calls, which are what it counts.
+        std::thread([read_state = handlers.read_state] {
+            for (;;) {
+                read_state();
+                Sleep(20);
+            }
+        }).detach();
     } else {
         Log(ANVIL_LOG_INFO, "game calls disabled (game_calls = false)");
     }

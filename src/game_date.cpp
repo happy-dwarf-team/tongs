@@ -27,6 +27,8 @@ GameDate DecodeGameDate(std::int32_t raw) {
     return {static_cast<int>(year), month + 1, day_of_year + 1, static_cast<int>(hours - days * 24)};
 }
 
+bool IsUnsetGameDate(std::int32_t raw) { return raw == kHoursToYearZero + 365 * 24; }
+
 std::string FormatGameDate(const GameDate& date) {
     return std::to_string(date.year) + "." + std::to_string(date.month) + "." + std::to_string(date.day);
 }
