@@ -10,7 +10,8 @@ outside the forge.
 > events, takes screenshots and, when you allow it, uses the keyboard and mouse
 > in the game (pause, speed, run to a date, keys, text, clicks on points or on
 > widgets by name, event choices) through the game's own SDL input, so the
-> window does not need focus. It never writes game state. Supported game build: EU4 1.37.5
+> window does not need focus. With `game_calls = true` it also runs console
+> commands, which change game state; without it, it never does. Supported game build: EU4 1.37.5
 > (Steam, Windows 64-bit); Anvil skips it on other builds. Design and the
 > addresses it relies on: [docs/design.md](docs/design.md).
 
@@ -23,7 +24,7 @@ can wait in `run_until` while another reads `state` or sends `cancel`.
 | Command | Answer |
 | --- | --- |
 | `ping` | plugin version and game process id |
-| `state` | `in_game`; with a loaded game also `date` (`"1719.3.17"`), `date_raw`, `hour`, `speed` (1–5 as in the UI), `speed_internal` (0–4), `paused` (the game's own answer) and `paused_flag` (the player pause byte) |
+| `state` | `in_game`; with a loaded game also `date` (`"1719.3.17"`), `date_raw`, `hour`, `speed` (1–5 as in the UI), `speed_internal` (0–4), `paused` (the game's own answer), `paused_flag` (the player pause byte) and `game_calls_total` (game calls since the save was loaded) |
 | `window` | the game window: client `width` / `height`, `screen_x` / `screen_y`, `focused`, `minimized`, `thread_id` (the game's main thread), `dpi` |
 | `threads` | worker threads in each of the game's two pools, the `threads` option, process and main-thread CPU masks, ideal CPU and priority of the main thread, number of threads |
 | `screenshot [NAME]` | writes a PNG of the game window to `anvil/data/tongs/screenshots/` (keeps the newest 100) and answers with its `path`, size and capture `method`; works while the window is covered |
@@ -52,6 +53,12 @@ With `input = true` in the config, also:
 | `ui click SEL [timeout=S]` | clicks the centre of the one widget the selector matches (see "Widgets") |
 | `event choose N\|text^="..." [event=N\|event=title^="..."] [timeout=S]` | clicks an option of an open event (see "Events") |
 
+With `game_calls = true` in the config, also (see "Console"):
+
+| Command | What it does |
+| --- | --- |
+| `console LINE` | runs one console command line in the game, on its main thread, and answers with the game's text and the state afterwards. **Changes game state** |
+
 Input commands answer once the game has reacted (or after 10 s) with
 `command`, `presses`, `waited_ms` and the fields of `state`. When the game
 does not react in time, `ok` is `false` with an `error`, and the state is
@@ -63,9 +70,10 @@ different clients take turns.
 `reached_date`, `game_days`, `wall_ms` (from the start of the wait until the
 target date was first seen), `days_per_second`, `paused_ms` (time seen paused
 while waiting, e.g. an event that pauses the game; with `paused_date`, the
-date of the last pause), `first_change_ms` and `inputs` (input commands any
+date of the last pause), `first_change_ms`, `inputs` (input commands any
 client sent during the wait; `run_until` does not count its own presses
-before and after it, so a measurement can reject a run with `inputs` above 0);
+before and after it) and `game_calls` (console commands any client ran during
+the wait), so a measurement can reject a run with either above 0;
 `run_until` also `start_speed` and `overshoot_hours` (game hours past the
 target when the pause took hold, usually 0). Both wait at most 1 hour by
 default (`timeout=` up to 14 400 s). `max_pause=S` ends the wait with an error
@@ -152,6 +160,45 @@ and lists the choices in `events`; when no option becomes enabled, the run
 ends with `no_enabled_option` and the event. An event that paused the game is
 resumed after the choice. Every choice counts in `inputs`.
 
+## Console
+
+`console LINE` runs a console command the way the game's console does, but
+without the console window: the line is split on spaces and passed to the
+game's command dispatcher on its main thread, after a frame of the main loop.
+It needs `game_calls = true` and a loaded game (`in_game: true`), and takes
+turns with the input commands.
+
+```powershell
+.\scripts\tongs.ps1 'console echo hello' 'console speed 3'
+# {"ok":true,"command":"console","line":"echo hello","name":"echo","console":{...},"text":"hello","success_hint":true,"game_calls_total":1,...}
+```
+
+The answer has `name` (the command the game found, also for an alias),
+`text` (the game's answer, UTF-8 without colour codes), `success_hint` (the
+game's success byte; some commands never set it, so check the state instead),
+`game_calls_total`, `queued_ms`, `run_ms`, `frame` and the fields of `state`
+read after the call. Nothing is added to the console window, its history or
+`console_history.txt`; Tongs writes each call to the Anvil log.
+
+Tongs refuses, without calling the game:
+
+- `refused`: `enable_all_commands`, `debug_achievements_clear`,
+  `test_achievement`, `debug_achievements`, `social_*` and
+  `CrashReporter.UploadCrash`, always; the other dangerous commands (crashes,
+  memory leaks, desyncs, rewriting the map or the world, install and save
+  rules, `run_commands` and `runyear`) unless the config lists them:
+  `console_allow = ["leak"]`;
+- `ironman`, `multiplayer`: every game call in an ironman or multiplayer game,
+  unless `game_calls_ironman = true` or `game_calls_multiplayer = true`; with
+  either switch on, answers carry `mode`;
+- `game_calls_disabled`, `not_in_game`, `unknown_command`, `bad_command`
+  (printable ASCII only), `console_unavailable`;
+- `game_calls_tripped`: a game call that faulted answers `faulted`, and every
+  later one is refused until the game exits. Reads keep working.
+
+The game's own checks still apply: developer-only commands answer "Command
+available only for developers." in `text`.
+
 ## Clients
 
 - `scripts/tongs.ps1 CMD [CMD ...] [-AsObject] [-StopOnError]`: sends the
@@ -169,18 +216,27 @@ resumed after the choice. Every choice counts in `inputs`.
 ## Safety
 
 - Off by default. The pipe opens only with `enabled = true` in
-  `anvil/data/tongs/config.toml` (created on the first start), and accepts
-  keyboard and mouse input only with `input = true` as well.
+  `anvil/data/tongs/config.toml` (created on the first start), accepts
+  keyboard and mouse input only with `input = true` as well, and runs console
+  commands only with `game_calls = true`.
 - Local clients of the Windows user running the game only (pipe DACL, remote
   clients rejected). No network listener.
-- Game state is never written. Keys, text and mouse buttons go into the
-  game's SDL event queue, as a player's would; widget clicks and event choices
-  are mouse clicks too.
+- **Game state can change** with `game_calls = true`: `console` runs the
+  game's own console commands, which change the simulation. Tongs refuses some
+  commands always and others unless allowed (see "Console"), refuses every
+  game call in ironman and multiplayer by default, logs every game call and
+  refusal with the command, the pipe instance and the game date, and counts
+  them (`game_calls`, `game_calls_total`) so a measurement can reject a run.
+  The decisions are in [ADR 0001](docs/adr/0001-game-calls-in-tongs.md).
+- Without `game_calls`, game state is never written. Keys, text and mouse
+  buttons go into the game's SDL event queue, as a player's would; widget
+  clicks and event choices are mouse clicks too.
 - Patches: with `enabled = true` the plugin hooks the game's frame function
   to run main-thread reads such as `frames`, `ui` and `event list` after a frame of the main loop
   (the frame itself runs unchanged). With `input = true` it also hooks the
   interface's cursor query to answer with the pointer set by the mouse
-  commands. `affects_gameplay = false`.
+  commands. `affects_gameplay = true`, because game calls can change the
+  simulation, even though they are off by default.
 - Screenshots are written only to the plugin's data folder.
 
 ## Install / uninstall
@@ -191,7 +247,8 @@ Install [Anvil](https://github.com/happy-dwarf-team/anvil#install--uninstall)
 and extract it into `<EU4>/anvil/plugins/`; it contains the `tongs` folder
 (`SHA256SUMS.txt` next to the archive holds its checksum). Start the game once
 to create `anvil/data/tongs/config.toml`, then set `enabled = true` (and
-`input = true` for the input commands) and start the game again. Delete the
+`input = true` for the input commands, `game_calls = true` for `console`) and
+start the game again. Delete the
 `tongs` folder to uninstall.
 
 ## Building

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "console.hpp"
 #include "dispatcher.hpp"
 #include "events.hpp"
 #include "frame_stats.hpp"
@@ -22,6 +23,7 @@ struct StateSnapshot {
     std::int32_t speed = 0;      // game value 0..4; the UI shows speed + 1
     bool paused = false;         // the game's own "is paused" answer (0x7E01B0)
     bool paused_flag = false;    // the player pause byte (+0x48) alone
+    std::uintptr_t session = 0;  // the session object (root+0x1E00); not reported, tells loaded saves apart
 };
 
 // The game window (game_window.cpp). Mouse commands use client coordinates.
@@ -73,9 +75,9 @@ struct ScreenshotResult {
 // Protocol: UTF-8 lines. A request is one command line; the answer is one
 // JSON object on one line. Commands: ping, state, window, threads, screenshot,
 // frames, ui, event, help, wait_until, cancel, and with input enabled key, text, move,
-// click, scroll, release, pause, resume, speed, run_until, ui click, event choose.
-// Input commands answer with the state read after the action; they take turns
-// across clients.
+// click, scroll, release, pause, resume, speed, run_until, ui click, event choose,
+// and with game calls enabled console. Input commands and game calls answer with
+// the state read after the action; they take turns across clients.
 struct Handlers {
     std::function<StateSnapshot()> read_state;
     std::function<WindowSnapshot()> read_window;
@@ -109,6 +111,15 @@ struct Handlers {
     // Pipe thread, one word: entries in the session's event window list; -1 = unreadable.
     // run_until events=first reads the events on the main thread only while it is above 0.
     std::function<int()> count_event_windows;
+    // Game calls (ADR 0001): the config switches, and two main-thread functions
+    // (game_console.cpp). read_console returns an error text, or empty;
+    // call_console runs one tokenised console line and reports a fault instead
+    // of raising it.
+    GameCallPolicy game_calls;
+    std::function<std::string(ConsoleRaw&)> read_console;
+    std::function<void(const std::vector<std::string>& tokens, ConsoleCallResult&)> call_console;
+    // The Anvil log (level as AnvilLogLevel: 1 info, 2 warning, 3 error); optional.
+    std::function<void(int level, const std::string& message)> log;
     std::uint32_t process_id = 0;
     // How long pause/resume/speed wait for the game to react. Right after a save
     // loads, the main loop handled a key press only 2-7 s later.
@@ -117,7 +128,8 @@ struct Handlers {
     int key_settle_ms = 100;     // key, text and mouse commands wait this long before reading the state
 };
 
-std::string HandleRequest(std::string_view line, const Handlers& handlers);
+// `client` is the pipe instance (from 1) that sent the line, for the log.
+std::string HandleRequest(std::string_view line, const Handlers& handlers, int client = 0);
 
 std::string JsonEscape(std::string_view text);
 

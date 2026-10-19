@@ -1,4 +1,5 @@
 #include "config.hpp"
+#include "console.hpp"
 #include "game_date.hpp"
 #include "protocol.hpp"
 #include "ui_tree.hpp"
@@ -409,6 +410,21 @@ static void TestConfig() {
     const Config both = ParseConfig("enabled = true\ninput = true\n");
     assert(both.enabled && both.input && both.notes.empty());
     assert(ParseConfig("input = 1\n").notes.size() == 1);
+
+    // Game calls: off by default, each switch on its own line.
+    const Config defaults = ParseConfig(kDefaultConfig);
+    assert(!defaults.game_calls.enabled && !defaults.game_calls.ironman && !defaults.game_calls.multiplayer);
+    assert(defaults.game_calls.allow.empty());
+    const Config calls = ParseConfig(
+        "game_calls = true\ngame_calls_ironman = true\ngame_calls_multiplayer = false\nconsole_allow = [\"leak\", \"oos\"] # two\n");
+    assert(calls.game_calls.enabled && calls.game_calls.ironman && !calls.game_calls.multiplayer && calls.notes.empty());
+    assert(calls.game_calls.allow == std::vector<std::string>({"leak", "oos"}));
+    assert(ParseConfig("console_allow = []\n").notes.empty());
+    const Config bad_list = ParseConfig("console_allow = leak\nconsole_allow = [\"a b\"]\n");
+    assert(bad_list.notes.size() == 2 && bad_list.game_calls.allow.empty());
+    // Names that console_allow cannot lift, or that need no entry, are noted.
+    const Config noted = ParseConfig("console_allow = [\"enable_all_commands\", \"speed\", \"leak\"]\n");
+    assert(noted.notes.size() == 2 && noted.game_calls.allow.size() == 3);
 }
 
 static void TestProtocol() {
@@ -1262,6 +1278,223 @@ static void TestRunUntilEventsFirst() {
     assert(Contains(out, "\"ok\":true") && !Contains(out, "\"events\":"));
 }
 
+static void TestConsoleRules() {
+    std::vector<std::string> tokens;
+    assert(SplitConsoleLine("  speed\t 3  ", tokens).empty() && tokens == std::vector<std::string>({"speed", "3"}));
+    assert(!SplitConsoleLine("   ", tokens).empty() && tokens.empty());
+    assert(!SplitConsoleLine("echo M\xC3\xBCnster", tokens).empty());
+    assert(!SplitConsoleLine("echo a\nb", tokens).empty());
+    assert(!SplitConsoleLine(std::string(1025, 'a'), tokens).empty());
+    std::string many;
+    for (int i = 0; i < 33; ++i) many += "a ";
+    assert(!SplitConsoleLine(many, tokens).empty());
+
+    // As the game's lookup: name or alias, case ignored, the first entry wins.
+    const std::vector<ConsoleEntry> entries = {
+        {"echo", {}}, {"debug_crash", {"crash"}}, {"resetandreloadmissions", {"crash"}}, {"window", {"wnd"}}};
+    assert(FindConsoleEntry(entries, "ECHO") == &entries[0]);
+    assert(FindConsoleEntry(entries, "crash") == &entries[1]);
+    assert(FindConsoleEntry(entries, "Wnd") == &entries[3]);
+    assert(FindConsoleEntry(entries, "nothing") == nullptr);
+
+    assert(ClassifyConsoleCommand("enable_all_commands") == ConsoleClass::AlwaysRefused);
+    assert(ClassifyConsoleCommand("Enable_All_Commands") == ConsoleClass::AlwaysRefused);
+    assert(ClassifyConsoleCommand("social_addfriend") == ConsoleClass::AlwaysRefused);
+    assert(ClassifyConsoleCommand("crashreporter.uploadcrash") == ConsoleClass::AlwaysRefused);
+    assert(ClassifyConsoleCommand("debug_achievements_clear") == ConsoleClass::AlwaysRefused);
+    assert(ClassifyConsoleCommand("oos") == ConsoleClass::Danger);
+    assert(ClassifyConsoleCommand("debug_crash") == ConsoleClass::Danger);
+    assert(ClassifyConsoleCommand("run_commands") == ConsoleClass::Danger);
+    assert(ClassifyConsoleCommand("crash") == ConsoleClass::Normal);  // an alias: the game's own name decides
+    assert(ClassifyConsoleCommand("speed") == ConsoleClass::Normal);
+
+    GameCallPolicy policy;
+    policy.enabled = true;
+    assert(!CheckConsoleName(policy, "speed").refused());
+    assert(CheckConsoleName(policy, "leak").error == "refused");
+    policy.allow = {"LEAK", "enable_all_commands"};
+    assert(!CheckConsoleName(policy, "leak").refused());
+    assert(CheckConsoleName(policy, "enable_all_commands").refused());  // console_allow cannot lift it
+    assert(CheckConsoleName(policy, "oos").refused());
+
+    ConsoleRaw raw;
+    assert(!CheckConsoleMode(policy, raw).refused());
+    raw.ironman = true;
+    assert(CheckConsoleMode(policy, raw).error == "ironman");
+    policy.ironman = true;
+    assert(!CheckConsoleMode(policy, raw).refused());
+    raw.multiplayer = true;
+    assert(CheckConsoleMode(policy, raw).error == "multiplayer");
+    policy.multiplayer = true;
+    assert(!CheckConsoleMode(policy, raw).refused());
+
+    assert(CheckConsoleAllow({"leak", "social_joinroom", "speed"}).size() == 2);
+}
+
+// A loaded game with a console: entries as the manager lists them, and a
+// dispatcher that answers a few commands.
+struct FakeConsole {
+    FakeGame game = LoadedGame();
+    Dispatcher dispatcher{SteadyMs};
+    ConsoleRaw raw;
+    std::string read_error;
+    std::vector<std::vector<std::string>> calls;
+    bool fault = false;
+    std::vector<std::pair<int, std::string>> log;
+
+    FakeConsole() {
+        game.state.session = 0x5000;
+        raw.manager = true;
+        raw.developer_lock = 1;
+        raw.session = 0x5000;
+        raw.entries = {{"echo", {}}, {"speed", {}}, {"enable_all_commands", {}}, {"oos", {}},
+                       {"debug_crash", {"crash"}}, {"help", {}}};
+    }
+
+    Handlers Make() {
+        Handlers h = game.Make();
+        h.dispatcher = &dispatcher;
+        h.game_calls.enabled = true;
+        h.read_console = [this](ConsoleRaw& out) {
+            out = raw;
+            return read_error;
+        };
+        h.call_console = [this](const std::vector<std::string>& tokens, ConsoleCallResult& out) {
+            calls.push_back(tokens);
+            out = {};
+            if (fault) {
+                out.faulted = true;
+                out.fault_code = 0xC0000005;
+                return;
+            }
+            if (tokens[0] == "echo" && tokens.size() == 2) {
+                out.success = true;
+                out.text = tokens[1];
+            } else if (tokens[0] == "SPEED" && tokens.size() == 2) {
+                game.state.speed = std::stoi(tokens[1]) - 1;  // never sets the success byte
+            } else if (tokens[0] == "help") {
+                out.text = "\xA7YM\xFCnster\xA7!\nsecond line";  // game text: Windows-1252 with a colour code
+            }
+        };
+        h.log = [this](int level, const std::string& message) { log.emplace_back(level, message); };
+        return h;
+    }
+};
+
+static void TestConsoleCommand() {
+    FakeConsole console;
+    Handlers h = console.Make();
+    FakeMainThread main(console.dispatcher);
+
+    // Off unless game_calls = true; the refusal is logged with the pipe instance.
+    Handlers off = h;
+    off.game_calls.enabled = false;
+    std::string out = HandleRequest("console echo x", off, 2);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"game_calls_disabled\"") && console.calls.empty());
+    assert(console.log.size() == 1 && console.log[0].first == 2 && Contains(console.log[0].second, "(pipe 2, 1719.3.17)"));
+    assert(Contains(HandleRequest("help", h), "\"console\"") && Contains(HandleRequest("help", h), "\"game_calls\":true"));
+
+    // A harmless round trip: the text, the success byte as a hint, the state afterwards.
+    out = HandleRequest("console echo x", h, 3);
+    assert(Contains(out, "{\"ok\":true,\"command\":\"console\",\"line\":\"echo x\",\"name\":\"echo\""));
+    assert(Contains(out, "\"text\":\"x\",\"success_hint\":true,\"game_calls_total\":1") && Contains(out, "\"frame\":"));
+    assert(Contains(out, "\"console\":{\"commands\":6,\"developer_lock\":1,\"mode_lock\":0}"));
+    assert(!Contains(out, "\"mode\""));
+    assert(console.calls.back() == std::vector<std::string>({"echo", "x"}));
+    assert(console.log.back().first == 1 && Contains(console.log.back().second, "console \"echo x\" (pipe 3, 1719.3.17): called"));
+
+    // speed: no success byte, but the state read afterwards shows the change. Names ignore case.
+    out = HandleRequest("console SPEED 4", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"name\":\"speed\"") && Contains(out, "\"success_hint\":false"));
+    assert(Contains(out, "\"speed\":4") && Contains(out, "\"game_calls_total\":2"));
+    // Game text comes back as UTF-8 without colour codes.
+    assert(Contains(HandleRequest("console help", h), "\"text\":\"M\xC3\xBCnster\\nsecond line\""));
+    assert(console.log.back().second.find('\n') == std::string::npos);  // one log line, also for multi-line text
+    assert(Contains(HandleRequest("state", h), "\"game_calls_total\":3"));
+
+    // Refusals, none of which calls the game.
+    const std::size_t made = console.calls.size();
+    out = HandleRequest("console enable_all_commands 1234", h);
+    assert(Contains(out, "\"error\":\"refused\"") && Contains(out, "always refused"));
+    assert(Contains(HandleRequest("console Social_SendMessage hi", h), "\"error\":\"refused\""));
+    out = HandleRequest("console oos", h);
+    assert(Contains(out, "\"error\":\"refused\"") && Contains(out, "console_allow"));
+    // An alias is refused by the command it names, which only the main thread knows.
+    out = HandleRequest("console crash", h);
+    assert(Contains(out, "\"error\":\"refused\"") && Contains(out, "\"name\":\"debug_crash\"") && Contains(out, "\"run_ms\":"));
+    assert(Contains(HandleRequest("console nosuch", h), "\"error\":\"unknown_command\""));
+    assert(Contains(HandleRequest("console", h), "\"error\":\"bad_command\""));
+    assert(Contains(HandleRequest("console echo \xC3\xA9", h), "\"error\":\"bad_command\""));
+    assert(console.calls.size() == made);
+    assert(Contains(console.log.back().second, "bad_command") && console.log.back().first == 2);
+
+    // console_allow lets a danger command through.
+    Handlers allow = h;
+    allow.game_calls.allow = {"oos"};
+    assert(Contains(HandleRequest("console oos", allow), "\"ok\":true") && console.calls.size() == made + 1);
+
+    // Ironman and multiplayer refuse every game call, unless the switch lifts it; then `mode` shows it.
+    console.raw.ironman = true;
+    assert(Contains(HandleRequest("console echo x", h), "\"error\":\"ironman\""));
+    Handlers ironman = h;
+    ironman.game_calls.ironman = true;
+    out = HandleRequest("console echo x", ironman);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"mode\":{\"ironman\":true,\"multiplayer\":false,"));
+    assert(console.log.back().first == 2 && Contains(console.log.back().second, "called in ironman"));
+    assert(!Contains(HandleRequest("console leak", ironman), "\"mode\""));  // refused before the mode is read
+    console.raw.ironman = false;
+    console.raw.multiplayer = true;
+    assert(Contains(HandleRequest("console echo x", ironman), "\"error\":\"multiplayer\""));
+    console.raw.multiplayer = false;
+
+    // Only in game, and only with a console manager that has its commands.
+    console.game.state.in_game = false;
+    console.game.state.reason = "no game loaded (session is null)";
+    assert(Contains(HandleRequest("console echo x", h), "\"error\":\"not_in_game\""));
+    console.game.state.in_game = true;
+    console.raw.entries.clear();
+    assert(Contains(HandleRequest("console echo x", h), "\"error\":\"console_unavailable\""));
+    console.raw = FakeConsole().raw;
+    console.read_error = "cannot read the console manager";
+    assert(Contains(HandleRequest("console echo x", h), "\"error\":\"console_unavailable\""));
+    console.read_error.clear();
+
+    // A game call by another client during the wait marks the run.
+    console.game.clock_runs_date = true;
+    console.game.state.paused_flag = false;
+    int ticks = 0;
+    console.game.on_sleep = [&] {
+        if (++ticks == 5) assert(Contains(HandleRequest("console echo y", h), "\"ok\":true"));
+    };
+    out = HandleRequest("wait_until 1719.4.1", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"inputs\":0,\"game_calls\":1,"));
+    console.game.on_sleep = nullptr;
+    assert(Contains(HandleRequest("wait_until 1719.5.1", h), "\"game_calls\":0,"));
+    console.game.clock_runs_date = false;
+    console.game.state.paused_flag = true;
+
+    // game_calls_total counts since the save was loaded: another session object, or an earlier date.
+    const std::string total = HandleRequest("state", h);
+    assert(Contains(total, "\"game_calls_total\":") && !Contains(total, "\"game_calls_total\":0"));
+    console.game.state.session = 0x6000;
+    assert(Contains(HandleRequest("state", h), "\"game_calls_total\":0"));
+    console.raw.session = 0x6000;
+    assert(Contains(HandleRequest("console echo z", h), "\"game_calls_total\":1"));
+    console.game.state.date_raw = *ParseGameDate("1719.1.1");
+    assert(Contains(HandleRequest("state", h), "\"game_calls_total\":0"));
+
+    // A fault trips game calls until the game exits; reads keep working.
+    console.fault = true;
+    out = HandleRequest("console echo boom", h);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"faulted\"") && Contains(out, "0xC0000005"));
+    assert(console.log.back().first == 3);
+    console.fault = false;
+    const std::size_t before_trip = console.calls.size();
+    out = HandleRequest("console echo x", h);
+    assert(Contains(out, "\"error\":\"game_calls_tripped\"") && console.calls.size() == before_trip);
+    assert(Contains(HandleRequest("state", h), "\"ok\":true") && Contains(HandleRequest("help", h), "\"game_calls_tripped\":true"));
+}
+
 int main() {
     TestEvents();
     TestUiClickTarget();
@@ -1290,6 +1523,8 @@ int main() {
     TestUiSelectors();
     TestUiRequests();
     TestUiCommand();
+    TestConsoleRules();
+    TestConsoleCommand();  // last: it trips game calls for the rest of the process
     std::puts("ok");
     return 0;
 }

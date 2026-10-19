@@ -57,7 +57,7 @@ bool WriteAll(HANDLE pipe, const std::string& text) {
 }
 
 // Serves one connected client until it disconnects.
-void ServeClient(Server& server, HANDLE pipe) {
+void ServeClient(Server& server, HANDLE pipe, int number) {
     std::string pending;
     char chunk[512];
     for (;;) {
@@ -65,7 +65,7 @@ void ServeClient(Server& server, HANDLE pipe) {
         if (!ReadFile(pipe, chunk, sizeof chunk, &read, nullptr) || read == 0) return;
         pending.append(chunk, read);
         for (std::size_t eol; (eol = pending.find('\n')) != std::string::npos;) {
-            const std::string reply = HandleRequest(std::string_view(pending).substr(0, eol), server.handlers) + "\n";
+            const std::string reply = HandleRequest(std::string_view(pending).substr(0, eol), server.handlers, number) +"\n";
             pending.erase(0, eol + 1);
             if (!WriteAll(pipe, reply)) return;
         }
@@ -79,6 +79,7 @@ void ServeClient(Server& server, HANDLE pipe) {
 struct Instance {
     Server* server;
     HANDLE pipe;
+    int number;  // from 1, for the log
 };
 
 // Serves one pipe instance for the rest of the process, one client at a time.
@@ -87,14 +88,14 @@ DWORD WINAPI InstanceThread(void* param) {
     delete static_cast<Instance*>(param);
     for (;;) {
         const bool connected = ConnectNamedPipe(instance.pipe, nullptr) || GetLastError() == ERROR_PIPE_CONNECTED;
-        if (connected) ServeClient(*instance.server, instance.pipe);
+        if (connected) ServeClient(*instance.server, instance.pipe, instance.number);
         FlushFileBuffers(instance.pipe);
         DisconnectNamedPipe(instance.pipe);
     }
 }
 
-bool StartInstance(Server& server, HANDLE pipe) {
-    auto* instance = new Instance{&server, pipe};
+bool StartInstance(Server& server, HANDLE pipe, int number) {
+    auto* instance = new Instance{&server, pipe, number};
     HANDLE thread = CreateThread(nullptr, 0, InstanceThread, instance, 0, nullptr);
     if (thread == nullptr) {
         delete instance;
@@ -124,7 +125,7 @@ bool StartPipeServer(const Handlers& handlers, LogFn log) {
         delete server;
         return false;
     }
-    if (!StartInstance(*server, first)) {
+    if (!StartInstance(*server, first, 1)) {
         log(ANVIL_LOG_ERROR, "cannot start the pipe thread (error " + std::to_string(GetLastError()) + ")");
         CloseHandle(first);
         LocalFree(server->descriptor);
@@ -135,7 +136,7 @@ bool StartPipeServer(const Handlers& handlers, LogFn log) {
     while (instances < kMaxClients) {
         HANDLE pipe = CreatePipeInstance(*server, false);
         if (pipe == INVALID_HANDLE_VALUE) break;
-        if (!StartInstance(*server, pipe)) {
+        if (!StartInstance(*server, pipe, instances + 1)) {
             CloseHandle(pipe);
             break;
         }

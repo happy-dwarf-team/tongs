@@ -1,5 +1,6 @@
 // Tongs — Anvil plugin entry point.
 #include "config.hpp"
+#include "game_console.hpp"
 #include "game_cursor.hpp"
 #include "game_events.hpp"
 #include "game_frame.hpp"
@@ -62,6 +63,8 @@ extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* ho
     const std::uintptr_t image_base = host->game->image_base;
     tongs::Handlers handlers;
     handlers.process_id = GetCurrentProcessId();
+    handlers.log = [](int level, const std::string& message) { Log(level, message); };
+    handlers.game_calls = config.game_calls;
     handlers.read_state = [image_base] { return tongs::ReadState(image_base, tongs::GameLayout{}); };
     handlers.read_window = [] { return tongs::ReadGameWindow(); };
     handlers.take_screenshot = [folder = data_dir / "screenshots"](std::string_view name) {
@@ -90,6 +93,14 @@ extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* ho
             return tongs::ReadEvents(image_base, tongs::EventLayout{}, events);
         };
         handlers.count_event_windows = [image_base] { return tongs::CountEventWindows(image_base, tongs::EventLayout{}); };
+        if (config.game_calls.enabled) {
+            handlers.read_console = [image_base](tongs::ConsoleRaw& raw) {
+                return tongs::ReadGameConsole(image_base, tongs::ConsoleLayout{}, raw);
+            };
+            handlers.call_console = [image_base](const std::vector<std::string>& tokens, tongs::ConsoleCallResult& result) {
+                tongs::CallGameConsole(image_base, tongs::ConsoleLayout{}, tokens, result);
+            };
+        }
     } else {
         Log(ANVIL_LOG_WARNING, error + "; main-thread commands disabled");
     }
@@ -105,6 +116,16 @@ extern "C" ANVIL_PLUGIN_EXPORT AnvilResult anvil_plugin_load(const AnvilHost* ho
         }
     }
     Log(ANVIL_LOG_INFO, config.input ? "input commands enabled" : "input commands disabled (input = false)");
+    if (config.game_calls.enabled) {
+        std::string allowed;
+        for (const auto& name : config.game_calls.allow) allowed += (allowed.empty() ? "" : ", ") + name;
+        Log(ANVIL_LOG_WARNING, std::string("game calls enabled: console commands can change game state") +
+                                   (allowed.empty() ? "" : "; console_allow: " + allowed) +
+                                   (config.game_calls.ironman ? "; allowed in ironman" : "") +
+                                   (config.game_calls.multiplayer ? "; allowed in multiplayer" : ""));
+    } else {
+        Log(ANVIL_LOG_INFO, "game calls disabled (game_calls = false)");
+    }
     tongs::StartPipeServer(handlers, Log);
     return ANVIL_OK;  // a pipe that failed to start only turns the plugin into a no-op
 }
