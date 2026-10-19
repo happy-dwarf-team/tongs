@@ -155,6 +155,10 @@ def main(argv):
     parser.add_argument("--seconds", type=float, help="after subscribe: stop after this many seconds")
     parser.add_argument("--count", type=int, help="after subscribe: stop after this many notifications")
     args = parser.parse_args(argv)
+    # Answers are UTF-8 JSON (e.g. "£yes" in console texts); a pipe would otherwise get the
+    # ANSI code page and fail on such characters.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     with Tongs() as game:
         ok = True
         for i, command in enumerate(args.commands):
