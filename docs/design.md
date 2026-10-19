@@ -3,8 +3,8 @@
 Status: draft 4 (2026-10-18). Layers 1 and 2 are implemented (0.3.0), together
 with timing (`run_until`), worker pools and screenshots for measurements.
 Layer 3 is implemented: the dispatcher (0.4.0), the widget tree (0.5.0), and
-widget clicks and events (0.6.0). Layer 4 and notifications are planned for
-releases 0.7.0–0.8.0 (see "Releases"). The decisions behind them are on the planning map
+widget clicks and events (0.6.0). Layer 4, console game calls, is implemented
+(0.7.0). Notifications are planned for release 0.8.0 (see "Releases"). The decisions behind them are on the planning map
 [Map: game calls and the widget tree](https://github.com/happy-dwarf-team/tongs/issues/15).
 Words such as game call, main-thread read, outer frame, widget path, event,
 notification and marked run are defined in [`GLOSSARY.md`](../GLOSSARY.md).
@@ -864,7 +864,9 @@ the console command `event <id>`, typed through `key grave`, `text`,
 
 ## Game calls (0.7.0)
 
-The first and only kind in draft 4 is a console command. Static findings:
+The first and only kind in draft 4 is a console command. The research found
+the console statically; the 0.7.0 live check (below) confirmed the parts
+marked **live**.
 
 - **Entry point:** `0x1721320(manager, result, tokens)`.
   - `manager` is the pointer at `0x2357B58`. A null manager, or one with an
@@ -873,17 +875,27 @@ The first and only kind in draft 4 is a console command. Static findings:
   - `tokens` is a `std::vector<std::string>` of the line split on spaces, which
     Tongs builds itself.
   - `result` is 0x28 bytes: a success byte and a `std::string` at `+8`, freed
-    with `0x95660`. The success byte is not reliable (`speed` never sets
-    it), so the answer carries the text and the state read afterwards.
+    with `0x95660`. It is the hidden return value; the dispatcher builds it,
+    so Tongs passes it zeroed. The success byte is not reliable (`speed`
+    never sets it, **live**), so the answer carries the text and the state
+    read afterwards.
 - **No console window needed.** `run_commands`, `runyear`, `auto_run` and map
   clicks call the dispatcher the same way. History, `console_history.txt` and
-  the log line are added only by the window path `0x166DE20`.
+  the log line are added only by the window path `0x166DE20` (**live**: no
+  line in the window, `console_history.txt` unchanged).
 - **Registry.** A static table of 378 records of `0xA0` bytes at
-  `0x1FC23E0`, registered by `0x6E90F0`, plus 8 engine commands.
+  `0x1FC23E0`, registered by `0x6E90F0`, plus engine commands. The manager
+  holds entries of `0xA8` bytes: name `const char*` at `+0x08`, alias count
+  at `+0x10`, up to three aliases from `+0x18`; the lookup `0x1721000`
+  compares name, then aliases, entry by entry, with `_stricmp`. **Live:** 388
+  entries in a loaded game.
 - **Gates inside the dispatcher:**
   - manager `+0x18`, the developer gate on 54 commands, which only
-    `enable_all_commands` opens;
-  - manager `+0x19`, the multiplayer/ironman gate, computed at registration.
+    `enable_all_commands` opens (**live**: 1, and `debug_zoom` answered
+    "Command available only for developers.");
+  - manager `+0x19`, the multiplayer/ironman gate, computed at registration
+    as `0x6EAA10(session)` or root byte `+0x24D0` (**live**: 0 on the lab's
+    single-player save).
 - `run <file>` (`0xE4F1D0`) runs script effects from a file the game itself
   resolves. Tongs does not write script files.
 
@@ -900,7 +912,13 @@ The first and only kind in draft 4 is a console command. Static findings:
     `test_achievement`, `debug_achievements`, `social_*`,
     `CrashReporter.UploadCrash`.
 - **Refused by default:** the other `danger` commands, which
-  `console_allow = [...]` allows by name.
+  `console_allow = [...]` allows by name: `oos`, `startup_screen`,
+  `reinitchat`, `disable_dlc`, `spawn_all_units`, `bearhaslanded`, `leak`,
+  `leak_gpu`, `low_memory`, `map_random`, `debug_crash`,
+  `set_achievements_ok`, `purge_mem`, `deiron`, `syntheticdawn`,
+  `CrashReporter.SimulateCrash`. 0.7.0 adds `run_commands` and `runyear`:
+  they run a file of console lines through the dispatcher directly, past
+  every refusal here, so they would reopen `enable_all_commands`.
 - **Ironman and multiplayer.**
   - Tongs refuses every game call in either mode, checked before each call.
   - `game_calls_ironman` and `game_calls_multiplayer` lift that refusal;
@@ -910,14 +928,113 @@ The first and only kind in draft 4 is a console command. Static findings:
   the pipe instance, the game date and the result.
 - **Counts.** Game calls are counted in `game_calls` and `game_calls_total`.
 
-Live checks in the 0.7.0 PR:
+How it runs (`src/protocol.cpp`, `ConsoleCall`; decisions in
+`src/console.cpp`, memory and the call in `src/game_console.cpp`):
 
-- `echo x` as a harmless round trip;
-- that handlers run correctly on the main thread, and what they do in the
-  frontend (refused) and while loading;
-- manager `+0x18` = 1 and `+0x19` = 0 on the lab's single-player save;
-- what the pre-command hook `0x8740B0` writes in ironman;
-- that a direct call leaves no line in the console window or its history.
+1. On the pipe thread: `game_calls` must be on; the line is split on runs of
+   spaces and tabs (printable ASCII only, at most 1024 characters and 32
+   words); the typed name is checked against the refusals; a tripped plugin
+   refuses `game_calls_tripped`.
+2. Under the input lock, a `Kind::GameCall` job is queued (limit 10 s). On
+   the main thread it reads the state (`not_in_game` without a loaded game),
+   the manager, its entries and both locks, the ironman byte and
+   `0x6EAA10(session)`, and refuses by mode. It resolves the typed name in
+   the manager's entries as the game's lookup does (`unknown_command` when
+   none matches, also when the developer gate is open and the game would try
+   its console variables) and checks the refusals again by the entry's own
+   name, so an alias (`crash` names `debug_crash` first) is refused by the
+   command it stands for.
+3. The tokens are built by hand in the game's MSVC layout (a 32-byte string:
+   inline buffer or pointer, size, capacity; a vector of three pointers),
+   independent of the plugin's own STL settings. Short tokens are copied
+   inline, long ones point into Tongs' strings; the dispatcher only reads
+   them and copies the arguments it passes on.
+4. The call runs under `__try`. A structured exception that leaves the
+   game's code answers `faulted` with its code and trips game calls until the
+   game exits; reads keep working. Otherwise the text is copied (guarded,
+   up to 1 MiB) and freed with `0x95660`.
+5. The answer has `name`, `text` (UTF-8 without colour codes),
+   `success_hint`, `console` (`commands`, `developer_lock`, `mode_lock`),
+   `game_calls_total`, `queued_ms` / `run_ms` / `frame` and the state read
+   after the job. A call counts in `game_calls` and `game_calls_total` once
+   the game's code has run, whatever its text says.
+
+`game_calls_total` counts per loaded save: Tongs keys it by the session
+object and starts again from 0 when the session differs or the date is
+earlier than at the last call. A save loaded into a session object at the
+same address and at a later date would not reset it; this was not checked.
+
+### Live check (2026-10-19)
+
+Setup:
+- the original `eu4.exe` (`9AD3EFE1…771A`), Anvil 0.2.0 and the 0.7.0 branch;
+- the Russia save of 17 March 1719, single player, not ironman, loaded with
+  `continue=`;
+- the lab's `anvil-play.ps1 -Scenario tongs -TongsInput -TongsGameCalls`
+  (`tongs-console-1`) under Process Lasso's `1-7`. `-TongsGameCalls` is a
+  new switch of the lab launcher that writes `game_calls = true` to the
+  config; Python scripts sent the commands.
+
+Anvil reported "93 expected byte range(s) match", "2 patch(es)" and "declares
+gameplay changes"; Tongs logged "game calls enabled" as a warning. The session
+was closed by the script after the PID, path and start-time check; the save
+was unchanged, `settings.txt` differed only in `graceful_exit` and was
+restored, the EXE hash was unchanged and the Process Lasso rule was
+`eu4.exe,0,1-7` afterwards.
+
+- **Before the save is in.** While the save loaded, `console echo early`
+  answered `main thread busy` after 10 s (no outer frames). In the first
+  outer frames (frame counter 2 and 4), while another class still sat at
+  `root+0x1E00`, it was refused `not_in_game` on the main thread without
+  calling the game. The first call after `in_game: true` worked.
+- **Round trip.** `echo x` answered `text: "x"`, success byte 1, `run_ms`
+  0–1, `queued_ms` about 14 while paused. `echo a b` answered an empty text
+  and byte 0, as the research said (`echo` takes exactly one argument).
+  `version` and `help speed` returned the game's text ("EU4 v1.37.5.0 Inca
+  …", "speed [<0-5>] - Sets game speed").
+- **`speed 3`.** Empty text, success byte 0; the state read afterwards, and
+  `state` after it, had speed 3. The command also unpauses the game (speed
+  1–5 resume through `0x7E0770`), so `pause` followed. `speed 2` the same.
+- **Locks.** `console.commands` 388, `developer_lock` 1, `mode_lock` 0 in
+  every answer.
+- **Refusals.** `enable_all_commands` and `ENABLE_ALL_COMMANDS 1234`
+  (always), `social_debuginfo` (always), `leak`, `oos` and `run_commands
+  nothing.txt` (danger, with the `console_allow` hint) were refused on the
+  pipe thread without a main-thread job; `nosuchcommand` answered
+  `unknown_command` from the main thread; an empty line `bad_command`.
+  `debug_zoom` went to the game, which answered "Command available only for
+  developers." (byte 0); it counts as a game call.
+- **No trace in the console.** After ten calls, `key grave` opened an empty
+  console window (screenshot), and the SHA-256 of `console_history.txt` was
+  the same as before the session. Typing `echo typed_check` into the window
+  added it to `console_history.txt`; neither the typed line nor any direct
+  call left a "Console command …" line in any file under `logs/`, so the
+  research's H2 (`game.log`) does not hold.
+- **Main thread.** `frames` and `threads` reported the same main thread
+  (66480) that owns the window; game calls run in its outer frames by
+  construction.
+- **Marked runs.** `run_until 1719.5.1 speed=2` with `console echo
+  during_run` from another client 2 s in: `game_calls` 1, `inputs` 0; the
+  next `run_until 1719.5.15` had `game_calls` 0. During `run_until 1719.7.1
+  speed=5`, three calls from another client waited 21–64 ms for a frame and
+  the run reported `game_calls` 3. `game_calls_total` in `state` went from 1
+  to 13 over the session, one per call that reached the game.
+- **Log.** Every call and refusal was in `anvil.log` with the line, the pipe
+  instance (1–4), the game date (or "no game") and the result; refusals as
+  warnings. Multi-line texts broke the log line, so the final build escapes
+  them.
+- **Final build.** A second session (`tongs-console-2`, same setup and
+  cleanup) ran the branch with that change: `version` was one log line;
+  `echo final`, `speed 3` (speed 3 in `state`, then `pause`), refused
+  `enable_all_commands` and `leak`; `crash` resolved on the main thread to
+  `debug_crash` (the first entry with that alias) and was refused there; a
+  call during `run_until 1719.7.1 speed=3` gave `game_calls` 1, `inputs` 0;
+  `console_history.txt` was unchanged.
+- **Not checked:** the main menu (`continue=` skips it), ironman and multiplayer (no such save in the lab; what
+  the pre-command hook `0x8740B0` writes in ironman stays open), a game call
+  that faults, `game_calls_ironman` / `game_calls_multiplayer`, handlers that
+  need the console object (`clear`) or a script file (`run`), and a save
+  loaded from the menu (the `game_calls_total` reset).
 
 ## Notifications (0.8.0)
 
@@ -980,8 +1097,8 @@ Not in draft 4:
 
 ## Not verified yet
 
-- Every static finding in the sections for 0.7.0–0.8.0; each section lists the
-  live checks of its release.
+- Every static finding in the section for 0.8.0, which lists the live checks
+  of its release; the open points of 0.7.0 are under its live check.
 - `paused` for pauses not caused by the pause button (event popups that pause,
   menus, multiplayer); `paused_flag` alone was confirmed for the button.
 - Behaviour in the main menu and during save loading beyond "not in game".

@@ -1373,7 +1373,7 @@ struct FakeConsole {
             } else if (tokens[0] == "SPEED" && tokens.size() == 2) {
                 game.state.speed = std::stoi(tokens[1]) - 1;  // never sets the success byte
             } else if (tokens[0] == "help") {
-                out.text = "\xA7YM\xFCnster\xA7!";  // game text: Windows-1252 with a colour code
+                out.text = "\xA7YM\xFCnster\xA7!\nsecond line";  // game text: Windows-1252 with a colour code
             }
         };
         h.log = [this](int level, const std::string& message) { log.emplace_back(level, message); };
@@ -1408,7 +1408,8 @@ static void TestConsoleCommand() {
     assert(Contains(out, "\"ok\":true") && Contains(out, "\"name\":\"speed\"") && Contains(out, "\"success_hint\":false"));
     assert(Contains(out, "\"speed\":4") && Contains(out, "\"game_calls_total\":2"));
     // Game text comes back as UTF-8 without colour codes.
-    assert(Contains(HandleRequest("console help", h), "\"text\":\"M\xC3\xBCnster\""));
+    assert(Contains(HandleRequest("console help", h), "\"text\":\"M\xC3\xBCnster\\nsecond line\""));
+    assert(console.log.back().second.find('\n') == std::string::npos);  // one log line, also for multi-line text
     assert(Contains(HandleRequest("state", h), "\"game_calls_total\":3"));
 
     // Refusals, none of which calls the game.

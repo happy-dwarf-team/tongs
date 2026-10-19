@@ -1128,7 +1128,7 @@ public:
         const bool mode = raw_.ironman || raw_.multiplayer;
         Log(mode ? kLogWarning : kLogInfo,
             std::string("called") + (mode ? " in " + ModeText() : std::string()) + ", success byte " +
-                (result_.success ? "1" : "0") + ", text \"" + text.substr(0, kLogText) + "\"");
+                (result_.success ? "1" : "0") + ", text \"" + JsonEscape(text.substr(0, kLogText)) + "\"");
         std::string out = Answer(true, {}, {});
         out += ",\"text\":" + Quoted(text) + ",\"success_hint\":" + Bool(result_.success);
         out += ",\"game_calls_total\":" + std::to_string(total);
