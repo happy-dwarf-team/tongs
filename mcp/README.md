@@ -108,9 +108,20 @@ npx @modelcontextprotocol/inspector uv run --frozen --directory C:\path\to\tongs
   count in `inputs` of every `wait_until` / `run_until` in progress.
   `tongs_console` works only with `game_calls = true`, changes game state and
   counts in `game_calls` and `game_calls_total`: the run becomes a marked run
-  that measurements reject. The tool descriptions say so, and the tool
-  annotations mark the reads `readOnlyHint` and `tongs_console` /
-  `tongs_raw` `destructiveHint`.
+  that measurements reject. The tool descriptions say so.
+- **Annotations** declare what a tool does beyond answering. `readOnlyHint`:
+  the reads (`state`, `window`, `threads`, `frames`, `ui find`, `ui tree`,
+  `event list`). `destructiveHint`: the tools that act as the player
+  (`tongs_key`, `tongs_click_point`, `tongs_ui_click`, `tongs_event_choose`,
+  `tongs_run_until`, which may choose events), `tongs_console`, `tongs_raw`,
+  `tongs_cancel` (it ends the waits of every client) and `tongs_screenshot`
+  (it writes a PNG and deletes the oldest beyond 100). `tongs_wait_until`
+  touches nothing but is not read-only: cancelling it ends every wait.
+- **Cancelled calls.** Cancelling a tool call does not take it back: the line
+  is already with the plugin, which may still carry it out (a started
+  main-thread job always finishes). The server keeps waiting for that answer,
+  and the next answers carry an extra text note: first that the call's effect
+  is unknown, then the plugin's answer, or why none came. Each is told once.
 - **Arguments** are checked before anything is sent: values with a line break
   or NUL are refused (one request is one line), event texts may not contain
   `"`, and numbers keep to the plugin's ranges.
@@ -158,7 +169,8 @@ longer:
   default).
 - **Cancelling** the tool call (the client's `notifications/cancelled`) makes
   the server send `cancel`, which ends **every** wait in progress, like
-  `tongs_cancel`.
+  `tongs_cancel`. The wait's own answer (`cancelled`, with the timing so far)
+  then comes as a note on a later answer.
 
 ## Screenshots
 
