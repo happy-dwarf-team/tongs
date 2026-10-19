@@ -26,6 +26,11 @@ Only the latest release receives security fixes.
   machine, and a pipe that opens without `enabled = true`.
 - Input without permission: keyboard or mouse commands that work without
   `input = true`, or game code patched without it.
+- Game calls without permission: a console command that runs without
+  `game_calls = true`; one that Tongs always refuses (such as
+  `enable_all_commands`) or refuses by default without `console_allow`, but
+  runs anyway; a game call in an ironman or multiplayer game without the
+  switch that allows it; a game call that is not counted or not logged.
 - Memory safety of the command parser, the state reader and the cursor hook.
 - Files written outside `anvil/data/tongs/` (for example through a
   `screenshot` name).
@@ -35,8 +40,8 @@ Only the latest release receives security fixes.
 ## Out of scope
 
 - What a program of the same Windows user can do through the pipe once you
-  enable it. That is the purpose of the plugin; enable `input = true` only
-  for scripts you trust.
+  enable it. That is the purpose of the plugin; enable `input = true` and
+  `game_calls = true` only for scripts you trust.
 - Problems in Anvil itself: report them to
   [Anvil](https://github.com/happy-dwarf-team/anvil/security/advisories/new).
 - Vulnerabilities in Europa Universalis IV itself; report those to Paradox
