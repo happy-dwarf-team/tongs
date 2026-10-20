@@ -4,17 +4,23 @@
 #include "load_watch.hpp"
 #include "notify_sources.hpp"
 #include "protocol.hpp"
+#include "ui_definitions.hpp"
 #include "ui_tree.hpp"
 
 #include <atomic>
 #include <cassert>
+#include <cctype>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
+#include <deque>
 #include <functional>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -2112,6 +2118,256 @@ static void TestSubscribeCommands() {
     hub.Unsubscribe(activity);
 }
 
+// Fake GUI definitions in this process's memory. Maps are built the way the game's
+// insert (0x14ED760) builds them: ternary search trees of lower-cased characters.
+struct FakeTypeNode {
+    std::uintptr_t value = 0;
+    std::uint64_t character = 0;
+    std::uintptr_t lower = 0;
+    std::uintptr_t higher = 0;
+    std::uintptr_t next = 0;
+};
+static_assert(sizeof(FakeTypeNode) == 0x28);
+
+struct FakeTypeMap {
+    std::uintptr_t vtable = 0;
+    std::uintptr_t root = 0;  // +0x08
+};
+
+// A definition: its class's vtable at +0, a nested map at +0x40 for window classes.
+struct FakeDefinition {
+    std::uintptr_t vtable = 0;
+    std::uintptr_t other[7] = {};
+    FakeTypeMap map;
+};
+static_assert(offsetof(FakeDefinition, map) == 0x40);
+
+struct FakeGui {
+    static constexpr std::uintptr_t kMapVtable = 0x7000;
+    static constexpr std::uintptr_t kWindowVtable = 0x7100;
+    static constexpr std::uintptr_t kIconVtable = 0x7200;
+
+    FakeTypeMap registry{kMapVtable, 0};
+    std::deque<FakeTypeNode> nodes;
+    std::deque<FakeDefinition> definitions;
+    std::vector<std::uintptr_t> reads;
+    int refused = 0;
+
+    TypeTreeLayout Layout() const {
+        TypeTreeLayout l{0x08, 0x28, 0x00, 0x10, 0x18, 0x20, kMapVtable, {}};
+        l.nested.push_back({kWindowVtable, 0x40});
+        return l;
+    }
+
+    std::uintptr_t Define(std::uintptr_t vtable) {
+        FakeDefinition& d = definitions.emplace_back();
+        d.vtable = vtable;
+        d.map.vtable = kMapVtable;
+        return reinterpret_cast<std::uintptr_t>(&d);
+    }
+
+    static FakeTypeMap& MapOf(std::uintptr_t definition) { return reinterpret_cast<FakeDefinition*>(definition)->map; }
+
+    void Insert(FakeTypeMap& map, const char* key, std::uintptr_t value) {
+        std::uintptr_t* link = &map.root;
+        for (;;) {
+            const auto c = static_cast<std::uint64_t>(std::tolower(static_cast<unsigned char>(*key)));
+            if (*link == 0) {
+                FakeTypeNode& n = nodes.emplace_back();
+                n.character = c;
+                *link = reinterpret_cast<std::uintptr_t>(&n);
+            }
+            auto* node = reinterpret_cast<FakeTypeNode*>(*link);
+            if (c == node->character) {
+                if (*++key == '\0') {
+                    node->value = value;
+                    return;
+                }
+                link = &node->next;
+            } else {
+                link = c < node->character ? &node->lower : &node->higher;
+            }
+        }
+    }
+
+    template <class T>
+    static bool Inside(std::uintptr_t address, std::size_t size, const T& object) {
+        const auto at = reinterpret_cast<std::uintptr_t>(&object);
+        return address >= at && address + size <= at + sizeof object;
+    }
+
+    // Only the registry, the nodes and the definitions are memory; everything else is refused.
+    ReadMemory Reader() {
+        return [this](std::uintptr_t address, void* out, std::size_t size) {
+            reads.push_back(address);
+            bool ok = Inside(address, size, registry);
+            for (const FakeTypeNode& n : nodes) ok = ok || Inside(address, size, n);
+            for (const FakeDefinition& d : definitions) ok = ok || Inside(address, size, d);
+            if (!ok) {
+                ++refused;
+                return false;
+            }
+            std::memcpy(out, reinterpret_cast<const void*>(address), size);
+            return true;
+        };
+    }
+
+    std::string Collect(std::unordered_set<std::uintptr_t>& live) {
+        live.clear();
+        return CollectLiveDefinitions(reinterpret_cast<std::uintptr_t>(&registry), Layout(), Reader(), live);
+    }
+};
+
+static void TestLiveDefinitions() {
+    FakeGui gui;
+    // topbar.gui: a window with an icon, a text and a nested window with its own icon;
+    // alerts_parent, a window with nothing inside; and "TOP", a prefix of topbar.
+    const std::uintptr_t topbar = gui.Define(FakeGui::kWindowVtable);
+    const std::uintptr_t icon = gui.Define(FakeGui::kIconVtable);
+    const std::uintptr_t text = gui.Define(FakeGui::kIconVtable);
+    const std::uintptr_t inner = gui.Define(FakeGui::kWindowVtable);
+    const std::uintptr_t deep = gui.Define(FakeGui::kIconVtable);
+    const std::uintptr_t alerts = gui.Define(FakeGui::kWindowVtable);
+    const std::uintptr_t top = gui.Define(FakeGui::kIconVtable);
+    gui.Insert(FakeGui::MapOf(topbar), "icon", icon);
+    gui.Insert(FakeGui::MapOf(topbar), "text", text);
+    gui.Insert(FakeGui::MapOf(topbar), "inner", inner);
+    gui.Insert(FakeGui::MapOf(inner), "deep", deep);
+    gui.Insert(gui.registry, "topbar", topbar);
+    gui.Insert(gui.registry, "alerts_parent", alerts);
+    gui.Insert(gui.registry, "TOP", top);
+    // A class Tongs does not list, and a listed one whose map is not where it should be:
+    // neither map is walked, though both hold a value.
+    const std::uintptr_t other = gui.Define(0x7300);
+    const std::uintptr_t odd = gui.Define(FakeGui::kWindowVtable);
+    FakeGui::MapOf(odd).vtable = 0x7400;
+    gui.Insert(FakeGui::MapOf(other), "hidden", 0xDEF00010);
+    gui.Insert(FakeGui::MapOf(odd), "hidden", 0xDEF00020);
+    gui.Insert(gui.registry, "other", other);
+    gui.Insert(gui.registry, "odd", odd);
+
+    std::unordered_set<std::uintptr_t> live;
+    assert(gui.Collect(live).empty());
+    assert((live == std::unordered_set<std::uintptr_t>{topbar, icon, text, inner, deep, alerts, top, other, odd}));
+    assert(gui.refused == 0);  // nothing outside the registry, the nodes and live definitions was read
+
+    // A reload replaces the registry's value in place and deletes the old
+    // definition with everything nested in it: none of it is live, and none is read.
+    const std::uintptr_t topbar2 = gui.Define(FakeGui::kWindowVtable);
+    gui.Insert(gui.registry, "topbar", topbar2);
+    gui.reads.clear();
+    assert(gui.Collect(live).empty());
+    assert(live.contains(topbar2) && !live.contains(topbar) && !live.contains(icon) && !live.contains(deep) &&
+           live.contains(top) && live.size() == 5);
+    for (const std::uintptr_t a : gui.reads) assert(!FakeGui::Inside(a, 1, *reinterpret_cast<FakeDefinition*>(topbar)));
+
+    // An empty registry holds nothing; that is not an error.
+    FakeGui empty;
+    assert(empty.Collect(live).empty() && live.empty());
+
+    // Unreadable memory is an error, not a smaller set.
+    const ReadMemory none = [](std::uintptr_t, void*, std::size_t) { return false; };
+    assert(Contains(CollectLiveDefinitions(0x1000, gui.Layout(), none, live), "unreadable"));
+    gui.Insert(gui.registry, "gone", 0xDEF00030);  // a registry value that is not readable
+    gui.refused = 0;
+    assert(Contains(gui.Collect(live), "definition is unreadable") && gui.refused == 1);
+    gui.Insert(gui.registry, "gone", alerts);
+    FakeTypeNode& last = gui.nodes.back();
+    last.lower = 0xBAD00000;
+    assert(Contains(gui.Collect(live), "registry is unreadable"));
+    // A loop (never seen in the game) ends at the node limit.
+    last.lower = gui.registry.root;
+    assert(Contains(gui.Collect(live), "too many nodes"));
+    last.lower = 0;
+    assert(gui.Collect(live).empty());
+    // A layout whose fields do not fit a node is refused before anything is read.
+    TypeTreeLayout bad = gui.Layout();
+    bad.next = 0x28;
+    gui.reads.clear();
+    assert(Contains(CollectLiveDefinitions(reinterpret_cast<std::uintptr_t>(&gui.registry), bad, gui.Reader(), live),
+                    "layout") &&
+           gui.reads.empty());
+}
+
+static void TestWidgetNamePlan() {
+    using Source = UiNamePlan::Source;
+    const auto plan = [](bool live, bool held, bool own) {
+        const UiNamePlan p = PlanWidgetName(live, held, own);
+        return std::pair{p.source, p.stale};
+    };
+    // A live definition gives the name, as always.
+    assert(plan(true, true, true) == std::pair(Source::Definition, false));
+    assert(plan(true, false, false) == std::pair(Source::Definition, false));
+    // Without one the widget is stale: its holder's list names it, else its own name, else nothing.
+    assert(plan(false, true, true) == std::pair(Source::Holder, true));
+    assert(plan(false, false, true) == std::pair(Source::Override, true));
+    assert(plan(false, false, false) == std::pair(Source::None, true));
+}
+
+// SampleTree after a reload of topbar.gui: a leaked hotkey_assign_parent with no name
+// (its definition was freed), its icon and text, and a second, live one.
+static UiTree StaleTree() {
+    UiTree t = SampleTree();
+    for (int i = 0; i < static_cast<int>(t.widgets.size()); ++i) t.widgets[i].address = Address(i);
+    const int old = AddWidget(t, "", UiType::Window, true, {0, 0, 300, 40});
+    t.widgets[old].stale = true;
+    AddWidget(t, "icon", UiType::Icon, true, {0, 0, 40, 40}, old);
+    const int text = AddWidget(t, "text", UiType::Text, true, {40, 0, 260, 40}, old);
+    t.widgets[text].has_text = true;
+    t.widgets[text].text = "F1";
+    const int live = AddWidget(t, "hotkey_assign_parent", UiType::Window, true, {0, 40, 300, 40});
+    AddWidget(t, "icon", UiType::Icon, true, {0, 40, 40, 40}, live);
+    PropagateStale(t);
+    return t;
+}
+
+static void TestStaleWidgets() {
+    const UiTree t = StaleTree();
+    const int old = 18;
+    assert(t.widgets[old].stale && t.widgets[old + 1].stale && t.widgets[old + 2].stale && !t.widgets[old + 3].stale &&
+           !t.widgets[0].stale);
+
+    // find leaves stale widgets out unless asked; their paths are positional.
+    assert(Paths(t, "//icon") == std::vector<std::string>{"hotkey_assign_parent/icon"});
+    UiRequest r;
+    bool found = false;
+    assert(ParseUiRequest("find //text stale", r).empty() && r.stale);
+    std::string out = UiAnswer(t, r, found);
+    assert(Contains(out, "\"count\":1,") && Contains(out, "\"path\":\"[3]/text\"") && Contains(out, "\"stale\":true"));
+    assert(ParseUiRequest("find //text", r).empty() && !r.stale);
+    assert(Contains(UiAnswer(t, r, found), "\"count\":0,"));
+    assert(ParseUiRequest("find //icon* all stale limit=5", r).empty() && r.all && r.stale && r.limit == 5);
+    assert(Contains(UiAnswer(t, r, found), "\"count\":4,"));
+    assert(Contains(ParseUiRequest("tree stale", r), "\"error\":\"bad_command\""));
+    assert(Contains(ParseUiRequest("click //text stale", r), "\"error\":\"bad_command\""));
+
+    // tree shows them, marked; live widgets carry no stale member.
+    assert(ParseUiRequest("tree", r).empty());
+    out = UiAnswer(t, r, found);
+    assert(Contains(out, "{\"name\":\"\",\"path\":\"[3]\",\"type\":\"window\"") &&
+           Contains(out, "{\"name\":\"text\",\"path\":\"[3]/text\"") && Contains(out, "\"text\":\"F1\",\"stale\":true}"));
+    assert(Contains(out, "{\"name\":\"hotkey_assign_parent\",\"path\":\"hotkey_assign_parent\",\"type\":\"window\","
+                         "\"visible\":true,\"rect\":{\"x\":0,\"y\":40,\"w\":300,\"h\":40},"
+                         "\"click_point\":{\"x\":150,\"y\":60},\"children\""));
+
+    // click never takes a stale widget: hovering one may read its freed definition.
+    UiSelector sel;
+    assert(ParseUiSelector("//text", sel).empty());
+    UiClickTarget c = ResolveClickTarget(t, sel);
+    assert(c.error == "stale" && c.count == 1 && c.paths == std::vector<std::string>{"[5]/text"} && c.widget == -1);
+    assert(ParseUiSelector("//icon", sel).empty());
+    c = ResolveClickTarget(t, sel);  // a live match wins over a stale one
+    assert(c.error.empty() && c.path == "hotkey_assign_parent/icon");
+    assert(ParseUiSelector("//nothing", sel).empty());
+    assert(ResolveClickTarget(t, sel).error == "not_found");
+    // A hidden live match still says not_visible.
+    assert(ParseUiSelector("timeline_controls", sel).empty());
+    assert(ResolveClickTarget(t, sel).error == "not_visible");
+    // The hovered widget is named even when stale.
+    const UiCoverCheck cover = CheckCover(t, Address(19), Address(20));
+    assert(cover.covered && cover.covered_by == "[3]/text");
+}
+
 int main() {
     TestSubscribeParsing();
     TestDateCrosses();
@@ -2124,6 +2380,9 @@ int main() {
     TestSubscribeCommands();
     TestEvents();
     TestUiClickTarget();
+    TestLiveDefinitions();
+    TestWidgetNamePlan();
+    TestStaleWidgets();
     TestChildrenBounds();
     TestUiClickCommand();
     TestUiClickChoice();

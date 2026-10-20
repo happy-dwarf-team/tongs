@@ -35,7 +35,7 @@ connection can instead carry notifications (see "Notifications").
 | `threads` | worker threads in each of the game's two pools, the `threads` option, process and main-thread CPU masks, ideal CPU and priority of the main thread, number of threads |
 | `screenshot [NAME]` | writes a PNG of the game window to `anvil/data/tongs/screenshots/` (keeps the newest 100) and answers with its `path`, size and capture `method`; works while the window is covered |
 | `frames [timeout=S]` | read on the game's main thread after a frame of its main loop: frames per second (`outer_per_s`, and `nested_per_s` for frames drawn inside a game update or a save load), counts and the longest gap between main-loop frames since the previous `frames`, and the main thread's `thread_id`; with `queued_ms`, `run_ms` and the game's `frame` counter. Waits up to 10 s (`timeout=` up to 600) for a frame; while a save loads none comes, and the answer is `main thread busy` |
-| `ui find SEL [all] [limit=N]` | widgets that match the selector `SEL` (see "Widgets"): `count`, `truncated` and up to 50 `matches` (`limit=` up to 5000), each with `path`, `type`, `visible`, `rect` and `click_point` in client pixels, and `text` / `enabled` where they apply. Read on the main thread, like `frames` |
+| `ui find SEL [all] [stale] [limit=N]` | widgets that match the selector `SEL` (see "Widgets"): `count`, `truncated` and up to 50 `matches` (`limit=` up to 5000), each with `path`, `type`, `visible`, `rect` and `click_point` in client pixels, and `text` / `enabled` / `stale` where they apply. Read on the main thread, like `frames` |
 | `ui tree [SEL] [depth=N] [limit=N] [all]` | the widget tree from the top-level windows, or from the matches of `SEL`, as nested `widgets` (up to 200, `limit=` up to 5000); `depth=N` gives deeper levels only as `children_count` |
 | `event list [timeout=S]` | the open events, topmost first (see "Events"), read on the main thread |
 | `wait_until DATE [timeout=S] [max_pause=S]` | waits (without touching the game) until the date reaches `DATE` (`1720.1.1` or `1720.1.1.12`); answers with the timing below |
@@ -121,6 +121,13 @@ text, list boxes, check boxes and edit boxes, by their names in the game's
   `[unchecked]`. A step made only of filters means any name:
   `speed_controls/[type=button]`.
 - Hidden widgets are left out unless the command ends with `all`.
+- Stale widgets are left out of `ui find` unless it ends with `stale`. They
+  were built from a `.gui` definition that a reload (console `reload <file>`)
+  freed: windows the game does not rebuild, or leaks when it rebuilds the
+  HUD. Tongs never asks such a widget anything that reads the freed
+  definition, so a stale window is named only when its parent's child list
+  or its own name says so. `ui tree` shows stale widgets with
+  `"stale": true`, and `ui click` refuses them.
 
 Every widget in an answer has a `path` that finds it again, with `[n]`
 where siblings share a name. `text` is what the game displays, in UTF-8
@@ -136,7 +143,7 @@ so a row's path stays while its text changes.
 widget, checks that the game sees that widget (or one inside it) under the
 pointer, and only then clicks. It refuses without clicking: `not_found`,
 `ambiguous` (with up to 10 `matches`), `not_visible` (only hidden widgets
-match), `disabled`, or `covered` (with `covered_by`, the widget that would get
+match), `stale` (only stale widgets match), `disabled`, or `covered` (with `covered_by`, the widget that would get
 the click). The answer has `clicked`, `point` and the state after the click.
 When the game reports no widget at all under the pointer, the move is tried up
 to three times (`hover_attempts`). A click on an event's option button also

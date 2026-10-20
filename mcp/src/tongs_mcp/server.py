@@ -198,6 +198,14 @@ Limit = Annotated[int | None, Field(ge=1, le=5000, description="Most widgets to 
 
 All = Annotated[bool, Field(description="Include hidden widgets.")]
 
+Stale = Annotated[
+    bool,
+    Field(
+        description="Include stale widgets: built from a .gui definition a reload freed (the game leaks some "
+        "on HUD reloads). They are never clicked."
+    ),
+]
+
 TextMatch = Annotated[
     Literal["starts", "equals", "contains"], Field(description="How the text is compared (case-insensitive).")
 ]
@@ -559,11 +567,13 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
     # --- widgets ---
 
     @tool(READ)
-    async def tongs_ui_find(selector: Selector, all: All = False, limit: Limit = None) -> CallToolResult:
+    async def tongs_ui_find(
+        selector: Selector, all: All = False, stale: Stale = False, limit: Limit = None
+    ) -> CallToolResult:
         """Widgets matching a selector: count, truncated and matches, each with path, type, visible,
-        rect and click_point in client pixels, and text / enabled where they apply."""
+        rect and click_point in client pixels, and text / enabled / stale where they apply."""
         _check(selector)
-        return await call(_line("ui find", selector, "all" if all else None, limit=limit))
+        return await call(_line("ui find", selector, "all" if all else None, "stale" if stale else None, limit=limit))
 
     @tool(READ)
     async def tongs_ui_tree(
@@ -577,7 +587,8 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         all: All = False,
     ) -> CallToolResult:
         """The interface's widget tree as nested `widgets`, from the top-level windows or from the
-        matches of `selector`. Use depth=0 or 1 first; the full tree is large."""
+        matches of `selector`. Use depth=0 or 1 first; the full tree is large. Widgets built from a
+        definition a reload freed are shown with stale: true."""
         _check(selector)
         return await call(_line("ui tree", selector, "all" if all else None, depth=depth, limit=limit))
 
@@ -585,7 +596,7 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
     async def tongs_ui_click(selector: Selector, timeout: Timeout = None) -> CallToolResult:
         """Clicks the centre of the one widget the selector matches, after checking that the game sees
         it under the pointer. Refuses without clicking: not_found, ambiguous (with matches),
-        not_visible, disabled, covered (with covered_by)."""
+        not_visible, stale (only stale widgets match), disabled, covered (with covered_by)."""
         _check(selector)
         return await call(_line("ui click", selector, timeout=timeout))
 

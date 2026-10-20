@@ -509,7 +509,7 @@ this section describes what holds.
 
   | Field | Where |
   | --- | --- |
-  | Name | vtable slot `0xA0`, a `std::string*`: the `.gui` name, case kept (`type+0x10` of the definition at `+0xB0`, or a window's own name) |
+  | Name | vtable slot `0xA0`, a `std::string*`: the `.gui` name, case kept (`type+0x10` of the definition at `+0xB0`, or a window's own name); from 0.14.0 called only when that definition is live ("Stale widgets") |
   | Visible | `+0xC5` |
   | Dead | `+0xC4` |
   | Position | slot `0xD8`: two int32 in client pixels, read from the widget's render node |
@@ -694,6 +694,175 @@ Not checked: the children of grid boxes and overlapping elements boxes
 not found, [#48](https://github.com/happy-dwarf-team/tongs/issues/48)), and
 sizes that differ from the drawn widget
 ([#50](https://github.com/happy-dwarf-team/tongs/issues/50)).
+
+## Stale widgets (0.14.0)
+
+A reload of a `.gui` file (console `reload <file>`) deletes the file's old
+definitions. Widgets the game rebuilds get the new ones, but some stay alive
+with a pointer (`+0xB0`) to a freed definition: windows nobody rebuilds,
+windows the game leaks when it rebuilds the HUD (`alerts_parent`,
+`hotkey_assign_parent`, the in-game load and save menus, the outliner's rows),
+and list rows built before the reload. Source: Etch research
+["Which widgets keep freed definitions after a reload"](https://github.com/happy-dwarf-team/etch/issues/14)
+(branch `research/stale-definitions`, `docs/research/stale-definitions.md`).
+
+Until 0.13.0 the tree reader asked every widget for its name through slot
+`0xA0`. For most classes that slot is a thunk (`0xFBF480`) that loads `+0xB0`
+and jumps to the definition's virtual `+0x40`. During an Etch prototype run,
+a `ui find` after `reload topbar.gui` hit a widget whose freed definition
+block held an object with `_purecall` at `+0x40`. The game's pure-call handler
+wrote a crash dump and ended the process. The `__try` guards catch only access
+violations, and a pure call is not an exception, so no guard can catch it.
+
+From 0.14.0 the reader calls slot `0xA0` only for widgets whose definition is
+live (`src/ui_definitions.cpp`):
+
+- **Live definitions.** Once per tree read, the reader collects every live
+  definition:
+  - **Registry.** It walks the type registry at `mgr+0xC8`, a
+    case-insensitive ternary search tree of plain pointers. The root is at
+    `registry+0x08`. Each `0x28`-byte node holds the value (`+0x00`), the
+    lower-cased character (`+0x08`), the lower and higher subtrees (`+0x10`,
+    `+0x18`) and the next character (`+0x20`). A reload replaces values in
+    the nodes; it does not free nodes, and it runs on the main thread like the
+    read. This walk reads no definition.
+  - **Nested definitions.** Then it reads each definition found, which is safe
+    because each one is live. When its class is one of five, it walks the
+    nested map the class keeps, a map of the registry's class (vtable
+    `0x1D8DC00`). The map counts only when that vtable is at the offset.
+
+    | Definition class | Vtable | Nested map | Constructor |
+    | --- | --- | --- | --- |
+    | `windowType` | `0x1D94478` | `+0xE8` | `0x155B8E0` |
+    | `eu3dialogtype` | `0x1D574A0` | `+0xE8` (built by the `windowType` constructor) | `0x10B3FE0` |
+    | list boxes | `0x1D9E800` | `+0x1B0` | `0x15EAB80` |
+    | `containerWindowType` | `0x1D9EB70` | `+0x260` | `0x15EC1F0` |
+    | `scrollbarType` | `0x1D9E5E0` | `+0x208` | `0x15E8460` |
+
+    The list box class is named by its count: 278 live definitions, the
+    `listboxType` and `smoothListboxType` entries of vanilla. The others match
+    their vanilla counts too (862 `windowType`, 54 `eu3dialogtype`, 30
+    `containerWindowType`).
+
+  An unreadable node or live definition fails the whole read rather than
+  giving a smaller set.
+- **A widget with a live definition** is named by slot `0xA0` as before (case
+  kept). Every other widget is **stale**, and so is everything inside it. A
+  stale widget is named by its holder's child list when a window or container
+  holds it, by the window's own name (`windowType` and `eu3dialogtype`
+  `+0xA28`, `containerWindowType` `+0x5F8`) when that is set, and otherwise
+  not at all. The holder's lists are filled with copies when the window is
+  built, so they are readable as long as the window is:
+  - the vector pairs: the names vector follows the pointers vector (`+0x18`);
+    the game stores the names in lower case;
+  - the named maps: entries `{value, std::string name at +0x08}`;
+  - the sub-windows: `{std::string name, window*}`.
+
+A pointer in the set points at a live definition, so a slot `0xA0` call that
+the reader makes is memory-safe. A stale widget can still read as live in one
+case. A reload deletes each old definition before it parses the next entry,
+so a later definition of the same reload may get the freed address. The
+widget then reads as live and takes the other definition's name. A host that
+reloads can rule this out by remembering, before the reload, which roots had
+the file's old definitions.
+
+The research proposed only the registry check, with names of children from
+their holders' lists. The live check below showed why that is not enough:
+most definitions are nested and never in the registry. With the registry
+alone, a fresh game had 17 stale roots and about 8 900 stale widgets (list
+boxes, check boxes and edit boxes of every country view). The research's
+proposal for children would also have renamed them to the lower-case copies,
+and it would have left scroll bar buttons without a name.
+
+Answers:
+
+- `ui tree` shows stale widgets with `"stale": true`; a stale root without a
+  name has a positional path step (`[136]`). Live widgets have no `stale`
+  member.
+- `ui find` leaves stale widgets out; `ui find SEL stale` includes them.
+- `ui click` never clicks one. When only stale widgets match, it refuses with
+  `stale` and their paths. Hovering a stale button may make the game read its
+  tooltip from the freed definition (research H4).
+- The hovered widget in `covered_by` is named even when stale.
+
+The offsets are in `symbols.toml`: `row_type_lookup`, `type_tree_insert`,
+`type_tree_node`, the five definition classes (`window_type_definition`,
+`eu3dialog_definition`, `listbox_definition`(`_map`),
+`container_definition`(`_map`), `scrollbar_definition`(`_map`)),
+`window_name_slot`, `container_name_slot`, and the `names` of the two
+find-child symbols. They were checked with `anvil check plugin --exe` against
+`eu4.exe` 1.37.5 (`9AD3EFE1…771A`). The map entry name (`+0x08`), the
+sub-window name (`+0x00`) and the string size (`0x20`) are not in
+`symbols.toml`. They come from the decompiled registry list (`0x14EC950`),
+the sub-window lookup (`0x15481A0`) and the pair lookup (`0x154F650`). Unit
+tests build fake definitions with nested maps the way the game's insert
+(`0x14ED760`) builds them. Their memory reader refuses everything but the
+registry, its nodes and live definitions. The tests also cover a reload (the
+old definition and everything nested in it neither live nor read), a class
+not listed, a map whose vtable is wrong, unreadable memory, a loop and the
+naming rules.
+
+### Live check (2026-10-20)
+
+Setup:
+- the original `eu4.exe` (`9AD3EFE1…771A`), Anvil 1.0.0 with `anvil-game`,
+  and this branch;
+- the lab's Russia save of 17 March 1719 (`continue=`), paused, with the
+  vanilla interface: a temporary mod with unchanged copies of `outliner.gui`,
+  `topbar.gui` and three more files, enabled alone, as in the Etch reload
+  prototype (`dlc_load.json` restored afterwards);
+- `anvil-play.ps1 -Scenario tongs -TongsInput -TongsGameCalls`, which checks
+  the EXE hash and the Process Lasso rule and closes the game after the PID,
+  path and start-time check.
+
+The script read the tree, ran `console reload outliner.gui` twice and
+`console reload topbar.gui` once, and read the tree after each reload. After
+the topbar reload it also ran the read that crashed the prototype,
+`ui find topbar/brown_bg all`, three times. Read-only `ReadProcessMemory`
+from outside counted the same sets independently. Anvil reported "108
+symbol(s) verified".
+
+Session `tongs61-stale-1` used the first version of this change (registry
+only). Session `tongs61-stale-2` used the version described above:
+
+| After | Roots | Stale roots | Of them `{icon, text}` windows | Stale widgets | Tree read |
+| --- | --- | --- | --- | --- | --- |
+| loading | 385 | 0 | 0 | 7 | 14 ms |
+| `reload outliner.gui` | 421 | 17 | 17 | 58 | 11 ms |
+| `reload outliner.gui` | 470 | 34 | 34 | 109 | 10 ms |
+| `reload topbar.gui` | 526 | 40 | 37 | 121 | 10 ms |
+
+Findings:
+
+- **No crash.** No crash in either session: all reads after the topbar
+  reload answered, and the game kept running.
+- **Research H1 holds.** The stale `{icon, text}` roots are outliner header
+  rows (icon `outliner_header`, text `entry_text`): 17 per outliner rebuild,
+  not 25 as the research guessed. After the topbar reload,
+  `hotkey_assign_parent` (with `assign_hotkey_pick_button_hint`) and the
+  childless `alerts_parent` follow.
+- **Same count as an independent read.** From outside, 121 widgets had a
+  definition that was neither in the registry nor nested in a live
+  definition, the same 121 Tongs marked. The other 16 181 split into 2 084
+  top-level and 14 097 nested.
+- **Names unchanged.** `speed_controls/DateText` and `//downButton` (335
+  matches before the reloads) resolved as in 0.13.0.
+- **Cost.** The read cost 10–14 ms on the main thread, against 6–7 ms in
+  0.5.0. The registry and nested maps hold about 8 800 definitions.
+- **Seven false positives.** Seven hidden buttons were stale before any reload:
+  the music player's controls (`musicplayer_window`,
+  `musicminicontroller_window`) and the `pops_login_blocker` button. Their
+  definitions (class `0x1D9A7B0`) are live, but they are held by plain
+  pointer fields, not maps: class `0x1D9ED10` at `+0x140`…`+0x158` and
+  `containerWindowType` definitions at `+0x3A0`. The walk does not follow
+  those fields.
+- **Settings and save.** The save was unchanged, and `settings.txt` differed
+  only in `graceful_exit` (restored). No crash dump was written.
+
+Known gap: when a definition class outside the table holds nested
+definitions, their widgets read as stale (unnamed, left out of `ui find`).
+That is a safe failure, not a crash, and the seven above are its only case
+seen in the lab's save.
 
 ## Clicking widgets (0.6.0)
 
@@ -1558,6 +1727,9 @@ Not in draft 4:
   `settings.toml` and applies in that start; and in an ironman game without
   the opt-in Tongs is suspended (input and `console` refused, reads going on)
   and resumed after the session.
+- Stale widgets (0.14.0): reloads of other files than `outliner.gui` and
+  `topbar.gui`, list rows built before a reload, and `ui click` refusing a
+  stale widget in the game (only unit-tested).
 - The open points of each section, under its live checks.
 - `paused` for pauses not caused by the pause button: message pop-ups set
   `paused_flag` (hardening pass); events that pause, menus and multiplayer

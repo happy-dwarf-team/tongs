@@ -1,6 +1,7 @@
 #pragma once
 
 #include "game_symbols.hpp"
+#include "ui_definitions.hpp"
 #include "ui_tree.hpp"
 
 #include <cstdint>
@@ -38,11 +39,42 @@ struct UiLayout {
     unsigned button_state = U32(sym::button_state.state);
     unsigned hovered = U32(sym::hover_callback.hovered);          // mgr: the topmost widget under the GUI pointer, written once per frame
 
+    // Stale widgets (ui_definitions.hpp): the type registry, the definition
+    // classes with nested definitions, each widget's definition, and the names
+    // windows and containers keep themselves. Vtables here are RVAs.
+    unsigned type_registry = U32(sym::row_type_lookup.registry);  // mgr: the name -> top-level definition tree
+    TypeTreeLayout type_tree = {
+        U32(sym::type_tree_insert.root),
+        U32(sym::type_tree_node.size),
+        0,  // the value: the insert stores it at the node itself
+        U32(sym::type_tree_node.lower),
+        U32(sym::type_tree_node.higher),
+        U32(sym::type_tree_node.next),
+        U32(sym::window_type_definition.map_vtable),
+        {{U32(sym::window_type_definition.vtable), U32(sym::window_type_definition.map)},
+         {U32(sym::eu3dialog_definition.vtable), U32(sym::window_type_definition.map)},
+         {U32(sym::listbox_definition.vtable), U32(sym::listbox_definition_map.map)},
+         {U32(sym::container_definition.vtable), U32(sym::container_definition_map.map)},
+         {U32(sym::scrollbar_definition.vtable), U32(sym::scrollbar_definition_map.map)}}};
+    static_assert(sym::window_type_definition.map_vtable == sym::listbox_definition_map.map_vtable &&
+                  sym::window_type_definition.map_vtable == sym::container_definition.map_vtable &&
+                  sym::window_type_definition.map_vtable == sym::scrollbar_definition_map.map_vtable);
+    unsigned definition = U32(sym::window_name_slot.definition);  // the definition the widget was built from
+    static_assert(sym::window_name_slot.definition == sym::container_name_slot.definition);
+    unsigned window_override = U32(sym::window_name_slot.override);        // std::string, empty when not set
+    unsigned container_override = U32(sym::container_name_slot.override);  // std::string, empty when not set
+
     unsigned window_part = U32(sym::eu3dialog_vtable.window_part);  // full window object -> widget pointer
-    // windowType children: ten vector pairs {pointers, names} from the widget
-    // pointer, then (full object) seven named maps with an insertion list, and
-    // sub-windows {std::string name; window*}.
+    // windowType children: ten vector pairs {pointers, lower-cased names} from
+    // the widget pointer, then (full object) seven named maps with an insertion
+    // list of entries {value, std::string name}, and sub-windows
+    // {std::string name; window*}.
     unsigned window_pairs = U32(sym::window_find_child.pairs);
+    unsigned pair_names = U32(sym::window_find_child.names) - U32(sym::window_find_child.pairs);  // the names vector
+    static_assert(sym::window_find_child.names - sym::window_find_child.pairs ==
+                  sym::container_find_child.names - sym::container_find_child.pairs);
+    unsigned name_size = 0x20;       // not in symbols.toml: a std::string in the names vector
+    unsigned map_entry_name = 0x08;  // not in symbols.toml
     unsigned window_pair_count = 10;    // not in symbols.toml
     unsigned window_maps = 0x798;       // not in symbols.toml (full object)
     unsigned window_map_count = 7;      // not in symbols.toml
@@ -52,6 +84,7 @@ struct UiLayout {
     unsigned window_subwindows = 0x958;  // not in symbols.toml (full object)
     unsigned subwindow_size = 0x28;      // not in symbols.toml
     unsigned subwindow_pointer = 0x20;   // not in symbols.toml
+    unsigned subwindow_name = 0;         // not in symbols.toml
     // containerWindowType children: fifteen vector pairs from the widget pointer.
     unsigned container_pairs = U32(sym::container_find_child.pairs);
     unsigned container_pair_count = 15;  // not in symbols.toml
@@ -110,7 +143,9 @@ struct UiLayout {
 };
 
 // Reads the widget tree. Main thread only: the game deletes widgets in its GUI
-// update. Every read and call is guarded; returns an error text, or empty on success.
+// update and a reload frees definitions. Every read and call is guarded, and
+// slot 0xA0 is called only on widgets whose definition the type registry
+// holds; returns an error text, or empty on success.
 std::string ReadUiTree(std::uintptr_t image_base, const UiLayout& layout, UiTree& out);
 
 // Main thread: the widget the game hovers (mgr+0x130), 0 when none or unreadable.

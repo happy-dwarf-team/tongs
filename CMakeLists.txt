@@ -27,7 +27,7 @@ option(TONGS_BUILD_TESTS "Build unit tests" ON)
 include(cmake/AnvilSdk.cmake)
 
 # Platform-independent parts (protocol, settings, date, dispatcher, selectors), shared with the tests.
-add_library(tongs_core STATIC src/protocol.cpp src/config.cpp src/game_date.cpp src/keys.cpp src/input.cpp src/dispatcher.cpp src/frame_stats.cpp src/ui_tree.cpp src/events.cpp src/console.cpp src/notifications.cpp src/notify_sources.cpp src/load_watch.cpp)
+add_library(tongs_core STATIC src/protocol.cpp src/config.cpp src/game_date.cpp src/keys.cpp src/input.cpp src/dispatcher.cpp src/frame_stats.cpp src/ui_tree.cpp src/ui_definitions.cpp src/events.cpp src/console.cpp src/notifications.cpp src/notify_sources.cpp src/load_watch.cpp)
 target_include_directories(tongs_core PUBLIC src)
 target_compile_definitions(tongs_core PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX TONGS_VERSION="${TONGS_VERSION_TEXT}")
 if(MSVC)

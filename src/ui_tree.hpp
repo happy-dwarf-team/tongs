@@ -33,6 +33,7 @@ struct UiWidget {
     bool enabled = false;
     bool has_checked = false;  // check boxes
     bool checked = false;
+    bool stale = false;  // built from a definition a reload freed, or inside such a widget (ui_definitions.hpp)
     std::vector<int> children;  // indices into UiTree::widgets, in the game's order
     std::uintptr_t address = 0;  // the widget pointer in the game: matches event buttons and the hovered widget; not reported
 };
@@ -63,10 +64,10 @@ struct UiSelector {
 std::string ParseUiSelector(std::string_view text, UiSelector& out);
 
 // A tree prepared for one command: walk order, effective visibility and the
-// widgets a command may see (hidden ones only with `all`).
+// widgets a command may see (hidden ones only with `all`, stale ones only when asked).
 class UiView {
 public:
-    UiView(const UiTree& tree, bool include_hidden);
+    UiView(const UiTree& tree, bool include_hidden, bool include_stale = false);
 
     // Matches in walk order (parents before children, siblings in the game's order).
     std::vector<int> Resolve(const UiSelector& selector) const;
@@ -74,7 +75,9 @@ public:
     // siblings share a name. Resolve() of it with the same `all` finds the widget again.
     std::string PathOf(int widget) const;
     bool Visible(int widget) const { return visible_[widget] != 0; }
-    bool Usable(int widget) const { return include_hidden_ || Visible(widget); }
+    bool Usable(int widget) const {
+        return (include_hidden_ || Visible(widget)) && (include_stale_ || !tree_.widgets[widget].stale);
+    }
     int Parent(int widget) const { return parent_[widget]; }
     // Usable children and top-level windows.
     std::vector<int> Children(int widget) const;
@@ -86,6 +89,7 @@ private:
 
     const UiTree& tree_;
     bool include_hidden_;
+    bool include_stale_;
     std::vector<int> roots_;        // top-level windows, each once
     std::vector<int> order_;        // reachable widgets in walk order
     std::vector<int> position_;     // widget -> index in order_, -1 when unreachable
@@ -94,13 +98,15 @@ private:
     std::vector<char> visible_;
 };
 
-// `ui find SEL [all] [limit=N]`, `ui tree [SEL] [depth=N] [limit=N] [all]` and `ui click SEL`.
+// `ui find SEL [all] [stale] [limit=N]`, `ui tree [SEL] [depth=N] [limit=N] [all]` and `ui click SEL`.
+// `ui tree` shows stale widgets (marked "stale"); `ui find` only with `stale`; `ui click` never.
 struct UiRequest {
     enum class Verb { Find, Tree, Click };
     Verb verb = Verb::Find;
     std::string selector_text;  // empty: none (tree only)
     UiSelector selector;
     bool all = false;
+    bool stale = false;  // ui find: include stale widgets
     int depth = -1;  // -1: no limit
     int limit = 0;
     int timeout_ms = 0;  // 0: the dispatcher's default
@@ -120,10 +126,12 @@ std::string ParseUiRequest(std::string_view argument, UiRequest& out);
 std::string UiAnswer(const UiTree& tree, const UiRequest& request, bool& found);
 
 // The widget `ui click` would click, or why it refuses: "not_found", "ambiguous"
-// (with up to 10 paths), "not_visible" (only hidden widgets match) or "disabled".
+// (with up to 10 paths), "not_visible" (only hidden widgets match), "stale" (only
+// stale widgets match: hovering one may make the game read its freed definition)
+// or "disabled".
 struct UiClickTarget {
     std::string error;
-    std::vector<std::string> paths;  // ambiguous and not_visible: the matches, up to 10
+    std::vector<std::string> paths;  // ambiguous, not_visible and stale: the matches, up to 10
     int count = 0;                   // all matches
     int widget = -1;
     std::string path;
