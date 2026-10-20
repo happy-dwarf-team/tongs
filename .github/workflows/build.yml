@@ -18,7 +18,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # Also builds the Anvil SDK from Anvil's sources at the commit cmake/AnvilSdk.cmake pins.
+      # Also downloads the SDK archive of the Anvil release cmake/AnvilSdk.cmake pins.
       - name: Configure
         run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 
@@ -31,7 +31,7 @@ jobs:
       # The schemas of plugin.toml, symbols.toml and settings.toml, and symbols.lock against
       # symbols.toml (CI has no eu4.exe: `anvil check plugin --exe` writes the lock locally).
       - name: Anvil check
-        run: build/anvil-sdk/bin/anvil.exe check plugin --format github
+        run: build/_deps/anvil_sdk-src/bin/anvil.exe check plugin --format github
 
       - name: Package
         shell: pwsh

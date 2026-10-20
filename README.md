@@ -359,11 +359,11 @@ or older is moved into `settings.toml` on the first start (and renamed to
 
 Visual Studio 2022 (or Build Tools) with the C++ workload, CMake ≥ 3.25, Git.
 Tongs builds with the [Anvil SDK](https://github.com/happy-dwarf-team/anvil/blob/main/sdk/README.md)
-(`anvil_add_plugin`, `anvil gen`, `anvil check`). Until Anvil 1.0 publishes the
-SDK archive, the first configure builds it from Anvil's sources at a pinned
-commit (`cmake/AnvilSdk.cmake`) into `build/anvil-sdk`; `-DTONGS_ANVIL_SDK=<sdk>`
-uses an unpacked SDK instead, and `-DFETCHCONTENT_SOURCE_DIR_ANVIL=<anvil>` a
-local Anvil checkout.
+(`anvil_add_plugin`, `anvil gen`, `anvil check`). The first configure downloads
+the SDK archive of the Anvil release that `cmake/AnvilSdk.cmake` pins (1.0.0,
+checked against its SHA-256) into `build/_deps/anvil_sdk-src`;
+`-DTONGS_ANVIL_SDK=<sdk>` uses an unpacked SDK instead, for example one
+installed from a local Anvil checkout (`cmake --install <anvil build> --component sdk`).
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
