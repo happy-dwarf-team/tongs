@@ -2134,7 +2134,8 @@ struct FakeTypeMap {
     std::uintptr_t root = 0;  // +0x08
 };
 
-// A definition: its class's vtable at +0, a nested map at +0x40 for window classes.
+// A definition: its class's vtable at +0, pointer fields at +0x08..+0x18 for scroll
+// bars and windows (a window's background), a nested map at +0x40 for window classes.
 struct FakeDefinition {
     std::uintptr_t vtable = 0;
     std::uintptr_t other[7] = {};
@@ -2146,6 +2147,8 @@ struct FakeGui {
     static constexpr std::uintptr_t kMapVtable = 0x7000;
     static constexpr std::uintptr_t kWindowVtable = 0x7100;
     static constexpr std::uintptr_t kIconVtable = 0x7200;
+    static constexpr std::uintptr_t kScrollVtable = 0x7500;
+    static constexpr std::uintptr_t kButtonVtable = 0x7600;
 
     FakeTypeMap registry{kMapVtable, 0};
     std::deque<FakeTypeNode> nodes;
@@ -2156,6 +2159,9 @@ struct FakeGui {
     TypeTreeLayout Layout() const {
         TypeTreeLayout l{0x08, 0x28, 0x00, 0x10, 0x18, 0x20, kMapVtable, {}};
         l.nested.push_back({kWindowVtable, 0x40});
+        l.pointers.push_back({kScrollVtable, 0x08, kButtonVtable});
+        l.pointers.push_back({kScrollVtable, 0x10, kButtonVtable});
+        l.pointers.push_back({kWindowVtable, 0x18, kButtonVtable});
         return l;
     }
 
@@ -2167,6 +2173,10 @@ struct FakeGui {
     }
 
     static FakeTypeMap& MapOf(std::uintptr_t definition) { return reinterpret_cast<FakeDefinition*>(definition)->map; }
+    // The pointer field at +0x08 * (1 + i).
+    static std::uintptr_t& FieldOf(std::uintptr_t definition, int i) {
+        return reinterpret_cast<FakeDefinition*>(definition)->other[i];
+    }
 
     void Insert(FakeTypeMap& map, const char* key, std::uintptr_t value) {
         std::uintptr_t* link = &map.root;
@@ -2289,6 +2299,80 @@ static void TestLiveDefinitions() {
            gui.reads.empty());
 }
 
+static void TestLivePointerDefinitions() {
+    FakeGui gui;
+    // musicplayer.gui: a window holding an extended scroll bar (volume_slider)
+    // whose buttons are in pointer fields, a top-level scroll bar
+    // (right_vertical_slider), and pops_login.gui: a window whose background
+    // button is in a pointer field. None of these buttons is in a map.
+    const std::uintptr_t mini = gui.Define(FakeGui::kWindowVtable);
+    const std::uintptr_t volume = gui.Define(FakeGui::kScrollVtable);
+    const std::uintptr_t decrease = gui.Define(FakeGui::kButtonVtable);
+    const std::uintptr_t increase = gui.Define(FakeGui::kButtonVtable);
+    const std::uintptr_t right = gui.Define(FakeGui::kScrollVtable);
+    const std::uintptr_t track = gui.Define(FakeGui::kButtonVtable);
+    const std::uintptr_t blocker = gui.Define(FakeGui::kWindowVtable);
+    const std::uintptr_t hitbox = gui.Define(FakeGui::kButtonVtable);
+    gui.Insert(FakeGui::MapOf(mini), "volume_slider", volume);
+    FakeGui::FieldOf(volume, 0) = decrease;
+    FakeGui::FieldOf(volume, 1) = increase;
+    FakeGui::FieldOf(right, 1) = track;  // field 0 stays empty
+    FakeGui::FieldOf(blocker, 2) = hitbox;
+    gui.Insert(gui.registry, "musicminicontroller_window", mini);
+    gui.Insert(gui.registry, "right_vertical_slider", right);
+    gui.Insert(gui.registry, "pops_login_blocker", blocker);
+    // Fields Tongs does not follow: a class not listed, a field not listed, and
+    // a target of another class (the target is read for its class, nothing more).
+    const std::uintptr_t other = gui.Define(0x7300);
+    FakeGui::FieldOf(other, 0) = 0xDEF00040;
+    FakeGui::FieldOf(volume, 3) = 0xDEF00050;
+    const std::uintptr_t icon = gui.Define(FakeGui::kIconVtable);
+    FakeGui::FieldOf(icon, 0) = 0xDEF00060;
+    FakeGui::FieldOf(icon, 2) = 0xDEF00070;
+    const std::uintptr_t odd = gui.Define(FakeGui::kScrollVtable);
+    FakeGui::FieldOf(odd, 0) = icon;
+    gui.Insert(gui.registry, "other", other);
+    gui.Insert(gui.registry, "odd", odd);
+
+    std::unordered_set<std::uintptr_t> live;
+    assert(gui.Collect(live).empty());
+    assert((live == std::unordered_set<std::uintptr_t>{mini, volume, decrease, increase, right, track, blocker, hitbox,
+                                                       other, odd}));
+    assert(gui.refused == 0);
+
+    // A reload deletes the old scroll bar with the buttons it owns: none of them is live or read.
+    const std::uintptr_t right2 = gui.Define(FakeGui::kScrollVtable);
+    gui.Insert(gui.registry, "right_vertical_slider", right2);
+    gui.reads.clear();
+    assert(gui.Collect(live).empty());
+    assert(live.contains(right2) && !live.contains(right) && !live.contains(track) && live.contains(hitbox));
+    for (const std::uintptr_t a : gui.reads) {
+        assert(!FakeGui::Inside(a, 1, *reinterpret_cast<FakeDefinition*>(right)) &&
+               !FakeGui::Inside(a, 1, *reinterpret_cast<FakeDefinition*>(track)));
+    }
+
+    // A target that is also in a map counts once; a loop of pointer fields
+    // (never seen in the game) ends.
+    gui.Insert(FakeGui::MapOf(mini), "hitbox", hitbox);
+    assert(gui.Collect(live).empty() && live.size() == 9);
+    const std::uintptr_t first = gui.Define(FakeGui::kButtonVtable);
+    const std::uintptr_t second = gui.Define(FakeGui::kButtonVtable);
+    FakeGui::FieldOf(right2, 0) = first;
+    FakeGui::FieldOf(first, 0) = second;
+    FakeGui::FieldOf(second, 0) = first;
+    TypeTreeLayout looping = gui.Layout();
+    looping.pointers.push_back({FakeGui::kButtonVtable, 0x08, FakeGui::kButtonVtable});
+    live.clear();
+    const std::uintptr_t registry = reinterpret_cast<std::uintptr_t>(&gui.registry);
+    assert(CollectLiveDefinitions(registry, looping, gui.Reader(), live).empty());
+    assert(live.contains(first) && live.contains(second) && live.size() == 11);
+
+    // A field or target of a live holder that is unreadable is an error, not a smaller set.
+    FakeGui::FieldOf(right2, 1) = 0xDEF00080;
+    gui.refused = 0;
+    assert(Contains(gui.Collect(live), "definition is unreadable") && gui.refused == 1);
+}
+
 static void TestWidgetNamePlan() {
     using Source = UiNamePlan::Source;
     const auto plan = [](bool live, bool held, bool own) {
@@ -2381,6 +2465,7 @@ int main() {
     TestEvents();
     TestUiClickTarget();
     TestLiveDefinitions();
+    TestLivePointerDefinitions();
     TestWidgetNamePlan();
     TestStaleWidgets();
     TestChildrenBounds();

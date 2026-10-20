@@ -45,7 +45,8 @@ std::string CollectLiveDefinitions(std::uintptr_t registry, const TypeTreeLayout
     std::vector<std::uintptr_t> pending;
     if (std::string error = WalkMap(registry, layout, read, nodes, out, pending); !error.empty()) return error;
     // Every definition in `pending` is live, so reading it is safe. Its nested
-    // map counts only when the class is known and the map's vtable is in place.
+    // map counts only when the class is known and the map's vtable is in place;
+    // a pointer field only when the class is known and the target has its class.
     while (!pending.empty()) {
         const std::uintptr_t definition = pending.back();
         pending.pop_back();
@@ -59,6 +60,18 @@ std::string CollectLiveDefinitions(std::uintptr_t registry, const TypeTreeLayout
             if (std::string error = WalkMap(definition + n.map, layout, read, nodes, out, pending); !error.empty()) {
                 return error;
             }
+        }
+        for (const TypeTreeLayout::Pointer& p : layout.pointers) {
+            if (p.vtable != vtable) continue;
+            std::uintptr_t target = 0;
+            if (!read(definition + p.field, &target, sizeof target)) return "a live GUI definition is unreadable";
+            if (target == 0 || out.contains(target)) continue;
+            // The holder keeps it alive, so the target is readable too.
+            std::uintptr_t target_vtable = 0;
+            if (!read(target, &target_vtable, sizeof target_vtable)) return "a live GUI definition is unreadable";
+            if (target_vtable != p.target) continue;
+            out.insert(target);
+            pending.push_back(target);
         }
     }
     return {};

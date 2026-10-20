@@ -22,7 +22,8 @@ namespace tongs {
 // The type registry at mgr+0xC8 is a case-insensitive ternary search tree from
 // a top-level .gui name to its definition. Window, container, list box and
 // scroll bar definitions keep their nested definitions in a map of the same
-// class. A definition is read only once it is known to be live.
+// class; extended scroll bars and containers also hold button definitions in
+// plain pointer fields. A definition is read only once it is known to be live.
 struct TypeTreeLayout {
     unsigned root = 0;       // map: the root node pointer
     unsigned node_size = 0;  // bytes of a node
@@ -37,6 +38,14 @@ struct TypeTreeLayout {
         unsigned map = 0;
     };
     std::vector<Nested> nested;
+    // Definition classes (by vtable address) with a pointer field to a definition
+    // that lives as long as they do, and the class that definition must have.
+    struct Pointer {
+        std::uintptr_t vtable = 0;
+        unsigned field = 0;
+        std::uintptr_t target = 0;
+    };
+    std::vector<Pointer> pointers;
 };
 
 // Copies `size` bytes of game memory; false when they are unreadable.
@@ -46,7 +55,7 @@ constexpr std::size_t kMaxTypeTreeNodes = std::size_t{1} << 22;  // all maps tog
 constexpr unsigned kMaxTypeNodeSize = 0x40;
 
 // Adds every live definition to `out`: the registry's values, then the values of
-// the nested maps of every definition found, recursively. Returns an error
+// the nested maps and pointer fields of every definition found, recursively. Returns an error
 // text, or empty on success; on an error `out` is incomplete and must not be used.
 std::string CollectLiveDefinitions(std::uintptr_t registry, const TypeTreeLayout& layout, const ReadMemory& read,
                                    std::unordered_set<std::uintptr_t>& out);
