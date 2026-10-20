@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.13.0](https://github.com/happy-dwarf-team/tongs/compare/v0.12.0...v0.13.0) (2026-10-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* Tongs needs Anvil 1.0 (plugin API 2) with anvil-game; settings move from `config.toml` to `settings.toml` (migrated once), and `console_allow` is a string of names.
+
+### Features
+
+* migrate to Anvil plugin API 2 ([#58](https://github.com/happy-dwarf-team/tongs/issues/58)) ([ba1cc96](https://github.com/happy-dwarf-team/tongs/commit/ba1cc967a574d8cfe0b2fbea0a14e39102bf9d56))
+
+
+### Build
+
+* take the Anvil SDK from the 1.0.0 release ([#60](https://github.com/happy-dwarf-team/tongs/issues/60)) ([76d1bce](https://github.com/happy-dwarf-team/tongs/commit/76d1bce54d5afb389b6151545a07e18f038373a3))
+
 ## [0.12.0](https://github.com/happy-dwarf-team/tongs/compare/v0.11.0...v0.12.0) (2026-10-19)
 
 
