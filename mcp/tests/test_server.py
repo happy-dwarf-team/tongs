@@ -109,6 +109,7 @@ LINES = [
     ("tongs_release", {}, "release"),
     ("tongs_ui_find", {"selector": "speed_controls/button_speedup"}, "ui find speed_controls/button_speedup"),
     ("tongs_ui_find", {"selector": "//[text~=a b]", "all": True, "limit": 5}, "ui find //[text~=a b] all limit=5"),
+    ("tongs_ui_find", {"selector": "//text", "all": True, "stale": True}, "ui find //text all stale"),
     ("tongs_ui_tree", {}, "ui tree"),
     ("tongs_ui_tree", {"selector": "speed_controls", "depth": 1, "limit": 10, "all": True}, "ui tree speed_controls all depth=1 limit=10"),
     ("tongs_ui_tree", {"depth": 0}, "ui tree depth=0"),

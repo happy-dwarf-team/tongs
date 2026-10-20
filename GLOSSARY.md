@@ -32,6 +32,12 @@ One element of the game's interface (a window, button, text, icon), named as
 in the game's `.gui` files.
 _Avoid_: DOM node, element, control
 
+**Stale widget**:
+A widget built from a `.gui` definition that a reload has since freed, and
+every widget inside it; Tongs reads it without its definition and never
+clicks it.
+_Avoid_: dead widget, zombie, orphan
+
 **Widget tree**:
 The widgets open in the game's interface at one moment, each with its
 children.

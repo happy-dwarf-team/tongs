@@ -1188,7 +1188,7 @@ std::string RunUntil(const Handlers& h, std::string_view argument) {
     return out;
 }
 
-// ui find SEL [all] [limit=N] / ui tree [SEL] [depth=N] [limit=N] [all]: the selector is
+// ui find SEL [all] [stale] [limit=N] / ui tree [SEL] [depth=N] [limit=N] [all]: the selector is
 // checked on the pipe thread, the tree is read on the main thread, and the answer is
 // built back on the pipe thread.
 std::string UiCommand(const Handlers& h, std::string_view argument) {
