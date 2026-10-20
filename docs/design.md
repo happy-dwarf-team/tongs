@@ -1517,10 +1517,10 @@ call in ironman needs both the player's opt-in in Anvil and Tongs' switch.
 
 Tongs builds with the Anvil SDK (`anvil_add_plugin` reads `plugin/plugin.toml`,
 runs `anvil gen`, builds `tongs.dll` with the static CRT and lays out
-`build/plugin/tongs/`). Before Anvil 1.0 publishes the SDK archive,
-`cmake/AnvilSdk.cmake` builds the SDK from Anvil's sources at a pinned
-commit; a TODO there names the switch to the release URL. CI runs `anvil
-check plugin --format github`, which also fails on a stale `symbols.lock`.
+`build/plugin/tongs/`). `cmake/AnvilSdk.cmake` takes the SDK archive of a
+pinned Anvil release (URL and SHA-256); `-DTONGS_ANVIL_SDK` points at an
+unpacked SDK instead. CI runs `anvil check plugin --format github`, which also
+fails on a stale `symbols.lock`.
 
 ## Releases
 
