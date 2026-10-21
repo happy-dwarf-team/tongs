@@ -241,6 +241,10 @@ private:
         TypeTreeLayout layout = l_.type_tree;
         layout.map_vtable += base_;
         for (TypeTreeLayout::Nested& n : layout.nested) n.vtable += base_;
+        for (TypeTreeLayout::Pointer& p : layout.pointers) {
+            p.vtable += base_;
+            p.target += base_;
+        }
         const ReadMemory read = [](std::uintptr_t address, void* out, std::size_t size) { return ReadRaw(address, out, size); };
         return CollectLiveDefinitions(manager + l_.type_registry, layout, read, definitions_);
     }

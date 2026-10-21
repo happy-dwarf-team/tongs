@@ -382,6 +382,43 @@ values.map_vtable = { at = 3, rip_relative = 7 }
 values.map = { at = 10, size = 4 }
 note = "scrollbarType definition constructor: its buttons' definitions in a map at +0x208 (read by 0x15E9930)"
 
+[symbol.extended_scrollbar_definition]
+rva = 0x15EED5A
+bytes = """
+48 8D 05 AF FF 7A 00 48 8B D9 48 89 01 8B FA
+48 8B 89 38 01 00 00 48 85 C9 74 0A 48 8B 01 BA 01 00 00 00 FF 10
+48 8B 8B 40 01 00 00 48 85 C9 74 0A 48 8B 01 BA 01 00 00 00 FF 10
+48 8B 8B 48 01 00 00 48 85 C9 74 0A 48 8B 01 BA 01 00 00 00 FF 10
+48 8B 8B 50 01 00 00 48 85 C9 74 0A 48 8B 01 BA 01 00 00 00 FF 10
+48 8B 8B 58 01 00 00
+"""
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+values.background = { at = 18, size = 4 }
+values.track = { at = 40, size = 4 }
+values.slider = { at = 62, size = 4 }
+values.increase = { at = 84, size = 4 }
+values.decrease = { at = 106, size = 4 }
+note = "extendedScrollbarType definition destructor 0x15EED50 (constructor 0x15EEC40): deletes the button definitions its keyword handler 0x15EEE20 stores in plain pointer fields (background, track, slider, increaseButton, decreaseButton)"
+
+[symbol.button_definition]
+rva = 0x15B1803
+bytes = "48 8D 05 A6 8F 7E 00 48 89 01"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "buttonType definition constructor 0x15B17E0 (0x3F0 bytes): its vtable"
+
+[symbol.container_background]
+rva = 0x15ED4C9
+bytes = """
+4C 39 A7 A0 03 00 00 75 4C B9 F0 03 00 00 E8 F8 5D 44 00 48 89 45 78
+4C 8B 87 98 03 00 00 48 8B 97 90 03 00 00 48 8B C8 E8 EA 42 FC FF 90
+48 89 87 A0 03 00 00
+"""
+memory = "code"
+values.background = { at = 49, size = 4 }
+note = "containerWindowType keyword handler 0x15EC770, background: a buttonType definition stored once at +0x3A0; the container's destructor (0x15EC5B0) never frees it"
+
 [symbol.window_name_slot]
 rva = 0x154AD60
 bytes = "48 8D 81 28 0A 00 00 48 83 78 18 10 48 8B D0 72 03 48 8B 10 80 3A 00 75 0E 48 8B 89 B0 00 00 00 48 8B 01 48 FF 60 40 C3"

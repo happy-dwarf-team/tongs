@@ -40,7 +40,7 @@ struct UiLayout {
     unsigned hovered = U32(sym::hover_callback.hovered);          // mgr: the topmost widget under the GUI pointer, written once per frame
 
     // Stale widgets (ui_definitions.hpp): the type registry, the definition
-    // classes with nested definitions, each widget's definition, and the names
+    // classes with nested maps or pointer fields, each widget's definition, and the names
     // windows and containers keep themselves. Vtables here are RVAs.
     unsigned type_registry = U32(sym::row_type_lookup.registry);  // mgr: the name -> top-level definition tree
     TypeTreeLayout type_tree = {
@@ -55,7 +55,21 @@ struct UiLayout {
          {U32(sym::eu3dialog_definition.vtable), U32(sym::window_type_definition.map)},
          {U32(sym::listbox_definition.vtable), U32(sym::listbox_definition_map.map)},
          {U32(sym::container_definition.vtable), U32(sym::container_definition_map.map)},
-         {U32(sym::scrollbar_definition.vtable), U32(sym::scrollbar_definition_map.map)}}};
+         {U32(sym::scrollbar_definition.vtable), U32(sym::scrollbar_definition_map.map)}},
+        // Button definitions an extended scroll bar owns (its destructor deletes
+        // them) and a container's background (never freed).
+        {{U32(sym::extended_scrollbar_definition.vtable), U32(sym::extended_scrollbar_definition.background),
+          U32(sym::button_definition.vtable)},
+         {U32(sym::extended_scrollbar_definition.vtable), U32(sym::extended_scrollbar_definition.track),
+          U32(sym::button_definition.vtable)},
+         {U32(sym::extended_scrollbar_definition.vtable), U32(sym::extended_scrollbar_definition.slider),
+          U32(sym::button_definition.vtable)},
+         {U32(sym::extended_scrollbar_definition.vtable), U32(sym::extended_scrollbar_definition.increase),
+          U32(sym::button_definition.vtable)},
+         {U32(sym::extended_scrollbar_definition.vtable), U32(sym::extended_scrollbar_definition.decrease),
+          U32(sym::button_definition.vtable)},
+         {U32(sym::container_definition.vtable), U32(sym::container_background.background),
+          U32(sym::button_definition.vtable)}}};
     static_assert(sym::window_type_definition.map_vtable == sym::listbox_definition_map.map_vtable &&
                   sym::window_type_definition.map_vtable == sym::container_definition.map_vtable &&
                   sym::window_type_definition.map_vtable == sym::scrollbar_definition_map.map_vtable);
