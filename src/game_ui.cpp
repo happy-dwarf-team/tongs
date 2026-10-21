@@ -130,14 +130,14 @@ std::vector<Held> HeldBy(std::uintptr_t widget, const UiKind& kind, const UiLayo
     const std::uintptr_t full = widget - l.window_part;
     switch (kind.children) {
         case UiKind::Children::Window:
-            for (unsigned i = 0; i < l.window_pair_count; ++i) ReadPair(widget + l.window_pairs + i * l.pair_stride, l, out);
-            for (unsigned i = 0; i < l.window_map_count; ++i) {
+            for (std::size_t i = 0; i < l.window_pair_count; ++i) ReadPair(widget + l.window_pairs + i * l.pair_stride, l, out);
+            for (std::size_t i = 0; i < l.window_map_count; ++i) {
                 ReadList(full + l.window_maps + i * l.map_stride + l.map_list_head, l, 0, true, l.map_entry_name, out);
             }
             ReadVector(full + l.window_subwindows, l.subwindow_size, l.subwindow_pointer, l.subwindow_name, out);
             break;
         case UiKind::Children::Container:
-            for (unsigned i = 0; i < l.container_pair_count; ++i) {
+            for (std::size_t i = 0; i < l.container_pair_count; ++i) {
                 ReadPair(widget + l.container_pairs + i * l.pair_stride, l, out);
             }
             break;
