@@ -878,10 +878,57 @@ Findings:
   definitions (class `0x1D9A7B0`) are live, but they are held by plain
   pointer fields, not maps: class `0x1D9ED10` at `+0x140`…`+0x158` and
   `containerWindowType` definitions at `+0x3A0`. The walk did not follow
-  those fields; it does now ("Pointer fields" above). The fix was checked
-  statically and by unit tests, not yet in the game.
+  those fields; it does now ("Pointer fields" above and the live check
+  below).
 - **Settings and save.** The save was unchanged, and `settings.txt` differed
   only in `graceful_exit` (restored). No crash dump was written.
+
+### Live check of the pointer fields (2026-10-21)
+
+The same setup and script as above, with this change (session
+`tongs63-stale-1`). The outside count now also follows the pointer fields.
+After each step the script also looked for the seven former false
+positives (`//hitbox`, `//Slider`, `//Track`, `//Increase`, `//Decrease`
+with `stale`).
+
+| After | Roots | Stale roots | Stale widgets (Tongs) | Stale widgets (outside) | Held by a pointer field | Former false positives stale |
+| --- | --- | --- | --- | --- | --- | --- |
+| loading | 385 | 0 | 0 | 0 | 7 | 0 of 6 matches |
+| `reload outliner.gui` | 411 | 17 | 51 | 51 | 7 | 0 |
+| `reload outliner.gui` | 479 | 34 | 133 | 102 | 7 | 0 |
+| `reload topbar.gui` | 513 | 23 | 97 | 97 | 7 | 0 |
+
+Findings:
+
+- **The seven are live.** In a fresh game no widget is stale. The outside
+  count finds 31 definitions held by pointer fields, seven widgets built
+  from them, and no widget outside the registry, the maps and the fields.
+  `//Slider` has two matches, the other four selectors one each; none is
+  stale at any step.
+- **Stale after the reloads.** After each outliner reload, 17 more
+  outliner header rows (`{icon, text}` windows) are stale roots, as in the
+  first check. After the topbar reload the stale widgets are 23 windows,
+  all roots (20 header rows and three without children), 37 icons and 37
+  texts. So 17 icon and text pairs are stale inside windows that read
+  live; the outside count, which looks at each widget's own definition,
+  splits them the same way. `hotkey_assign_parent` read live this time
+  (stale in the first check). Not examined further; a freed address that
+  the reload reused for another definition (see above) would look like
+  this.
+- **Counts.** The script counts stale widgets as the difference of two
+  reads (`ui find //* all` with and without `stale`). The game adds
+  widgets between them even while paused (15 862 against 15 995 after the
+  second outliner reload), so the 133 is not a count: that step's tree read
+  had 34 stale roots with two children each, 102 widgets, the outside
+  count. At the end, stale widgets counted inside each answer (`ui find
+  //[type=T] all stale`, two passes) were 97 (23 windows, 37 icons, 37
+  texts), equal to the outside count of the same moment.
+- **No crash.** All reads answered, the topbar read that crashed the Etch
+  prototype ran three times, and no crash dump was written. Tree reads took
+  10–26 ms.
+- **Settings and save.** The save was unchanged, `settings.txt` differed
+  only in `graceful_exit` (restored), the EXE hash and the Process Lasso
+  rule `eu4.exe,0,1-7` were unchanged afterwards.
 
 Known gap: when a definition class outside the table holds nested
 definitions, their widgets read as stale (unnamed, left out of `ui find`).
