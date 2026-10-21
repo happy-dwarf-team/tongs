@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.1](https://github.com/happy-dwarf-team/tongs/compare/v0.14.0...v0.14.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* follow pointer fields to live button definitions ([#63](https://github.com/happy-dwarf-team/tongs/issues/63)) ([1b456d1](https://github.com/happy-dwarf-team/tongs/commit/1b456d1544f81b292f9acd9e5371fb46c3796fea))
+
 ## [0.14.0](https://github.com/happy-dwarf-team/tongs/compare/v0.13.0...v0.14.0) (2026-10-20)
 
 
