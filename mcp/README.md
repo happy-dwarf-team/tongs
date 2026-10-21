@@ -9,7 +9,7 @@ The server adds no power the pipe does not have. Every tool sends one Tongs
 command and returns the plugin's answer unchanged; the plugin's config still
 decides what is allowed: `enabled = true` for the pipe, `input = true` for
 keyboard and mouse input, `game_calls = true` for `console`. See the
-[Tongs README](../README.md) for the commands and their answers.
+[Tongs commands](../docs/commands.md) for the commands and their answers.
 
 ## Requirements
 
