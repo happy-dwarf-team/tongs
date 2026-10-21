@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/happy-dwarf-team/tongs/compare/v0.13.0...v0.14.0) (2026-10-20)
+
+
+### Features
+
+* mark stale widgets and never call through a freed definition ([#61](https://github.com/happy-dwarf-team/tongs/issues/61)) ([b8dd6b3](https://github.com/happy-dwarf-team/tongs/commit/b8dd6b31015a0c3875652fb0b1183807528b777b))
+
 ## [0.13.0](https://github.com/happy-dwarf-team/tongs/compare/v0.12.0...v0.13.0) (2026-10-20)
 
 
