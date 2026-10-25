@@ -622,7 +622,11 @@ std::string MouseCommand(const Handlers& h, std::string_view command, std::strin
         if (!ParseInt(words[1], x) || !ParseInt(words[2], y)) return Error("usage: scroll STEPS [X Y]");
         if (std::string error = CheckPoint(h, x, y); !error.empty()) return Error(error);
         extra += PointAt(h, x, y);
-        events.push_back(MoveTo(x, y));
+        // The interface sends the wheel to the widgets under the pointer of its last frame,
+        // so the move must be seen before the wheel turns, as for a click.
+        ActionResult moved = actions.Settled({MoveTo(x, y)}, 0);
+        if (!moved.ok) return ActionJson(command, moved);
+        h.sleep_ms(kClickMoveSettleMs);
     }
     const int one = steps > 0 ? 1 : -1;
     for (int i = 0; i != steps; i += one) {

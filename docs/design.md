@@ -278,7 +278,23 @@ to the result instead of calling the game's code. It is dropped by `release`
 or as soon as the real cursor is somewhere else than when the pointer was
 set, so a player's mouse takes over again. `click` sets the pointer, sends
 the motion event, waits 50 ms for the interface to update its hover state,
-then sends button down and up.
+then sends button down and up. `scroll X Y` waits the same way before it
+turns the wheel.
+
+The wheel (statically, [#51](https://github.com/happy-dwarf-team/tongs/issues/51)):
+the event loop counts it on the game's mouse object (the input system at
+`0x23494E8`, `+8`; `+0xFC` the last step, `+0x108` the sum) and queues an
+interface event with `+0x14` = 3 (a release), `+0x18` = 4 (the wheel) and
+the step's sign at `+0x1C`, without a position. Once per frame the GUI manager
+(`0x14E9A70`) reads the pointer through `gui_cursor`, takes the widgets under
+it from the hit list of the last render, and sets `+0x8F` on each of them;
+then it hands the queued events to those widgets from the top (`0x14EA3D0`)
+until one is handled. Rows, their check boxes and text boxes without a scroll
+bar pass the wheel on; `listboxType` (`0x1531E00`) and `smoothListboxType`
+(`0x1584F30`) scroll when `+0x8F` is set, they have a scroll bar and items.
+Without a list under the pointer the wheel zooms the map. A wheel queued in
+the same frame as the move would go to the widgets under the old pointer,
+which is why `scroll X Y` lets the move settle first.
 
 ## Worker pools
 
@@ -1801,7 +1817,7 @@ creation time) and the files removed by hand.
 | `mgr+0x130` | 0 with nothing under the pointer; `covered_by: null` |
 | Speed 5 | `ui click` on the speed buttons worked while running |
 | `ui click` | the first move after a click on a scroll bar button sometimes found nothing hovered (fixed: up to three tries, then a step aside); a row's own label covers the centre of its check box, so clicking the row window works |
-| List boxes | rows are made only for what is shown and refilled as the list scrolls; the wheel did not scroll the save list ([#51](https://github.com/happy-dwarf-team/tongs/issues/51)); scroll bar rects were relative (fixed) |
+| List boxes | rows are made only for what is shown and refilled as the list scrolls; the wheel did not scroll the save list ([#51](https://github.com/happy-dwarf-team/tongs/issues/51), not reproduced later, see below); scroll bar rects were relative (fixed) |
 | Widgets | check box `+0x100`, edit box `+0xF8` (added); overlapping elements boxes `0x1DA4910` and grid boxes not read ([#48](https://github.com/happy-dwarf-team/tongs/issues/48); fixed); `.gui` sizes ([#50](https://github.com/happy-dwarf-team/tongs/issues/50); fixed: "Widget sizes") |
 | Events | seven options, one hidden: `event choose 7` refused `not_visible` (fixed: scrolls); `ui click` on an option gave `chosen: null` (fixed); no event paused the game |
 | Game calls | `clear`, `run` with a base-game file; no faulting call forced |
@@ -1811,6 +1827,36 @@ creation time) and the files removed by hand.
 Also seen: after a click on an incompatible save in the lobby, the main
 thread stayed busy for minutes (`tongs-harden-4`, until the launcher's limit);
 loading an incompatible save's summary was not investigated.
+
+### The wheel on list boxes (#51, 2026-10-25)
+
+Lab runs `tongs-wheel-2` … `-4`: the original executable, Anvil 1.3.0 and
+Tongs from `main` with the change below, started in the menu; the save list
+in the lobby with unsafe saves shown (so that it has a scroll bar), and the
+outliner after loading the Russia save from the lobby with `ui click`.
+
+- `scroll` with the virtual pointer scrolled the save list, focused and
+  unfocused, by as many rows as steps (−1, −3, +4); three `scroll -10` over
+  the list brought `mp_Russia1719_03_17` into view. In the game it scrolled
+  the outliner and `scroll 8` over the map zoomed in.
+- Sending the move and the wheel in one batch (the code before this change)
+  also scrolled every time: 3 of 3 in the lobby (about 160 frames/s) and 6 of
+  6 on the outliner (74 frames/s, pointer moved from the map each time); the
+  settle wait closes a race that was not caught live.
+- A temporary build that logged the list box's input handler showed both
+  wheel events of every `scroll -2` reaching `outliner_list` with `+0x8F`
+  set.
+- The one way the wheel was lost: after a real click whose release SDL
+  delivered only when the real cursor next moved over the window, no wheel
+  event reached the list, neither from `scroll` nor from the real wheel,
+  until the release came. Tongs sends press and release together, so it
+  cannot leave the interface in that state itself. What blocked the wheel in
+  `tongs-harden-1` is not known.
+- Reading rows by path to tell whether a list moved is unreliable: a row's
+  path stays while the list refills it, but the first row by path was not
+  always the top one; compare the rows by their `rect.y` instead. Without
+  unsafe saves the lab's save list fits and has no scroll bar, so nothing
+  scrolls it.
 
 ## Anvil 1.0 (plugin API 2)
 

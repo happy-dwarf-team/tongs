@@ -37,7 +37,7 @@ With `input = true` in the settings, also:
 | `text STRING` | types the rest of the line into the focused text field (characters U+0020–U+007E and U+00A0–U+00FF) |
 | `move X Y` | points the mouse at client coordinates `X Y` (hovering shows tooltips) |
 | `click X Y [left\|right\|middle] [double]` | moves there and clicks |
-| `scroll STEPS [X Y]` | turns the wheel; positive scrolls up (zooms in on the map), negative down |
+| `scroll STEPS [X Y]` | turns the wheel over the list or map under the pointer; positive scrolls up (zooms in on the map), negative down. With `X Y` it moves there first and lets the game see the pointer, as `click` does |
 | `release` | hands the pointer back to the real mouse |
 | `ui click SEL [timeout=S]` | clicks the centre of the one widget the selector matches (see [Widgets](#widgets)) |
 | `event choose N\|text^="..." [event=N\|event=title^="..."] [timeout=S]` | clicks an option of an open event (see [Events](#events)) |
