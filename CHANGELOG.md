@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.15.0](https://github.com/happy-dwarf-team/tongs/compare/v0.14.1...v0.15.0) (2026-10-25)
+
+
+### Features
+
+* **events:** name the player's own choices and the deadline auto-selection in chosen ([#71](https://github.com/happy-dwarf-team/tongs/issues/71)) ([ef06fd1](https://github.com/happy-dwarf-team/tongs/commit/ef06fd1035cfc73698b1d0a9e90290fcb68f6cdf))
+
+
+### Bug Fixes
+
+* **input:** let the pointer settle before scroll turns the wheel ([#75](https://github.com/happy-dwarf-team/tongs/issues/75)) ([2832828](https://github.com/happy-dwarf-team/tongs/commit/28328285c3854806d40ef0bd9912e0171fe48737))
+* **ui:** fit widget rects to what the game draws ([#74](https://github.com/happy-dwarf-team/tongs/issues/74)) ([bfaf024](https://github.com/happy-dwarf-team/tongs/commit/bfaf0248518ef89f8858da3e0c6b6da61b55495b))
+* **ui:** read the children of overlapping elements boxes and grid boxes ([#72](https://github.com/happy-dwarf-team/tongs/issues/72)) ([68309f1](https://github.com/happy-dwarf-team/tongs/commit/68309f1b9f209eff55fbf7b1b6a596ecca6bd15a))
+
 ## [0.14.1](https://github.com/happy-dwarf-team/tongs/compare/v0.14.0...v0.14.1) (2026-10-21)
 
 
