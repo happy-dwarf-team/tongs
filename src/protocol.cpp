@@ -1440,6 +1440,12 @@ std::string Subscribe(std::string_view line, const Handlers& h, std::shared_ptr<
                       ? ",\"error_log\":{\"path\":" + Quote(where.path) + ",\"source\":" + Quote(where.source) + "}"
                       : ",\"error_log\":{\"error\":" + Quote(where.error) + "}";
     }
+    if ((request.kinds & Bit(NotificationKind::Event)) && h.locate_game_log) {
+        const ErrorLogLocation where = h.locate_game_log();
+        answer += where.error.empty()
+                      ? ",\"game_log\":{\"path\":" + Quote(where.path) + ",\"source\":" + Quote(where.source) + "}"
+                      : ",\"game_log\":{\"error\":" + Quote(where.error) + "}";
+    }
     // The state the notifications start from.
     if (h.read_state) answer += "," + StateFields(h.read_state());
     out = h.notifications->Subscribe(request);

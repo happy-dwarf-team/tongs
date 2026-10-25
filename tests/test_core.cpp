@@ -1897,37 +1897,135 @@ static void TestEventChanges() {
     EventsRaw raw = EventRaw(t);
     const std::vector<EventView> both = BuildEvents(t, raw);  // Tariffs on Fish (0xC2) on top of Plague (0xC1)
     std::vector<KnownEvent> known;
-    std::vector<std::string> c = EventChanges(known, both, {});
-    assert(c.size() == 2 && known.size() == 2);
-    assert(c[0] == ",\"change\":\"opened\",\"id\":\"flavor_x.2\",\"title\":\"Plague\",\"options\":[{\"number\":1,\"text\":\"Pray\","
-                   "\"option_index\":0,\"option_key\":\"flavor_x.2.a\"}]");
-    assert(Contains(c[1], "\"id\":\"flavor_rus.1\",\"title\":\"Tariffs on Fish\",\"options\":[{\"number\":1,") &&
-           Contains(c[1], "{\"number\":2,\"text\":\"Refuse them\",\"option_index\":1,\"option_key\":\"flavor_rus.1.b\"}"));
-    assert(EventChanges(known, both, {}).empty());
+    EventDiff d = DiffEvents(known, both);
+    assert(d.closed.empty() && d.opened.size() == 2 && known.size() == 2);
+    assert(d.opened[0] == ",\"change\":\"opened\",\"id\":\"flavor_x.2\",\"title\":\"Plague\",\"options\":[{\"number\":1,\"text\":\"Pray\","
+                          "\"option_index\":0,\"option_key\":\"flavor_x.2.a\"}]");
+    assert(Contains(d.opened[1], "\"id\":\"flavor_rus.1\",\"title\":\"Tariffs on Fish\",\"options\":[{\"number\":1,") &&
+           Contains(d.opened[1], "{\"number\":2,\"text\":\"Refuse them\",\"option_index\":1,\"option_key\":\"flavor_rus.1.b\"}"));
+    assert(known[1].options.size() == 3 && known[1].options[2].index == 3);  // kept for `chosen`
+    d = DiffEvents(known, both);
+    assert(d.closed.empty() && d.opened.empty());
 
-    // Plague chosen through Tongs, Tariffs on Fish by someone else.
+    // Plague closes, then Tariffs on Fish.
     raw.events[1].waiting = false;
-    std::vector<std::uintptr_t> asked;
-    const ChoiceLookup lookup = [&asked](std::uintptr_t controller, const std::string& id) -> std::optional<std::string> {
-        asked.push_back(controller);
-        if (controller == 0xC1 && id == "flavor_x.2") return std::string("{\"number\":1,\"by\":\"tongs\"}");
-        return std::nullopt;
-    };
-    c = EventChanges(known, BuildEvents(t, raw), lookup);
-    assert(c.size() == 1 && c[0] == ",\"change\":\"closed\",\"id\":\"flavor_x.2\",\"title\":\"Plague\",\"chosen\":{\"number\":1,\"by\":\"tongs\"}");
+    d = DiffEvents(known, BuildEvents(t, raw));
+    assert(d.closed.size() == 1 && d.closed[0].controller == 0xC1 && d.opened.empty());
+    assert(ClosedMembers(d.closed[0], "{\"number\":1,\"by\":\"tongs\"}") ==
+           ",\"change\":\"closed\",\"id\":\"flavor_x.2\",\"title\":\"Plague\",\"chosen\":{\"number\":1,\"by\":\"tongs\"}");
     raw.events[2].waiting = false;
-    c = EventChanges(known, BuildEvents(t, raw), lookup);
-    assert(c.size() == 1 && Contains(c[0], "\"title\":\"Tariffs on Fish\",\"chosen\":null") && known.empty());
-    assert((asked == std::vector<std::uintptr_t>{0xC1, 0xC2}));
+    d = DiffEvents(known, BuildEvents(t, raw));
+    assert(d.closed.size() == 1 && d.closed[0].title == "Tariffs on Fish" && known.empty());
+    assert(Contains(ClosedMembers(d.closed[0], "null"), "\"title\":\"Tariffs on Fish\",\"chosen\":null"));
 
     // The same controller with another event: the old one closed, the new one opened.
     raw = EventRaw(t);
     known.clear();
-    EventChanges(known, BuildEvents(t, raw), {});
+    DiffEvents(known, BuildEvents(t, raw));
     raw.events[1].id = "flavor_x.3";
-    c = EventChanges(known, BuildEvents(t, raw), {});
-    assert(c.size() == 2 && Contains(c[0], "\"change\":\"closed\",\"id\":\"flavor_x.2\"") &&
-           Contains(c[1], "\"change\":\"opened\",\"id\":\"flavor_x.3\""));
+    d = DiffEvents(known, BuildEvents(t, raw));
+    assert(d.closed.size() == 1 && d.closed[0].id == "flavor_x.2" && d.opened.size() == 1 &&
+           Contains(d.opened[0], "\"change\":\"opened\",\"id\":\"flavor_x.3\""));
+}
+
+static void TestChoiceLog() {
+    // The lines the game writes (live, EU4 1.37.5).
+    std::optional<LoggedChoice> c = ParseChoiceLine("[eventwindow.cpp:486]: Selected event option 10 for event 5060");
+    assert(c && !c->automatic && c->option_index == 10 && c->id == "5060");
+    c = ParseChoiceLine("[eventwindow.cpp:486]: Selected event option 2 for event flavor_rus.129");
+    assert(c && c->option_index == 2 && c->id == "flavor_rus.129");
+    c = ParseChoiceLine("[eventwindow.cpp:494]: Auto-selected event option 0 for event parlaments.1 ");
+    assert(c && c->automatic && c->option_index == 0 && c->id == "parlaments.1");
+    assert(!ParseChoiceLine("[eventwindow.cpp:486]: Selected event option x for event a.1"));
+    assert(!ParseChoiceLine("[eventwindow.cpp:486]: Selected event option -1 for event a.1"));
+    assert(!ParseChoiceLine("[eventwindow.cpp:486]: Selected event option 1 for event "));
+    assert(!ParseChoiceLine("[effect.cpp:12]: Selected event option 1 for event a.1"));  // only the event window's own line
+    assert(!ParseChoiceLine("Selected event option 1 for event a.1"));
+
+    // The option as the event opened: hidden options keep their index.
+    const UiTree t = EventTree();
+    std::vector<KnownEvent> known;
+    DiffEvents(known, BuildEvents(t, EventRaw(t)));
+    const KnownEvent plague = known[0], fish = known[1];
+    assert(LoggedChoiceJson(fish, {false, 3, "flavor_rus.1"}) ==
+           "{\"number\":3,\"text\":\"Ask the merchants\",\"option_index\":3,\"option_key\":\"\",\"by\":\"player\"}");
+    assert(LoggedChoiceJson(fish, {true, 2, "flavor_rus.1"}) ==
+           "{\"number\":null,\"text\":null,\"option_index\":2,\"option_key\":null,\"by\":\"auto\"}");
+
+    using Closed = std::vector<std::pair<KnownEvent, std::optional<std::string>>>;
+    ChoiceMatcher m;
+    // The usual order: the line is there before the event is seen closed.
+    m.Logged({false, 1, "flavor_rus.1"}, 100);
+    m.Closed(Closed{{fish, std::nullopt}}, 110);
+    std::vector<std::string> due = m.Due(110, true);
+    assert(due.size() == 1 && Contains(due[0], "\"title\":\"Tariffs on Fish\",\"chosen\":{\"number\":2,\"text\":\"Refuse them\"") &&
+           Contains(due[0], "\"by\":\"player\"}") && !m.waiting());
+    // The line after the event: it waits for it, then for nothing more than kWaitMs.
+    m.Closed(Closed{{plague, std::nullopt}}, 200);
+    assert(m.Due(250, true).empty() && m.waiting());
+    m.Logged({true, 0, "flavor_x.2"}, 260);
+    due = m.Due(260, true);
+    assert(due.size() == 1 && Contains(due[0], "\"chosen\":{\"number\":1,\"text\":\"Pray\",\"option_index\":0,\"option_key\":\"flavor_x.2.a\",\"by\":\"auto\"}"));
+    m.Closed(Closed{{plague, std::nullopt}}, 300);
+    assert(m.Due(300 + ChoiceMatcher::kWaitMs - 1, true).empty());
+    due = m.Due(300 + ChoiceMatcher::kWaitMs, true);
+    assert(due.size() == 1 && Contains(due[0], "\"chosen\":null"));
+    // Without game.log nothing waits.
+    m.Closed(Closed{{plague, std::nullopt}}, 2000);
+    due = m.Due(2000, false);
+    assert(due.size() == 1 && Contains(due[0], "\"chosen\":null"));
+
+    // A choice Tongs noted comes at once and takes its line when the line comes,
+    // so the line does not go to the next event with that id.
+    m.Closed(Closed{{fish, std::string("{\"by\":\"tongs\"}")}}, 3000);
+    due = m.Due(3000, true);
+    assert(due.size() == 1 && Contains(due[0], "\"chosen\":{\"by\":\"tongs\"}") && m.waiting());
+    m.Logged({false, 0, "flavor_rus.1"}, 3010);
+    assert(m.Due(3010, true).empty() && !m.waiting());
+    m.Closed(Closed{{fish, std::nullopt}}, 3100);
+    m.Logged({false, 1, "flavor_rus.1"}, 3110);
+    due = m.Due(3110, true);
+    assert(due.size() == 1 && Contains(due[0], "\"option_index\":1,"));
+    // A later event waits behind an earlier one, so `closed` keeps its order.
+    m.Closed(Closed{{plague, std::nullopt}}, 4000);
+    m.Closed(Closed{{fish, std::nullopt}}, 4010);
+    m.Logged({false, 0, "flavor_rus.1"}, 4020);
+    assert(m.Due(4020, true).empty());
+    m.Logged({false, 0, "flavor_x.2"}, 4030);
+    due = m.Due(4030, true);
+    assert(due.size() == 2 && Contains(due[0], "\"title\":\"Plague\",\"chosen\":{") && Contains(due[1], "\"title\":\"Tariffs on Fish\",\"chosen\":{"));
+
+    // Two events with one id. Closed in different reads, each takes the line
+    // written before it; closed in one read, they are named only when their lines agree.
+    KnownEvent first = fish, second = fish;
+    second.controller = 0xC3;
+    m.Logged({false, 0, "flavor_rus.1"}, 5000);
+    m.Closed(Closed{{first, std::nullopt}}, 5000);
+    m.Logged({false, 1, "flavor_rus.1"}, 5100);
+    m.Closed(Closed{{second, std::nullopt}}, 5100);
+    due = m.Due(5100, true);
+    assert(due.size() == 2 && Contains(due[0], "\"option_index\":0,") && Contains(due[1], "\"option_index\":1,"));
+    m.Logged({true, 0, "flavor_rus.1"}, 6000);
+    m.Logged({true, 0, "flavor_rus.1"}, 6000);
+    m.Closed(Closed{{first, std::nullopt}, {second, std::nullopt}}, 6000);
+    due = m.Due(6000, true);
+    assert(due.size() == 2 && Contains(due[0], "\"by\":\"auto\"") && Contains(due[1], "\"by\":\"auto\""));
+    m.Logged({false, 0, "flavor_rus.1"}, 7000);
+    m.Logged({false, 1, "flavor_rus.1"}, 7000);
+    m.Closed(Closed{{first, std::nullopt}, {second, std::nullopt}}, 7000);
+    due = m.Due(7000, true);
+    assert(due.size() == 2 && Contains(due[0], "\"chosen\":null") && Contains(due[1], "\"chosen\":null"));
+
+    // A line no closed event takes (an event Tongs did not know) is dropped after kKeepLineMs.
+    m.Logged({false, 0, "flavor_x.2"}, 8000);
+    m.Due(8000 + ChoiceMatcher::kKeepLineMs, true);
+    m.Closed(Closed{{plague, std::nullopt}}, 8000 + ChoiceMatcher::kKeepLineMs);
+    due = m.Due(8000 + ChoiceMatcher::kKeepLineMs, false);
+    assert(due.size() == 1 && Contains(due[0], "\"chosen\":null"));
+    m.Logged({false, 0, "flavor_x.2"}, 20000);
+    m.Closed(Closed{{plague, std::nullopt}}, 20000);
+    m.Reset();
+    assert(!m.waiting() && m.Due(20000, false).empty());
 }
 
 static void TestLineTail() {
@@ -1998,25 +2096,51 @@ static void TestNotificationSources() {
     };
     NotificationHub event_hub(hs.now_ms);
     hs.notifications = &event_hub;
+    // game.log, which names the choices Tongs does not make.
+    std::string game_log = "[main.cpp:527]: \n";
+    hs.locate_game_log = [] { return ErrorLogLocation{"C:\\user\\logs\\game.log", "physfs_write_dir", ""}; };
+    hs.read_log_chunk = [&game_log](const std::string& path, std::uint64_t offset, std::size_t max, LineTail::Chunk& chunk) {
+        assert(path == "C:\\user\\logs\\game.log");
+        chunk = {game_log.size(), 1, offset < game_log.size() ? game_log.substr(offset, max) : std::string(), false};
+        return std::string();
+    };
     request.kinds = Bit(NotificationKind::Event);
     const auto events = event_hub.Subscribe(request);
     NotificationSources event_sources(hs, event_hub);
     FakeMainThread main(screen.dispatcher);
-    event_sources.PollEvents();  // the two open events are the baseline
+    game_log += "[eventwindow.cpp:486]: Selected event option 0 for event flavor_x.2\n";  // before the baseline
+    event_sources.PollEvents();  // the two open events and the end of game.log are the baseline
     event_sources.PollEvents();
     assert(events->Take(0).empty());
     assert(Contains(HandleRequest("event choose 1 event=title^=tariffs", hs, 3), "\"ok\":true"));
+    game_log += "[eventwindow.cpp:486]: Selected event option 0 for event flavor_rus.1\n";
     event_sources.PollEvents();
     lines = Lines(events->Take(0));
     assert(lines.size() == 1 && Contains(lines[0], "\"change\":\"closed\",\"id\":\"flavor_rus.1\"") &&
            Contains(lines[0], "\"chosen\":{\"number\":1,\"text\":\"Accept the tariffs\",\"option_index\":0,\"option_key\":\"flavor_rus.1.a\",\"by\":\"tongs\",\"client\":3,\"choice_date\":\"1719.3.17\"}"));
-    // An event opens: the count goes up.
+    // An event opens (the count goes up) as the game chooses Plague at its deadline.
     screen.raw = EventRaw(screen.tree);
     screen.raw.events.erase(screen.raw.events.begin() + 1);  // without Plague, which is still known: it closed
+    game_log += "[eventwindow.cpp:494]: Auto-selected event option 0 for event flavor_x.2\n";
     event_sources.PollEvents();
     lines = Lines(events->Take(0));
-    assert(lines.size() == 2 && Contains(lines[0], "\"change\":\"closed\",\"id\":\"flavor_x.2\",\"title\":\"Plague\",\"chosen\":null") &&
+    assert(lines.size() == 2 &&
+           Contains(lines[0], "\"change\":\"closed\",\"id\":\"flavor_x.2\",\"title\":\"Plague\",\"chosen\":{\"number\":1,\"text\":\"Pray\",\"option_index\":0,\"option_key\":\"flavor_x.2.a\",\"by\":\"auto\"}") &&
            Contains(lines[1], "\"change\":\"opened\",\"id\":\"flavor_rus.1\""));
+    // The player clicks the second option; the line is read after the event is seen closed.
+    screen.raw.events[1].waiting = false;
+    screen.raw.listed_windows.pop_back();
+    event_sources.PollEvents();
+    assert(events->Take(0).empty());
+    game_log += "[eventwindow.cpp:486]: Selected event option 1 for event flavor_rus.1\n";
+    event_sources.PollEvents();
+    lines = Lines(events->Take(0));
+    assert(lines.size() == 1 && Contains(lines[0], "\"title\":\"Tariffs on Fish\",\"chosen\":{\"number\":2,\"text\":\"Refuse them\",\"option_index\":1,\"option_key\":\"flavor_rus.1.b\",\"by\":\"player\"}"));
+    screen.raw = EventRaw(screen.tree);
+    screen.raw.events.erase(screen.raw.events.begin() + 1);
+    event_sources.PollEvents();
+    lines = Lines(events->Take(0));
+    assert(lines.size() == 1 && Contains(lines[0], "\"change\":\"opened\",\"id\":\"flavor_rus.1\""));
     // No session: what was known closes without the main thread.
     no_session = true;
     event_sources.PollEvents();
@@ -2092,11 +2216,16 @@ static void TestSubscribeCommands() {
     out = SubscribedRequest("unsubscribe", h, sub);
     assert(out == "{\"ok\":true,\"command\":\"unsubscribe\",\"sent\":1,\"dropped\":0,\"discarded\":1}" && !sub && hub.subscriptions() == 0);
 
-    // Kinds the plugin cannot serve are named; error_log says where it reads.
+    // Kinds the plugin cannot serve are named; error_log and event say which log they read.
     h.locate_error_log = [] { return ErrorLogLocation{"C:\\docs\\logs\\error.log", "physfs_write_dir", ""}; };
+    h.locate_game_log = [] { return ErrorLogLocation{"", "", "not yet"}; };
     out = Subscribe("subscribe event,error_log,activity", h, sub);
     assert(Contains(out, "\"kinds\":[\"event\",\"error_log\",\"activity\"],\"queue\":1000,\"unavailable\":[\"event\",\"error_log\"],"
-                         "\"error_log\":{\"path\":\"C:\\\\docs\\\\logs\\\\error.log\",\"source\":\"physfs_write_dir\"}"));
+                         "\"error_log\":{\"path\":\"C:\\\\docs\\\\logs\\\\error.log\",\"source\":\"physfs_write_dir\"},"
+                         "\"game_log\":{\"error\":\"not yet\"}"));
+    std::shared_ptr<Subscription> log_only;
+    assert(!Contains(Subscribe("subscribe error_log", h, log_only), "game_log"));
+    hub.Unsubscribe(log_only);
     assert(Contains(Subscribe("subscribe nothing", h, sub), "{\"ok\":false,\"error\":\"bad_command\",\"detail\":\"unknown kind: nothing"));
 
     // Without a subscription: subscribe needs the pipe server, unsubscribe has nothing to end.
@@ -2459,6 +2588,7 @@ int main() {
     TestNotificationHub();
     TestStateChanges();
     TestEventChanges();
+    TestChoiceLog();
     TestLineTail();
     TestNotificationSources();
     TestSubscribeCommands();

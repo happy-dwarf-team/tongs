@@ -175,7 +175,7 @@ is `all` or a list such as `state,date,event`:
 | --- | --- |
 | `state` | the game is entered or left (`change`: `entered_game`, `left_game` with `reason`), paused or resumed (`paused`, `resumed`) or the speed changes (`speed`, with `previous_speed`); each with `speed`, `paused`, `paused_flag`. Also while a save loads |
 | `date` | a new day, month (the default) or year begins, with `unit` and `previous` |
-| `event` | an event window opens (`opened`, with `id`, `title` and `options`) or closes (`closed`, with `chosen`: the option when Tongs chose it with `event choose`, `run_until events=first` or `ui click` on the option button (`via: "ui click"`); `null` for the player's own mouse and the game's choice at the deadline) |
+| `event` | an event window opens (`opened`, with `id`, `title` and `options`) or closes (`closed`, with `chosen`: the option, with `by` saying who chose it: `tongs` for `event choose`, `run_until events=first` or `ui click` on the option button (`via: "ui click"`), `player` for any other click on an option (the real mouse, a plain `click`), `auto` for the game's own choice at the deadline; `null` when nobody's choice is known) |
 | `error_log` | the game writes a `line` to its `error.log`; `restarted` when the file was replaced |
 | `activity` | any client sends an input command (`what: "input"`, `command`) or a game call (`what: "game_call"`, `line`, `name`), with the `client` (pipe instance) and the running count (`inputs`, `game_calls`), so a marked run shows as it happens |
 
@@ -191,9 +191,16 @@ is `all` or a list such as `state,date,event`:
   `wall_ms` since the subscription. Answers always have `command`, so the two
   never mix up.
 - The `subscribe` answer lists the `kinds`, kinds the plugin cannot serve as
-  `unavailable`, for `error_log` the file it follows, and the current state,
+  `unavailable`, for `error_log` and `event` the file each follows
+  (`error_log`, `game_log`), and the current state,
   which the first notifications change. Only changes after the subscription
   are reported.
+- `chosen` with `by` `player` or `auto` comes from the game's `game.log`,
+  which names the option's index; `number`, `text` and `option_key` are those
+  the event opened with (`null` for an option that was not on screen). Such a
+  `closed` may come up to a second late while Tongs waits for the line. When
+  two events with the same id close at once and the log names different
+  options, `chosen` is `null` for both.
 - While subscribed, the connection answers `ping` and `unsubscribe` and
   refuses everything else (`subscribed`). `unsubscribe` answers with `sent`,
   `dropped` and `discarded` (still queued, not sent) and the connection takes

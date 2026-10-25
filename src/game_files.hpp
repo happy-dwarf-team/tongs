@@ -5,16 +5,19 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace tongs {
 
-// error.log for the `error_log` notifications (docs/design.md, "Notifications").
+// The game's logs for notifications (docs/design.md, "Notifications"):
+// error.log for `error_log`, game.log for the choices `event` names in `chosen`.
 //
 // The game writes its logs to `logs/` in PhysFS's write directory, which it
 // sets at start-up (Documents\Paradox Interactive\Europa Universalis IV, or
 // what userdir= / userdir.txt choose). eu4.exe exports PHYSFS_getWriteDir
-// (symbols.toml `physfs_get_write_dir`), so Tongs asks the game.
-ErrorLogLocation LocateErrorLog();
+// (symbols.toml `physfs_get_write_dir`), so Tongs asks the game. `file` is the
+// log's name in `logs/`, e.g. "error.log".
+ErrorLogLocation LocateLog(std::string_view file);
 
 // Reads up to `max` bytes at `offset`, with the file's size and identity
 // (volume serial and file index). The file is opened only for the read, with

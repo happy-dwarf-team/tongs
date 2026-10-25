@@ -5,6 +5,7 @@
 #include <windows.h>
 
 #include <string>
+#include <string_view>
 
 namespace tongs {
 namespace {
@@ -34,21 +35,21 @@ bool CopyWriteDir(GetWriteDirFn get, char* out, std::size_t size) {
     }
 }
 
-std::string WithLogFile(std::string dir) {
+std::string WithLogFile(std::string dir, std::string_view file) {
     while (!dir.empty() && (dir.back() == '\\' || dir.back() == '/')) dir.pop_back();
-    return dir + "\\logs\\error.log";
+    return dir + "\\logs\\" + std::string(file);
 }
 
 }  // namespace
 
-ErrorLogLocation LocateErrorLog() {
+ErrorLogLocation LocateLog(std::string_view file) {
     ErrorLogLocation out;
     char dir[MAX_PATH * 3] = {};
     if (!CopyWriteDir(anvil::Host{}.function(sym::physfs_get_write_dir), dir, sizeof dir)) {
         out.error = "the game has not set its PhysFS write directory yet";
         return out;
     }
-    out.path = WithLogFile(dir);
+    out.path = WithLogFile(dir, file);
     out.source = "physfs_write_dir";
     return out;
 }
@@ -60,13 +61,13 @@ std::string ReadLogChunk(const std::string& path, std::uint64_t offset, std::siz
     if (file == INVALID_HANDLE_VALUE) {
         const DWORD error = GetLastError();
         chunk.missing = error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
-        return "cannot open error.log (error " + std::to_string(error) + ")";
+        return "cannot open the log (error " + std::to_string(error) + ")";
     }
     BY_HANDLE_FILE_INFORMATION info{};
     if (!GetFileInformationByHandle(file, &info)) {
         const DWORD error = GetLastError();
         CloseHandle(file);
-        return "cannot read error.log's size (error " + std::to_string(error) + ")";
+        return "cannot read the log's size (error " + std::to_string(error) + ")";
     }
     chunk.size = (static_cast<std::uint64_t>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
     chunk.file_id = (static_cast<std::uint64_t>(info.dwVolumeSerialNumber) << 48) ^
@@ -80,7 +81,7 @@ std::string ReadLogChunk(const std::string& path, std::uint64_t offset, std::siz
         DWORD read = 0;
         if (!SetFilePointerEx(file, at, nullptr, FILE_BEGIN) ||
             !ReadFile(file, chunk.data.data(), static_cast<DWORD>(want), &read, nullptr)) {
-            error = "cannot read error.log (error " + std::to_string(GetLastError()) + ")";
+            error = "cannot read the log (error " + std::to_string(GetLastError()) + ")";
             read = 0;
         }
         chunk.data.resize(read);

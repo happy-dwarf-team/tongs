@@ -1432,11 +1432,40 @@ stream in `src/pipe_server.cpp`; the file in `src/game_files.cpp`):
   the option when Tongs clicked it (`event choose`, `run_until
   events=first`, or `ui click` on the option button, which adds `via: "ui
   click"`): Tongs notes the option right after the click, with `by:
-  "tongs"`, the `client` and `choice_date`. A choice with the real mouse, a
-  plain `click`, or the game's own choice at the deadline, is not known and
-  gives `null` ([#49](https://github.com/happy-dwarf-team/tongs/issues/49)). Without a
-  session (count −1), every known event closes. The main thread only runs the
-  reads; it never waits for the thread.
+  "tongs"`, the `client` and `choice_date`. Other choices come from
+  `game.log` (below): `by: "player"` for a click Tongs did not note (the real
+  mouse, a plain `click`), `by: "auto"` for the game's own choice at the
+  deadline, `null` when no line names the event. Without a session (count
+  −1), every known event closes at once with what Tongs noted. The main
+  thread only runs the reads; it never waits for the thread.
+- **Choices from `game.log`.** The game writes `[eventwindow.cpp:486]:
+  Selected event option N for event X` for every click on an option, its
+  own and Tongs' alike, and `[eventwindow.cpp:494]: Auto-selected event
+  option N for event X` at the deadline; `N` is the `option_index`, `X` the
+  script id or the numeric id as digits, as `id` has it. The event thread
+  follows `<write dir>\logs\game.log` the way `error_log` follows
+  `error.log` (every 100 ms, from its end when the source starts) and keeps
+  only these lines. `chosen` takes `number`, `text` and `option_key` from the
+  options the event opened with, `null` for an option that was not on
+  screen.
+  - *Order.* The game writes the line when the option is chosen, and the
+    event leaves the session's lists frames later (three outer frames in
+    0.6.0), so the line is usually in the file by the time the event read
+    sees the event closed; the thread reads `game.log` again right then. An
+    event closed without a line (and without a choice Tongs noted) waits up
+    to 1 s, the log read every poll meanwhile, and gets `null` after that.
+    A later `closed` waits behind it, so they keep their order; `opened`
+    does not wait. A choice Tongs noted is sent at once and still takes its
+    line, so the line cannot go to a later event with the same id.
+  - *Same id.* A line names an id, not a controller. Lines go to closed
+    events with that id in order, the oldest line to the event known
+    longest. Two events with one id that close in different reads are told
+    apart this way (each read sees one of them close, after its own line).
+    When they close in the same read (only the game's choice at a shared
+    deadline makes that likely), the lines do not say which event got which
+    option: `chosen` names them only when their lines agree and is `null`
+    otherwise. A line no closed event takes (a choice of an event Tongs did
+    not know) is dropped after 3 s.
 - **`error_log`.** A third thread follows `error.log` every 100 ms (at once
   again after a full 1 MiB read). The file is opened for each read with every
   sharing mode, so the game can still write, rename or delete it, and closed
@@ -1456,7 +1485,8 @@ stream in `src/pipe_server.cpp`; the file in `src/game_files.cpp`):
   used `SHGetKnownFolderPath(FOLDERID_Documents)\Paradox Interactive\Europa
   Universalis IV` (`source: "documents"`) without the export; since then the
   export is the symbol `physfs_get_write_dir`, which Anvil resolves before
-  loading, so that fallback is gone.
+  loading, so that fallback is gone. `game.log` is found the same way
+  (`game_log` in the `subscribe` answer when it includes `event`).
 - **`activity`.** Published by the commands: an input when it counts in
   `inputs` (`what: "input"`, `command`, the running total `inputs`), a game
   call when it counts in `game_calls` (`what: "game_call"`, `line`, `name`,
@@ -1570,10 +1600,54 @@ with the date 1.1.1 while the save was still being read; with it, at
 1719.3.17. A choice by `ui click` on an option is named (`via: "ui click"`).
 
 Not checked: `restarted` on a live game, an event that pauses the game (see
-"Events"), a choice with the real mouse or the game's choice at the deadline
-([#49](https://github.com/happy-dwarf-team/tongs/issues/49)), ironman and
-multiplayer, and the cost of the event reads at speed 5 under `SIMULATION`
-conditions.
+"Events"), ironman and multiplayer, and the cost of the event reads at speed 5
+under `SIMULATION` conditions. Choices not made through Tongs and the game's
+choice at the deadline: see the next check.
+
+### Live check of `chosen` from `game.log` (2026-10-25)
+
+Setup:
+- the original `eu4.exe` (`9AD3EFE1…771A`), Anvil 1.3.0 with `anvil-game`,
+  and this change (Anvil: "111 symbol(s) verified");
+- the Russia save of 17 March 1719 (`continue=`), with the lab's usual mods;
+- `anvil-play.ps1 -Scenario tongs -TongsInput -TongsGameCalls` (session
+  `tongs49-1`): one client subscribed to `event`, another sent the commands,
+  and a third thread read `game.log` every 5 ms to see when each line
+  appeared.
+
+The session was closed by the script after the PID, path and start-time
+check. The save was unchanged, `settings.txt` differed only in
+`graceful_exit` and was restored, the EXE hash was unchanged, the Process
+Lasso rule was `eu4.exe,0,1-7` afterwards, and no installed file was left.
+The `subscribe` answer had `game_log` with the Documents path and `source:
+"physfs_write_dir"`.
+
+| Choice | `closed` → `chosen` |
+| --- | --- |
+| `event choose 1` on `console event flavor_rus.129` | option 1, `by: "tongs"`, `client` 4, `choice_date` |
+| plain `click` on option 1 of the newer of two `4011`s | option 1, `option_key` `EVTOPTA4011`, `by: "player"` |
+| `event choose 3` on the other `4011` (the same id, a later read) | option 3, `by: "tongs"`; its line (`option 2`) was not given to anyone else |
+| plain `click` on option 2 of a `4011` (after a `move` there) | option 2, `option_index` 1, `EVTOPTB4011`, `by: "player"`, 218 ms after the click began |
+| two `4011`s opened on 1719.3.17 and left open, `run_until 1719.9.15 speed=5` | both closed on 1719.7.18 in the same read, two lines "Auto-selected event option 0 for event 4011": option 1, `by: "auto"` for both |
+
+Findings:
+
+- **Order.** Each line was in `game.log` 47–78 ms before the `closed`
+  notification of its click; the two deadline lines were there in the same
+  millisecond as the two `closed`. The game writes the line unbuffered,
+  before the event leaves its lists. So no `closed` had to wait for its
+  line.
+- **The game's deadline** was four months to the day (1719.3.17 →
+  1719.7.18), as for `parlaments.1` in 0.8.0. The two events with one id
+  closed in one read and their lines agreed, so both were named.
+- A first plain `click` sent right after `event list` showed the option
+  enabled did not choose anything (no line, the event stayed open). It was
+  chosen later at the deadline. The same `click` after a `move` worked. This
+  is the "nothing hovered after a move" seen in the hardening pass, not the
+  log.
+- Not checked: the real mouse (computer use was not available; a plain
+  `click` reaches the game the same way and Tongs does not note it), and two
+  events with one id that close in one read with different options.
 
 ## MCP adapter (0.9.0)
 
