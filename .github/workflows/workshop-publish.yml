@@ -1,0 +1,87 @@
+name: workshop-publish
+
+# Publishes Tongs as a Steam Workshop mod when a release is published:
+# release.yml creates a draft release with tongs-windows-x64.zip, and
+# publishing that draft on GitHub starts this workflow. The mod gets exactly
+# the plugin folder of that zip, checked against its build attestation, so the
+# Workshop and GitHub serve the same build. The release notes become the
+# Workshop change note, and workshop/description.md the item's description.
+#
+# Opt-in: it runs only when the repository variable WORKSHOP_PUBLISH is `true`
+# (Settings → Secrets and variables → Actions → Variables). It also needs
+# remote_file_id in workshop/descriptor.mod (`pdx-ws init`) and the
+# `steam-workshop` environment with the secrets STEAM_USERNAME and
+# STEAM_SESSION; see the README, "Steam Workshop".
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+jobs:
+  publish:
+    if: vars.WORKSHOP_PUBLISH == 'true'
+    runs-on: ubuntu-24.04
+    environment: steam-workshop
+    concurrency:
+      group: steam-workshop
+      cancel-in-progress: false
+    permissions:
+      attestations: read
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.event.release.tag_name }}
+    steps:
+      # The release event checks out the release's tag.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download and verify the plugin package
+        env:
+          PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          set -euo pipefail
+          version=${TAG#v}
+          # pdx-ws takes the version (and the item ID) from the descriptor.
+          descriptor=$(sed -n 's/^version="\([^"]*\)".*/\1/p' workshop/descriptor.mod)
+          [ "$descriptor" = "$version" ] || {
+            echo "::error file=workshop/descriptor.mod::version is '$descriptor', but the release is $TAG"
+            exit 1
+          }
+
+          zip=tongs-windows-x64.zip
+          dir="$RUNNER_TEMP/release"
+          gh release download "$TAG" --pattern "$zip" --pattern SHA256SUMS.txt --dir "$dir"
+          if [ "$PRIVATE" = true ]; then
+            # release.yml attests public repositories only.
+            echo "::warning::private repository: $zip has no build attestation; only its line in SHA256SUMS.txt is checked"
+            (cd "$dir" && awk -v f="$zip" '$2 == f' SHA256SUMS.txt | sha256sum -c -)
+          else
+            gh attestation verify "$dir/$zip" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"
+            echo "$zip: attestation verified"
+          fi
+
+          # The zip holds the folder tongs/ (and the package's SHA256SUMS.txt,
+          # which stays out of the mod); tongs/ becomes workshop/anvil/tongs/.
+          unzip -q "$dir/$zip" -d "$dir/package"
+          [ -f "$dir/package/tongs/plugin.toml" ] || { echo "::error::$zip holds no tongs/plugin.toml"; exit 1; }
+          rm -rf workshop/anvil
+          mkdir -p workshop/anvil
+          mv "$dir/package/tongs" workshop/anvil/tongs
+          find workshop -type f | sort
+
+      - uses: happy-dwarf-team/paradox-workshop-publish@v0.2.0
+        id: workshop
+        with:
+          steam-username: ${{ secrets.STEAM_USERNAME }}
+          steam-session: ${{ secrets.STEAM_SESSION }}
+          change-note: ${{ github.event.release.body }}
+
+      - name: Link the Workshop item
+        env:
+          ITEM_URL: ${{ steps.workshop.outputs.item-url }}
+        run: echo "Published to $ITEM_URL"

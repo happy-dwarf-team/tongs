@@ -1,0 +1,18 @@
+# Publishing Tongs as a Steam Workshop mod with paradox-workshop-publish
+# (https://github.com/happy-dwarf-team/paradox-workshop-publish).
+#
+# The mod is workshop/: descriptor.mod, thumbnail.png and anvil/tongs/, the
+# plugin folder of a release, which CI unpacks there (it is not in Git). The
+# Workshop item ID is remote_file_id in workshop/descriptor.mod, written once
+# by `pdx-ws init`. Without `visibility`, publishing never changes it on Steam.
+schema = 1
+
+[[mod]]
+game = "eu4"
+path = "workshop"
+# The Workshop description: every publish replaces it with this file.
+description = "workshop/description.md"
+exclude = ["description.md"]
+# A mod of only descriptor.mod and anvil/ keeps the EU4 checksum, so players
+# keep ironman achievements. A change that would break that fails the plan.
+checksum = "keep"
