@@ -542,11 +542,12 @@ this section describes what holds.
   | `checkboxType` | `0x1D8FFC8` | `checkbox` | `+0x110` | — |
   | `listboxType` | `0x1D90FD8` | `listbox` | `+0x180` | items, scroll bar |
   | `smoothListboxType` | `0x1D96578` | `listbox` | `+0x218` | items, scroll bar |
-  | `gridBoxType` | `0x1D97EF0` | `listbox` | — | not known |
+  | `OverlappingElementsBoxType` | `0x1DA4910` | `listbox` | `+0x168` | items |
+  | `gridBoxType` | `0x1D97EF0` | `listbox` | `+0x130` | items, scroll bar |
   | `scrollbarType` | `0x1D93748` | `other` | — | its four buttons |
 
-  Every other class (overlapping elements boxes, extended scroll bars, the
-  minimap) answers `type: "other"`.
+  Every other class (extended scroll bars, the minimap) answers
+  `type: "other"`.
 - **Children.** There is no generic child list; each class keeps its own
   containers. Tongs reads them in this order:
   - `windowType` windows (offsets from the full object, `0x30` before the
@@ -558,6 +559,13 @@ this section describes what holds.
     `{item, prev, next}`, as in the named maps); the item holds the full
     object of its window at `+0x40` (`listboxType`) or `+0x60`
     (`smoothListboxType`); the scroll bar is at `+0x1E0` or `+0x228`;
+  - overlapping elements boxes: the same insertion list, through the list
+    object at `+0xF0` (its slot `0x58` returns `+0x10` of it, so the head
+    is at `+0x100`), the item's window at `+0x40`; no scroll bar;
+  - grid boxes: a `std::vector` of item pointers at `+0x190`; each item
+    (base vtable `0x1D62628`, built by `0x158EF10`) holds the full object of
+    its window at `+0x10`; the scroll bar is at `+0x140`. A parallel vector
+    at `+0x178` holds the items' cells;
   - scroll bars: the slider `+0x158`, track `+0x2F0`, down `+0x2F8` and up
     `+0x3E0` buttons.
 
@@ -689,11 +697,34 @@ lobby's `show_unsafe_checkbox` and was 1 only on the selected save row;
 `year` read "1444"). The main menu and a save loaded from it were read in the
 same pass. `+0x8F` and `mgr+0x130` were checked in 0.6.0 (below).
 
-Not checked: the children of grid boxes and overlapping elements boxes
-(`OverlappingElementsBoxType` is vtable `0x1DA4910`; their containers were
-not found, [#48](https://github.com/happy-dwarf-team/tongs/issues/48)), and
-sizes that differ from the drawn widget
+Not checked: sizes that differ from the drawn widget
 ([#50](https://github.com/happy-dwarf-team/tongs/issues/50)).
+
+### Overlapping elements boxes and grid boxes (2026-10-25)
+
+The containers were found statically ([#48](https://github.com/happy-dwarf-team/tongs/issues/48)):
+the overlapping box's find child (`0x163D540`, slot `0x1E8`) walks the item
+list of `listboxType` from its tail, and the grid box's show, hide, kill and
+layout slots (`0x158F300`, `0x158F390`, `0x158F270`, `0x158F570`) walk the
+item vector; the game adds items with `0xF2BED0` (e.g. the HRE electors and
+the macro builder's tabs). The hardening pass had read the overlapping box's
+list `{head, tail, count}` at `+0x100` as a vector, which is why one item gave
+begin == end.
+
+Live check `ui48-1`: the original `eu4.exe`, Anvil 1.3.0 and this branch
+(with a debug field, not shipped, giving each widget's address for
+`ReadProcessMemory`), the lab's `anvil-play.ps1 -Scenario tongs -NoContinue
+-TongsInput`; the save unchanged afterwards, `settings.txt` restored.
+- Lobby: `start_type_options/start_type_option[1]` and `[2]` (the bookmark
+  and saved-games tabs) are the box's children; `ui click` on
+  `start_type_option[2]/button` switched to the saved games.
+- Battle: in `EndOfLandCombatPopup`, `our_side_shield_list` and
+  `enemy_side_shield_list` each held one `diplo_shield_item` with its
+  `shield`; the (hidden) trade view's `transferring_trade_list` held 12
+  items.
+- Grid boxes (hidden): `macro_build_interface/states_header/tabs_gridbox`
+  held three `tab_entry` windows and `countrymissionsview_missions_gridbox`
+  the mission entries.
 
 ## Stale widgets (0.14.0)
 
@@ -1713,7 +1744,7 @@ creation time) and the files removed by hand.
 | Speed 5 | `ui click` on the speed buttons worked while running |
 | `ui click` | the first move after a click on a scroll bar button sometimes found nothing hovered (fixed: up to three tries, then a step aside); a row's own label covers the centre of its check box, so clicking the row window works |
 | List boxes | rows are made only for what is shown and refilled as the list scrolls; the wheel did not scroll the save list ([#51](https://github.com/happy-dwarf-team/tongs/issues/51)); scroll bar rects were relative (fixed) |
-| Widgets | check box `+0x100`, edit box `+0xF8` (added); overlapping elements boxes `0x1DA4910` and grid boxes not read ([#48](https://github.com/happy-dwarf-team/tongs/issues/48)); `.gui` sizes ([#50](https://github.com/happy-dwarf-team/tongs/issues/50)) |
+| Widgets | check box `+0x100`, edit box `+0xF8` (added); overlapping elements boxes `0x1DA4910` and grid boxes not read ([#48](https://github.com/happy-dwarf-team/tongs/issues/48); fixed); `.gui` sizes ([#50](https://github.com/happy-dwarf-team/tongs/issues/50)) |
 | Events | seven options, one hidden: `event choose 7` refused `not_visible` (fixed: scrolls); `ui click` on an option gave `chosen: null` (fixed); no event paused the game |
 | Game calls | `clear`, `run` with a base-game file; no faulting call forced |
 | `move` | answered `in_game: false` with an empty reason (fixed) |
