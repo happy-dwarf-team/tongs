@@ -235,24 +235,34 @@ Setting it up, once (maintainers):
    uploads the mod and writes `remote_file_id` into `workshop/descriptor.mod`.
    Commit that line through a pull request. Make the item public on Steam when it
    is ready: publishing never changes its visibility.
-3. **Save a Steam session** in a `steam-workshop` environment (read the
+3. **Share the Steam session** with this repository. The session is kept once,
+   as the organization secrets `STEAM_SESSION` and `STEAM_USERNAME`, for the
+   Happy Dwarf Team repositories that publish to the Workshop (read the
    [security notes](https://github.com/happy-dwarf-team/paradox-workshop-publish/blob/main/docs/guide/security.md)
-   first; Git Bash or PowerShell 7.4+, so the pipe passes the session unchanged):
+   and the [organization setup](https://github.com/happy-dwarf-team/paradox-workshop-publish/blob/main/docs/guide/setup.md#several-repositories-in-one-organization)
+   first). Add this repository to both secrets, and create a `steam-workshop`
+   environment without secrets of its own:
 
    ```sh
+   id=$(gh api repos/happy-dwarf-team/tongs --jq .id)
+   gh api --method PUT orgs/happy-dwarf-team/actions/secrets/STEAM_SESSION/repositories/$id
+   gh api --method PUT orgs/happy-dwarf-team/actions/secrets/STEAM_USERNAME/repositories/$id
    gh api --method PUT repos/happy-dwarf-team/tongs/environments/steam-workshop
-   pdx-ws session export --user my_steam_name | gh secret set STEAM_SESSION --env steam-workshop
-   gh secret set STEAM_USERNAME --env steam-workshop --body my_steam_name
    ```
 
    In **Settings → Environments → steam-workshop**, add a required reviewer and
-   allow only the tags `v*`.
+   allow only the tags `v*`: the environment gates every publish job.
 4. **Turn publishing on:** `gh variable set WORKSHOP_PUBLISH --body true`.
 
 From then on, publishing a release's draft (see
 [CONTRIBUTING.md](CONTRIBUTING.md#versions-and-releases)) also publishes the
 Workshop mod. When the Steam session expires, the job fails with exit code 3:
-run `pdx-ws session export` again.
+export a new one into the organization secret, for every repository that uses
+it (Git Bash or PowerShell 7.4+, so the pipe passes the session unchanged):
+
+```sh
+pdx-ws session export --user my_steam_name | gh secret set STEAM_SESSION --org happy-dwarf-team --visibility selected --repos bellows,tongs,eu4-anbennar-widescreen-loading-screens
+```
 
 ## License
 
