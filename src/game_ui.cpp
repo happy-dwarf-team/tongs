@@ -124,6 +124,19 @@ void ReadList(std::uintptr_t head, const UiLayout& l, unsigned value, bool named
     }
 }
 
+// A std::vector at `at` of item pointers: the pointer at `value` in each item.
+void ReadItems(std::uintptr_t at, unsigned value, std::vector<Held>& out) {
+    std::uintptr_t begin = 0, end = 0;
+    if (!Read(at, begin) || !Read(at + 8, end) || end < begin || (end - begin) % 8 != 0) return;
+    const std::size_t count = (end - begin) / 8;
+    if (count > kMaxChildren) return;
+    for (std::size_t i = 0; i < count; ++i) {
+        std::uintptr_t item = 0;
+        Held h;
+        if (Read(begin + i * 8, item) && item != 0 && Read(item + value, h.pointer) && h.pointer != 0) out.push_back(h);
+    }
+}
+
 // What a widget's containers hold, in their order. Not every pointer is a live widget.
 std::vector<Held> HeldBy(std::uintptr_t widget, const UiKind& kind, const UiLayout& l) {
     std::vector<Held> out;
@@ -149,6 +162,15 @@ std::vector<Held> HeldBy(std::uintptr_t widget, const UiKind& kind, const UiLayo
             if (Read(widget + (smooth ? l.smooth_scrollbar : l.listbox_scrollbar), bar.pointer) && bar.pointer != 0) {
                 out.push_back(bar);
             }
+            break;
+        }
+        case UiKind::Children::Overlapping:
+            ReadList(widget + l.overlapping_items, l, l.overlapping_item_window, false, 0, out);
+            break;
+        case UiKind::Children::Grid: {
+            ReadItems(widget + l.grid_items, l.grid_item_window, out);
+            Held bar;
+            if (Read(widget + l.grid_scrollbar, bar.pointer) && bar.pointer != 0) out.push_back(bar);
             break;
         }
         case UiKind::Children::Scrollbar:
@@ -180,7 +202,7 @@ public:
         if (std::string error = ReadRegistry(); !error.empty()) return error;
         if (std::string error = ReadDefinitions(); !error.empty()) return error;
         out.widgets.resize(entries_.size());
-        // Children held by windows, list boxes and scroll bars: the first holder wins.
+        // Children held by windows, list, overlapping and grid boxes, and scroll bars: the first holder wins.
         for (int i = 0; i < static_cast<int>(entries_.size()); ++i) {
             if (!entries_[i].kind) continue;
             for (const Held& h : HeldBy(entries_[i].pointer, *entries_[i].kind, l_)) Adopt(i, Find(h.pointer), out, &h);
