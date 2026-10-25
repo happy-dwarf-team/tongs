@@ -194,7 +194,8 @@ struct Entry {
 
 class Reader {
 public:
-    Reader(const UiLayout& layout, std::uintptr_t image_base) : l_(layout), base_(image_base) {
+    Reader(const UiLayout& layout, std::uintptr_t image_base, UiRect client)
+        : l_(layout), base_(image_base), client_(client) {
         for (const UiKind& k : layout.kinds) kinds_.emplace(k.vtable, &k);
     }
 
@@ -228,6 +229,7 @@ public:
                 out.widgets[i].rect = ChildrenBounds(out, i);
             }
         }
+        FitRects(out, client_);
         return {};
     }
 
@@ -319,6 +321,7 @@ private:
         Pair(code_, e.pointer, l_.slot_size, size);
         w.rect = {position[0], position[1], size[0], size[1]};
         if (!e.kind) return;
+        DrawnSize(e, w);
         std::string text;
         // A button without a label has an empty string; a text or edit box shows even an empty one.
         if (e.kind->text != 0 && ReadString(e.pointer + e.kind->text, text) &&
@@ -336,6 +339,37 @@ private:
             w.has_checked = true;
             w.checked = checked != 0;
         }
+    }
+
+    // Where slot 0xE0 is not what the game draws: a list box shows only the
+    // rows its layout placed, a masked shield is the size of its own sprite.
+    void DrawnSize(const Entry& e, UiWidget& w) const {
+        UiRect& r = w.rect;
+        if (e.kind->children == UiKind::Children::Listbox) {
+            std::int32_t extent[2] = {};
+            std::uint8_t vertical = 0;
+            if (!ReadRaw(e.pointer + l_.listbox_extent, extent, sizeof extent) ||
+                !tongs::Read(e.pointer + l_.listbox_vertical, vertical)) {
+                return;
+            }
+            int& length = vertical != 0 ? r.h : r.w;
+            const std::int32_t shown = extent[vertical != 0 ? 1 : 0];
+            if (shown > 0 && shown < length) length = shown;
+            return;
+        }
+        if ((w.type != UiType::Button && w.type != UiType::Icon) || e.kind->node == 0 || l_.sprite_node_size_rva == 0) return;
+        std::uintptr_t node = 0, vtable = 0, function = 0, sprite = 0;
+        float scale = 0;
+        std::int32_t size[2] = {};
+        if (!tongs::Read(e.pointer + e.kind->node, node) || node == 0 || !tongs::Read(node, vtable) ||
+            !tongs::Read(vtable + l_.node_size_slot, function) || function != base_ + l_.sprite_node_size_rva ||
+            !tongs::Read(node + l_.sprite_node_sprite, sprite) || sprite == 0 || !tongs::Read(sprite, vtable) ||
+            vtable != base_ + l_.masked_shield_vtable || !ReadRaw(sprite + l_.masked_shield_size, size, sizeof size) ||
+            !tongs::Read(node + l_.sprite_node_scale, scale) || !(scale > 0 && scale < 100)) {
+            return;
+        }
+        r.w = static_cast<int>(static_cast<float>(size[0]) * scale);
+        r.h = static_cast<int>(static_cast<float>(size[1]) * scale);
     }
 
     // The name, without calling through a freed definition (ui_definitions.hpp):
@@ -375,6 +409,7 @@ private:
 
     const UiLayout& l_;
     std::uintptr_t base_;
+    UiRect client_;
     Code code_{base_};
     std::unordered_map<unsigned, const UiKind*> kinds_;
     std::vector<Entry> entries_;
@@ -384,9 +419,9 @@ private:
 
 }  // namespace
 
-std::string ReadUiTree(std::uintptr_t image_base, const UiLayout& layout, UiTree& out) {
+std::string ReadUiTree(std::uintptr_t image_base, const UiLayout& layout, UiRect client, UiTree& out) {
     out = {};
-    return Reader(layout, image_base).Read(out);
+    return Reader(layout, image_base, client).Read(out);
 }
 
 std::uintptr_t ReadHoveredWidget(std::uintptr_t image_base, const UiLayout& layout) {

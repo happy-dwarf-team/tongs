@@ -127,6 +127,24 @@ struct UiLayout {
     // Scroll bars hold their four buttons: slider, track, down, up.
     unsigned scrollbar_parts[4] = {U32(sym::scrollbar_slider_up.slider), U32(sym::scrollbar_down_track.track),
                                    U32(sym::scrollbar_down_track.down), U32(sym::scrollbar_slider_up.up)};
+    // Sizes that slot 0xE0 gets wrong (docs/design.md, "Widget sizes"). A
+    // list box's slot 0xE0 sums all its rows; its layout keeps the extent of
+    // the shown rows. A sprite node's size divides the sprite's by its frames,
+    // which a masked shield's sprite has for its overlay strip: its own size
+    // is the shield's.
+    unsigned listbox_extent =
+        Displaced(sym::listbox_shown_extent.extent, S8(sym::listbox_find_child.list_object));  // two int32
+    unsigned listbox_vertical =
+        Displaced(sym::listbox_shown_extent.vertical, S8(sym::listbox_find_child.list_object));  // byte
+    unsigned node_size_slot = U32(sym::button_size.size_slot);
+    static_assert(sym::button_size.node == sym::button_render_node.node);
+    std::uint32_t sprite_node_size_rva = 0;  // RvaOf(sym::sprite_node_size), set when loading
+    unsigned sprite_node_scale = U32(sym::sprite_node_size.scale);    // float
+    unsigned sprite_node_sprite = U32(sym::sprite_node_size.sprite);  // the sprite
+    unsigned masked_shield_vtable = U32(sym::masked_shield_vtable.vtable);  // RVA
+    unsigned masked_shield_size = U32(sym::masked_shield_size.width);       // two int32
+    static_assert(sym::masked_shield_size.height == sym::masked_shield_size.width + 4);
+
     // Render nodes: the owning widget and the parent node. Widgets the game's
     // own code holds (not a window) are placed under the owner of the parent node.
     unsigned node_owner = U32(sym::render_pick.node_owner);
@@ -168,13 +186,22 @@ struct UiLayout {
          UiKind::Children::Grid},
         {U32(sym::scrollbar_vtable.vtable), UiType::Other, 0, 0, false, UiKind::Children::Scrollbar},
     };
+
+    // The members only Anvil knows: call when the plugin is loading.
+    static UiLayout Load() {
+        UiLayout l;
+        l.sprite_node_size_rva = RvaOf(sym::sprite_node_size);
+        return l;
+    }
 };
 
 // Reads the widget tree. Main thread only: the game deletes widgets in its GUI
 // update and a reload frees definitions. Every read and call is guarded, and
 // slot 0xA0 is called only on widgets whose definition the type registry
 // holds; returns an error text, or empty on success.
-std::string ReadUiTree(std::uintptr_t image_base, const UiLayout& layout, UiTree& out);
+// `client`: the game window's client area (w, h), or 0 x 0 when unknown;
+// rects are fitted to it (FitRects in ui_tree.hpp).
+std::string ReadUiTree(std::uintptr_t image_base, const UiLayout& layout, UiRect client, UiTree& out);
 
 // Main thread: the widget the game hovers (mgr+0x130), 0 when none or unreadable.
 std::uintptr_t ReadHoveredWidget(std::uintptr_t image_base, const UiLayout& layout);

@@ -579,6 +579,59 @@ memory = "code"
 values.node = { at = 3, size = 4 }
 note = "gridBoxType slot 0xD8: render node at +0x130"
 
+# --- Widget sizes (vtable slot 0xE0) that differ from what is drawn ---
+
+[symbol.button_size]
+rva = 0x15AEB90
+bytes = "40 53 48 83 EC 20 48 8B 89 90 02 00 00 48 8B DA 48 8B 01 FF 90 80 01 00 00"
+memory = "code"
+values.node = { at = 9, size = 4 }
+values.size_slot = { at = 21, size = 4 }
+note = "button slot 0x2D0 (its slot 0xE0 calls it): the render node's slot 0x180"
+
+[symbol.sprite_node_size]
+rva = 0x15BD8B0
+bytes = """
+40 53 48 83 EC 50 0F 29 74 24 40 0F 57 C0 0F 29 7C 24 30 48 8B DA 44 0F 29 44 24 20 F3 44 0F 10
+81 44 01 00 00 48 8B 89 B8 01 00 00
+"""
+memory = "code"
+values.scale = { at = 33, size = 4 }
+values.sprite = { at = 40, size = 4 }
+note = "sprite render node slot 0x180: the sprite's size (its slot 0x78) divided by its frames, times the float scale at +0x144; the sprite at +0x1B8"
+
+[symbol.masked_shield_vtable]
+rva = 0x12329EE
+bytes = "48 8D 05 0B 82 B3 00 48 89 06"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "maskedShieldType vtable: its frames belong to the overlay strip (textureFile3), not to the shield"
+
+[symbol.masked_shield_size_slot]
+rva = 0x1D6AC78
+memory = "read"
+points_to = 0x1233DC0
+note = "slot 0x78 of the maskedShieldType vtable: masked_shield_size"
+
+[symbol.masked_shield_size]
+rva = 0x1233DC0
+bytes = "8B 81 1C 03 00 00 89 02 8B 81 20 03 00 00 89 42 04 48 8B C2 C3"
+memory = "code"
+values.width = { at = 2, size = 4 }
+values.height = { at = 10, size = 4 }
+note = "maskedShieldType slot 0x78: the shield's size at +0x31C, +0x320"
+
+[symbol.listbox_shown_extent]
+rva = 0x1531A1B
+bytes = """
+48 8B 84 24 98 00 00 00 48 89 86 F0 01 00 00 E9 33 01 00 00 41 3B EF 7C 91 8B 8E 8C 02 00 00 41
+03 CF 3B E9 7D 84 80 BE DC 01 00 00 00
+"""
+memory = "code"
+values.extent = { at = 11, size = 4 }
+values.vertical = { at = 40, size = 4 }
+note = "listboxType layout (0x1531850, from the list object at -8): the extent of the shown rows at +0x1F0 (two int32); rows go down when the byte at +0x1DC is set, else across"
+
 # --- Displayed text ---
 
 [symbol.button_set_text]

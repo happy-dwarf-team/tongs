@@ -598,18 +598,57 @@ UiCoverCheck CheckCover(const UiTree& tree, std::uintptr_t target, std::uintptr_
 
 UiRect ChildrenBounds(const UiTree& tree, int parent) {
     const UiWidget& p = tree.widgets[parent];
-    int left = 0, top = 0, right = 0, bottom = 0;
-    bool any = false;
-    for (const int c : p.children) {
-        const UiRect& r = tree.widgets[c].rect;
-        if (r.w <= 0 || r.h <= 0) continue;
-        left = any ? std::min(left, r.x) : r.x;
-        top = any ? std::min(top, r.y) : r.y;
-        right = any ? std::max(right, r.x + r.w) : r.x + r.w;
-        bottom = any ? std::max(bottom, r.y + r.h) : r.y + r.h;
-        any = true;
+    for (const bool shown_only : {true, false}) {
+        int left = 0, top = 0, right = 0, bottom = 0;
+        bool any = false;
+        for (const int c : p.children) {
+            const UiWidget& child = tree.widgets[c];
+            const UiRect& r = child.rect;
+            if (r.w <= 0 || r.h <= 0 || (shown_only && !child.shown)) continue;
+            left = any ? std::min(left, r.x) : r.x;
+            top = any ? std::min(top, r.y) : r.y;
+            right = any ? std::max(right, r.x + r.w) : r.x + r.w;
+            bottom = any ? std::max(bottom, r.y + r.h) : r.y + r.h;
+            any = true;
+        }
+        if (any) return {left, top, right - left, bottom - top};
     }
-    return any ? UiRect{left, top, right - left, bottom - top} : p.rect;
+    return p.rect;
+}
+
+void FitRects(UiTree& tree, UiRect client) {
+    const bool known = client.w > 0 && client.h > 0;
+    // Walk order from the top-level windows; each widget once.
+    std::vector<int> order;
+    std::vector<char> seen(tree.widgets.size(), 0);
+    std::vector<int> stack(tree.roots.rbegin(), tree.roots.rend());
+    while (!stack.empty()) {
+        const int i = stack.back();
+        stack.pop_back();
+        if (i < 0 || i >= static_cast<int>(tree.widgets.size()) || seen[i]) continue;
+        seen[i] = 1;
+        order.push_back(i);
+        const std::vector<int>& children = tree.widgets[i].children;
+        stack.insert(stack.end(), children.rbegin(), children.rend());
+    }
+    for (auto it = order.rbegin(); it != order.rend(); ++it) {
+        UiWidget& w = tree.widgets[*it];
+        UiRect& r = w.rect;
+        const bool inside = r.x >= 0 && r.y >= 0 && r.x + r.w <= client.w && r.y + r.h <= client.h;
+        if (w.type == UiType::Window && !w.children.empty() && (r.w <= 0 || r.h <= 0 || (known && !inside))) {
+            r = ChildrenBounds(tree, *it);
+        }
+        if (!known) continue;
+        const int left = std::max(r.x, 0), top = std::max(r.y, 0);
+        const int right = std::min(r.x + r.w, client.w), bottom = std::min(r.y + r.h, client.h);
+        if (r.w <= 0 || r.h <= 0) {
+            if (r.x < 0 || r.y < 0 || r.x > client.w || r.y > client.h) w.shown = false;
+        } else if (left < right && top < bottom) {
+            r = {left, top, right - left, bottom - top};
+        } else {
+            w.shown = false;
+        }
+    }
 }
 
 std::string GameTextToUtf8(std::string_view text) {

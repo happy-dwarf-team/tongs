@@ -1282,6 +1282,32 @@ static void TestChildrenBounds() {
     assert(r.x == 444 && r.y == 111 && r.w == 19 && r.h == 876);
 }
 
+static void TestFitRects() {
+    UiTree t;
+    // The main menu as read live (3440 x 1440): a fullscreen window placed by its .gui
+    // position, a container without a size, a hidden icon in it, a text parked off the screen.
+    const int bottom = AddWidget(t, "mainmenu_panel_bottom", UiType::Window, true, {1057, 1339, 3440, 1440});
+    AddWidget(t, "single_player_button", UiType::Button, true, {1440, 1309, 331, 48}, bottom);
+    const int cont = AddWidget(t, "continue_container", UiType::Window, true, {1518, 1226, 0, 0}, bottom);
+    AddWidget(t, "frontend_continue_bg", UiType::Icon, true, {1473, 1197, 497, 105}, cont);
+    AddWidget(t, "ironman_icon", UiType::Icon, false, {1720, 677, 30, 43}, cont);  // hidden: left out
+    const int tall = AddWidget(t, "games", UiType::Listbox, true, {1534, 352, 384, 3724}, bottom);
+    const int parked = AddWidget(t, "observe_mode_title", UiType::Text, true, {119970, 1233, 240, 24});
+    const int corner = AddWidget(t, "speed_controls", UiType::Window, true, {3440, 0, 0, 0});
+    UiTree unknown = t;
+    FitRects(t, {0, 0, 3440, 1440});
+    const UiRect& c = t.widgets[cont].rect;
+    assert(c.x == 1473 && c.y == 1197 && c.w == 497 && c.h == 105);
+    const UiRect& b = t.widgets[bottom].rect;  // its shown children, clipped first
+    assert(b.x == 1440 && b.y == 352 && b.w == 1970 - 1440 && b.h == 1440 - 352);
+    assert(t.widgets[tall].rect.h == 1440 - 352);
+    assert(!t.widgets[parked].shown && t.widgets[parked].rect.x == 119970);
+    assert(t.widgets[corner].shown && t.widgets[corner].rect.x == 3440);  // no size, no children: on the edge
+    // Without a client area only windows without a size change.
+    FitRects(unknown, {});
+    assert(unknown.widgets[cont].rect.w == 497 && unknown.widgets[bottom].rect.w == 3440 && unknown.widgets[parked].shown);
+}
+
 static void TestUiClickCommand() {
     FakeScreen screen;
     // A tooltip over the speed-up button, drawn last.
@@ -2599,6 +2625,7 @@ int main() {
     TestWidgetNamePlan();
     TestStaleWidgets();
     TestChildrenBounds();
+    TestFitRects();
     TestUiClickCommand();
     TestUiClickChoice();
     TestEventChooseScrolls();
