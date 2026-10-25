@@ -124,6 +124,10 @@ game parks some there) counts as hidden. Other window sizes come from the
 create widgets only for the rows they show and refill them as they scroll,
 so a row's path stays while its text changes.
 
+The game reports no widget under the pointer on masked shields (country
+shields in the lobby and in dialogs), so `ui click` refuses them as
+`covered` with `covered_by: null`; `click` at their `click_point` works.
+
 `ui click SEL` resolves the selector, moves the pointer to the centre of the
 widget, checks that the game sees that widget (or one inside it) under the
 pointer, and only then clicks. It refuses without clicking: `not_found`,

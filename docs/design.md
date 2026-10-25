@@ -760,6 +760,30 @@ So after the tree is read, rects are fitted from the leaves up
 clipped to the client area (from `GetClientRect`), and a widget wholly
 outside it is not shown, so it is left out without `all`.
 
+Live check `ui50-1` (the same setup as `ui48-1`, this build without the
+debug field; the save unchanged, `settings.txt` restored):
+
+| Widget | Before | After | Drawn |
+| --- | --- | --- | --- |
+| `continue_game_shield` | (1477, 1195) 0×111 | 111×111 | inside |
+| lobby `shield[1]` … `[11]` | 0×111 | 111×111, 84 apart | `click` at `shield[3]`'s point chose Portugal, the third |
+| `save_game_shield`, battle popup `shield` | 0×42 | 39×42 | inside |
+| `DefaultDialog/LeftShield`, `RightShield` | 0 wide | 111×111 | inside |
+| lobby `save_games_list` (86 saves) | h 4 214 | h 833 | 17 rows |
+| `menu_load/games` | h 3 724 | h 686 | 14 rows; `ui click` on it now clicks a row |
+| `continue_container` | 0×0 | (1473, 1195) 497×111 | the continue panel |
+| `mainmenu_panel_bottom` | (1057, 1339) 3440×1440 | (1018, 1195) 1114×245 | the menu bar |
+| `speed_controls` | (3440, 0) 0×0 | (3065, 0) 375×203 | the date panel |
+| `minimap_panel` | (3440, 1440) 0×0 | (3057, 1175) 383×265 | the minimap |
+| lobby right `observe_mode_title` | x 119 970, visible | not visible | not drawn |
+
+`ui find` over the whole tree took 11 ms (`run_ms`) in the game, as before.
+`ui click` on a masked shield is refused as `covered` with `covered_by:
+null`: the game reports no widget under the pointer there (`mgr+0x130` is 0),
+though a press there works, so `click` at its `click_point` is the way. A
+`ui click` on the battle popup's OK was refused as `covered` once, with a map
+tooltip drawn next to it (not confirmed: the game was closing).
+
 ## Stale widgets (0.14.0)
 
 A reload of a `.gui` file (console `reload <file>`) deletes the file's old
