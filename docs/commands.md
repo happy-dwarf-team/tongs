@@ -116,8 +116,11 @@ where siblings share a name. `text` is what the game displays, in UTF-8
 without its colour codes, so text filters depend on the game's language;
 prefer names and `[n]`. Edit boxes have their `text` too, and check boxes
 `checked`. `click_point` is the centre of `rect` and can be passed to `click`.
-Window sizes come from the `.gui` files and may not match the drawn panel
-(larger, or 0 for some shield buttons); positions are right. List boxes
+Rects lie inside the game window's client area: a window without a size,
+or one that does not fit the client area (a fullscreen window), takes the
+bounds of its children, and a widget wholly outside the client area (the
+game parks some there) counts as hidden. Other window sizes come from the
+`.gui` files and may be smaller or larger than the drawn panel. List boxes
 create widgets only for the rows they show and refill them as they scroll,
 so a row's path stays while its text changes.
 
