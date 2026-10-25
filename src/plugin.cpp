@@ -160,7 +160,8 @@ struct Tongs : anvil::Plugin {
         // idle while nobody subscribes.
         static tongs::NotificationHub hub(handlers.now_ms);
         handlers.notifications = &hub;
-        handlers.locate_error_log = [] { return tongs::LocateErrorLog(); };
+        handlers.locate_error_log = [] { return tongs::LocateLog("error.log"); };
+        handlers.locate_game_log = [] { return tongs::LocateLog("game.log"); };
         handlers.read_log_chunk = [](const std::string& path, std::uint64_t offset, std::size_t max,
                                      tongs::LineTail::Chunk& chunk) { return tongs::ReadLogChunk(path, offset, max, chunk); };
         static tongs::NotificationSources sources(handlers, hub);

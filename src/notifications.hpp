@@ -142,7 +142,7 @@ private:
     std::deque<Choice> choices_;
 };
 
-// Follows the end of a growing text file (error.log), from chunks the caller
+// Follows the end of a growing text file (error.log, game.log), from chunks the caller
 // reads at offset(). The first chunk only sets the starting point, so only
 // lines written after it are reported.
 class LineTail {
@@ -172,7 +172,7 @@ private:
     std::string partial_;
 };
 
-// Where the game writes error.log (plugin: game_files.cpp).
+// Where the game writes a log, e.g. error.log (plugin: game_files.cpp).
 struct ErrorLogLocation {
     std::string path;    // UTF-8, absolute
     std::string source;  // how it was found: "physfs_write_dir" (PHYSFS_getWriteDir)

@@ -130,10 +130,12 @@ struct Handlers {
     std::function<std::string(ConsoleRaw&)> read_console;
     std::function<void(const std::vector<std::string>& tokens, ConsoleCallResult&)> call_console;
     // Notifications (0.8.0): the hub of every subscription, and where error.log
-    // is. read_log_chunk reads up to `max` bytes from `offset` and the file's size
-    // and identity (game_files.cpp); it returns an error text, or empty.
+    // and game.log are (game.log names the event choices). read_log_chunk reads
+    // up to `max` bytes from `offset` and the file's size and identity
+    // (game_files.cpp); it returns an error text, or empty.
     NotificationHub* notifications = nullptr;
     std::function<ErrorLogLocation()> locate_error_log;
+    std::function<ErrorLogLocation()> locate_game_log;  // optional: without it `chosen` names only Tongs' choices
     std::function<std::string(const std::string& path, std::uint64_t offset, std::size_t max, LineTail::Chunk&)>
         read_log_chunk;
     // The Anvil log (level as AnvilLogLevel: 1 info, 2 warning, 3 error); optional.
