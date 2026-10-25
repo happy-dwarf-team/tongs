@@ -50,6 +50,26 @@ jobs:
           name: tongs-${{ github.sha }}
           path: dist/tongs-${{ github.sha }}.zip
 
+      # The Steam Workshop mod of workshop.toml is workshop/ with the plugin
+      # folder of the package in anvil/tongs/, which is not in Git. A dry run of
+      # paradox-workshop-publish writes to the job summary what a release would
+      # publish (files, descriptor, the rendered description) and fails when the
+      # mod would change the EU4 checksum (checksum = "keep"). It needs no
+      # secrets and sends nothing to Steam.
+      - name: Stage the Workshop mod
+        shell: pwsh
+        run: |
+          Remove-Item workshop/anvil -Recurse -Force -ErrorAction Ignore
+          New-Item -ItemType Directory workshop/anvil -Force | Out-Null
+          Copy-Item dist/package/tongs workshop/anvil/tongs -Recurse
+
+      # Pinned to a release tag, not a commit: the action installs the pdx-ws
+      # release named by its own tag and verifies that release's attestation.
+      - name: Workshop preview
+        uses: happy-dwarf-team/paradox-workshop-publish@v0.2.0
+        with:
+          dry-run: true
+
   # The MCP server in mcp/ (Python): unit tests against a fake pipe, no game needed.
   mcp:
     runs-on: windows-2022

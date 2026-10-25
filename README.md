@@ -135,6 +135,10 @@ and extract it into `<EU4>/anvil/plugins/`; it contains the `tongs` folder
 `anvil/data/tongs/settings.toml` (see "Settings") and start the game. Delete
 the `tongs` folder to uninstall.
 
+With Anvil 1.3 or newer, Tongs can also come from its Steam Workshop mod
+(see [Steam Workshop](#steam-workshop)): Anvil loads it from the enabled mod
+once you approve that version in its panel or in Anvil Manager.
+
 ## Settings
 
 `plugin/settings.toml` (in the plugin folder) declares the switches and their
@@ -185,6 +189,70 @@ cmake --build build --config Release --target tongs-check
 
 Contributions, the commit convention and the release process: see
 [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Steam Workshop
+
+Tongs can also be published as a Steam Workshop mod for Anvil 1.3 or newer,
+which loads plugins from enabled mods after the player approves each version.
+The mod is the `workshop/` folder ([`workshop.toml`](workshop.toml)):
+`descriptor.mod`, `thumbnail.png` and `anvil/tongs/`, the plugin folder of a
+release, which is not in Git. [`workshop/description.md`](workshop/description.md)
+is the item's description: every publish replaces the description on Steam with
+it. `checksum = "keep"` makes the publish fail if the mod would change the game's
+checksum.
+
+- Every pull request runs a dry run of
+  [paradox-workshop-publish](https://github.com/happy-dwarf-team/paradox-workshop-publish)
+  (`pdx-ws`) in `build.yml`: the job summary shows the files, the descriptor and
+  the rendered description. It needs no secrets.
+- [`workshop-publish.yml`](.github/workflows/workshop-publish.yml) runs when a
+  release is published. It downloads that release's `tongs-windows-x64.zip`,
+  checks its build attestation, unpacks `tongs/` into `workshop/anvil/tongs/`
+  and publishes the mod, with the release notes as the change note.
+
+Setting it up, once (maintainers):
+
+1. **Install `pdx-ws`** from its
+   [releases](https://github.com/happy-dwarf-team/paradox-workshop-publish/releases)
+   ([setup guide](https://github.com/happy-dwarf-team/paradox-workshop-publish/blob/main/docs/guide/setup.md)).
+2. **Create the Workshop item** on a computer with Steam running and logged in to
+   the account that owns EU4 and will own the item. Build the plugin package, put
+   its `tongs/` folder into the mod and check the plan first:
+
+   ```powershell
+   cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+   cmake --build build --config Release
+   cmake --install build --config Release --component plugin --prefix dist/package
+   Remove-Item workshop/anvil -Recurse -Force -ErrorAction Ignore
+   New-Item -ItemType Directory workshop/anvil -Force | Out-Null
+   Copy-Item dist/package/tongs workshop/anvil/tongs -Recurse
+   pdx-ws plan
+   pdx-ws init
+   ```
+
+   `pdx-ws init` (client mode, through the Steam client) creates a **private**
+   item with the descriptor's name and tags, the preview and the description,
+   uploads the mod and writes `remote_file_id` into `workshop/descriptor.mod`.
+   Commit that line through a pull request. Make the item public on Steam when it
+   is ready: publishing never changes its visibility.
+3. **Save a Steam session** in a `steam-workshop` environment (read the
+   [security notes](https://github.com/happy-dwarf-team/paradox-workshop-publish/blob/main/docs/guide/security.md)
+   first; Git Bash or PowerShell 7.4+, so the pipe passes the session unchanged):
+
+   ```sh
+   gh api --method PUT repos/happy-dwarf-team/tongs/environments/steam-workshop
+   pdx-ws session export --user my_steam_name | gh secret set STEAM_SESSION --env steam-workshop
+   gh secret set STEAM_USERNAME --env steam-workshop --body my_steam_name
+   ```
+
+   In **Settings → Environments → steam-workshop**, add a required reviewer and
+   allow only the tags `v*`.
+4. **Turn publishing on:** `gh variable set WORKSHOP_PUBLISH --body true`.
+
+From then on, publishing a release's draft (see
+[CONTRIBUTING.md](CONTRIBUTING.md#versions-and-releases)) also publishes the
+Workshop mod. When the Steam session expires, the job fails with exit code 3:
+run `pdx-ws session export` again.
 
 ## License
 

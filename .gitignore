@@ -10,3 +10,4 @@
 *.ilk
 *.log
 __pycache__/
+/workshop/anvil/

@@ -1,7 +1,7 @@
 # Tongs: repository rules
 
 - Anvil plugin that lets scripts and agents control EU4 1.37.5 over the local pipe
-  `\.\pipe\tongs`, plus the MCP server in `mcp/`. Input to the game stays off unless
+  `\\.\pipe\tongs`, plus the MCP server in `mcp/`. Input to the game stays off unless
   `input = true`. Commands in [docs/commands.md](docs/commands.md), design and addresses in
   [docs/design.md](docs/design.md), decisions in [docs/adr/](docs/adr/), terms in
   [GLOSSARY.md](GLOSSARY.md).
