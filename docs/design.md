@@ -513,7 +513,7 @@ this section describes what holds.
   | Visible | `+0xC5` |
   | Dead | `+0xC4` |
   | Position | slot `0xD8`: two int32 in client pixels, read from the widget's render node |
-  | Size | slot `0xE0` |
+  | Size | slot `0xE0`, corrected where it is not what is drawn ("Widget sizes") |
   | Text | button `+0x200`, instant text box `+0x170`, text box `+0x178`, edit box `+0xF8`; Windows-1252 |
   | Button state | `+0x124`; 3 = disabled |
   | Check box state | byte `+0x100` of `checkboxType`; 1 = ticked |
@@ -697,9 +697,6 @@ lobby's `show_unsafe_checkbox` and was 1 only on the selected save row;
 `year` read "1444"). The main menu and a save loaded from it were read in the
 same pass. `+0x8F` and `mgr+0x130` were checked in 0.6.0 (below).
 
-Not checked: sizes that differ from the drawn widget
-([#50](https://github.com/happy-dwarf-team/tongs/issues/50)).
-
 ### Overlapping elements boxes and grid boxes (2026-10-25)
 
 The containers were found statically ([#48](https://github.com/happy-dwarf-team/tongs/issues/48)):
@@ -725,6 +722,67 @@ Live check `ui48-1`: the original `eu4.exe`, Anvil 1.3.0 and this branch
 - Grid boxes (hidden): `macro_build_interface/states_header/tabs_gridbox`
   held three `tab_entry` windows and `countrymissionsview_missions_gridbox`
   the mission entries.
+
+### Widget sizes (2026-10-25)
+
+Slot `0xE0` is the widget's size, but not always the drawn one
+([#50](https://github.com/happy-dwarf-team/tongs/issues/50); found in
+`ui48-1` with `ReadProcessMemory` and statically):
+
+- **Buttons and icons** take the size of their render node (button slot
+  `0x2D0`: node slot `0x180`). A sprite node (`0x15BD8B0`) divides its
+  sprite's size (sprite slot `0x78`) by the sprite's frames and multiplies
+  it by the float scale at `node+0x144`; the sprite is at `node+0x1B8`. A
+  `maskedShieldType` sprite (vtable `0x1D6AC00`) has `noOfFrames` for its
+  overlay strip (`textureFile3`, e.g. 119 or 121 frames), so a 111-pixel
+  shield came out 0 wide. Tongs takes such a shield's own size
+  (`sprite+0x31C`, `+0x320`, what its slot `0x78` returns) times the scale:
+  `continue_game_shield` 111×111, a save row's `save_game_shield` 39×42.
+- **`listboxType`** sums all its rows (`0x10C0320`), also those scrolled
+  away: the lobby's save list reported 4 214 pixels for 86 saves, the
+  in-game `menu_load/games` 3 724. Its layout (`0x1531850`) keeps the extent
+  of the rows it placed at `list object+0x1F0` (widget `+0x1E8`), along the
+  axis the byte at `+0x1DC` (widget `+0x1D4`; set: rows go down) gives: 833
+  (17 rows of 49) and 686 (14 rows). Tongs takes the smaller of the two.
+  `smoothListboxType` sets that extent to 0 and keeps slot `0xE0`.
+- **Windows** without a background take the `.gui` size (full object
+  `+0xA3C`, `+0xA40`), which may be 0 (`continue_container`,
+  `speed_controls` at (3440, 0), `minimap_panel` at (3440, 1440)), and a
+  `fullscreen = yes` window is as large as the screen from its `.gui`
+  position (`mainmenu_panel_bottom`: 3440×1440 at (1057, 1339)). Such a
+  window takes the bounds of its shown children (of all when none is
+  shown).
+- **Parked widgets**: the lobby's right `observe_mode_title` has
+  `position = { x = 99955 … }` in `frontend.gui` and was drawn nowhere.
+
+So after the tree is read, rects are fitted from the leaves up
+(`FitRects`): the windows above take their children's bounds, every rect is
+clipped to the client area (from `GetClientRect`), and a widget wholly
+outside it is not shown, so it is left out without `all`.
+
+Live check `ui50-1` (the same setup as `ui48-1`, this build without the
+debug field; the save unchanged, `settings.txt` restored):
+
+| Widget | Before | After | Drawn |
+| --- | --- | --- | --- |
+| `continue_game_shield` | (1477, 1195) 0×111 | 111×111 | inside |
+| lobby `shield[1]` … `[11]` | 0×111 | 111×111, 84 apart | `click` at `shield[3]`'s point chose Portugal, the third |
+| `save_game_shield`, battle popup `shield` | 0×42 | 39×42 | inside |
+| `DefaultDialog/LeftShield`, `RightShield` | 0 wide | 111×111 | inside |
+| lobby `save_games_list` (86 saves) | h 4 214 | h 833 | 17 rows |
+| `menu_load/games` | h 3 724 | h 686 | 14 rows; `ui click` on it now clicks a row |
+| `continue_container` | 0×0 | (1473, 1195) 497×111 | the continue panel |
+| `mainmenu_panel_bottom` | (1057, 1339) 3440×1440 | (1018, 1195) 1114×245 | the menu bar |
+| `speed_controls` | (3440, 0) 0×0 | (3065, 0) 375×203 | the date panel |
+| `minimap_panel` | (3440, 1440) 0×0 | (3057, 1175) 383×265 | the minimap |
+| lobby right `observe_mode_title` | x 119 970, visible | not visible | not drawn |
+
+`ui find` over the whole tree took 11 ms (`run_ms`) in the game, as before.
+`ui click` on a masked shield is refused as `covered` with `covered_by:
+null`: the game reports no widget under the pointer there (`mgr+0x130` is 0),
+though a press there works, so `click` at its `click_point` is the way. A
+`ui click` on the battle popup's OK was refused as `covered` once, with a map
+tooltip drawn next to it (not confirmed: the game was closing).
 
 ## Stale widgets (0.14.0)
 
@@ -1744,7 +1802,7 @@ creation time) and the files removed by hand.
 | Speed 5 | `ui click` on the speed buttons worked while running |
 | `ui click` | the first move after a click on a scroll bar button sometimes found nothing hovered (fixed: up to three tries, then a step aside); a row's own label covers the centre of its check box, so clicking the row window works |
 | List boxes | rows are made only for what is shown and refilled as the list scrolls; the wheel did not scroll the save list ([#51](https://github.com/happy-dwarf-team/tongs/issues/51)); scroll bar rects were relative (fixed) |
-| Widgets | check box `+0x100`, edit box `+0xF8` (added); overlapping elements boxes `0x1DA4910` and grid boxes not read ([#48](https://github.com/happy-dwarf-team/tongs/issues/48); fixed); `.gui` sizes ([#50](https://github.com/happy-dwarf-team/tongs/issues/50)) |
+| Widgets | check box `+0x100`, edit box `+0xF8` (added); overlapping elements boxes `0x1DA4910` and grid boxes not read ([#48](https://github.com/happy-dwarf-team/tongs/issues/48); fixed); `.gui` sizes ([#50](https://github.com/happy-dwarf-team/tongs/issues/50); fixed: "Widget sizes") |
 | Events | seven options, one hidden: `event choose 7` refused `not_visible` (fixed: scrolls); `ui click` on an option gave `chosen: null` (fixed); no event paused the game |
 | Game calls | `clear`, `run` with a base-game file; no faulting call forced |
 | `move` | answered `in_game: false` with an empty reason (fixed) |

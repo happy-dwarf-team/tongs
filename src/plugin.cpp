@@ -105,8 +105,13 @@ struct Tongs : anvil::Plugin {
             handlers.dispatcher = &dispatcher;
             handlers.frame_stats = &frame_stats;
             handlers.current_thread_id = [] { return static_cast<std::uint32_t>(GetCurrentThreadId()); };
-            handlers.read_ui = [image_base](tongs::UiTree& tree) { return tongs::ReadUiTree(image_base, tongs::UiLayout{}, tree); };
-            handlers.read_hovered = [image_base] { return tongs::ReadHoveredWidget(image_base, tongs::UiLayout{}); };
+            const tongs::UiLayout ui_layout = tongs::UiLayout::Load();
+            handlers.read_ui = [image_base, ui_layout](tongs::UiTree& tree) {
+                const tongs::WindowSnapshot window = tongs::ReadGameWindow();
+                const tongs::UiRect client{0, 0, window.found ? window.width : 0, window.found ? window.height : 0};
+                return tongs::ReadUiTree(image_base, ui_layout, client, tree);
+            };
+            handlers.read_hovered = [image_base, ui_layout] { return tongs::ReadHoveredWidget(image_base, ui_layout); };
             handlers.read_events = [image_base, event_layout](tongs::EventsRaw& events) {
                 return tongs::ReadEvents(image_base, event_layout, events);
             };

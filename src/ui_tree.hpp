@@ -152,10 +152,19 @@ struct UiCoverCheck {
 
 UiCoverCheck CheckCover(const UiTree& tree, std::uintptr_t target, std::uintptr_t hovered);
 
-// The smallest rectangle around the children of `parent` that have a size; the
-// parent's own rect when none has. Scroll bars have no render node, so their own
-// position is not in client pixels; their buttons' are.
+// The smallest rectangle around the children of `parent` that have a size,
+// the shown ones when any of them has; the parent's own rect when none has.
+// Scroll bars have no render node, so their own position is not in client
+// pixels; their buttons' are.
 UiRect ChildrenBounds(const UiTree& tree, int parent);
+
+// Fits the rects to what the game draws on its client area `client` (w x h;
+// 0 x 0 when unknown), children before their parents: a window without a size
+// of its own, or not inside the client area (a fullscreen window), takes the
+// bounds of its children; then every rect is clipped to the client area, and
+// a widget wholly outside it is not shown (the game parks some widgets far
+// off the screen).
+void FitRects(UiTree& tree, UiRect client);
 
 // The game's 8-bit text (Windows-1252) as UTF-8, without its colour codes (§ and
 // the next character, e.g. "§YName§!" -> "Name").
