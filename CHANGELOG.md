@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/happy-dwarf-team/tongs/compare/v0.15.0...v0.16.0) (2026-10-25)
+
+
+### Features
+
+* publish Tongs as a Steam Workshop mod ([#76](https://github.com/happy-dwarf-team/tongs/issues/76)) ([4947cbc](https://github.com/happy-dwarf-team/tongs/commit/4947cbc5ab19d287491df74164974a49166357e8))
+
 ## [0.15.0](https://github.com/happy-dwarf-team/tongs/compare/v0.14.1...v0.15.0) (2026-10-25)
 
 
