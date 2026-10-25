@@ -9,9 +9,10 @@ name: workshop-publish
 #
 # Opt-in: it runs only when the repository variable WORKSHOP_PUBLISH is `true`
 # (Settings → Secrets and variables → Actions → Variables). It also needs
-# remote_file_id in workshop/descriptor.mod (`pdx-ws init`) and the
-# `steam-workshop` environment with the secrets STEAM_USERNAME and
-# STEAM_SESSION; see the README, "Steam Workshop".
+# remote_file_id in workshop/descriptor.mod (`pdx-ws init`), the organization
+# secrets STEAM_USERNAME and STEAM_SESSION with this repository selected, and
+# the `steam-workshop` environment that gates the job; see the README,
+# "Steam Workshop".
 on:
   release:
     types: [published]
