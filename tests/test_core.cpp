@@ -933,8 +933,15 @@ static void TestWindowAndMouse() {
     assert(game.events[3].type == InputEvent::Type::MouseDown && game.events[3].clicks == 2 && game.events[3].button == 1);
 
     game.events.clear();
+    std::size_t sent_before_first_sleep = 0;
+    game.on_sleep = [&] {
+        if (sent_before_first_sleep == 0) sent_before_first_sleep = game.events.size();
+    };
     out = HandleRequest("scroll -3 50 60", h);
+    game.on_sleep = nullptr;
     assert(Contains(out, "\"ok\":true") && Contains(out, "\"steps\":-3") && game.events.size() == 4);
+    // The move is sent alone and given time to reach the interface before the wheel turns.
+    assert(sent_before_first_sleep == 1 && game.events[0].type == InputEvent::Type::MouseMove);
     assert(game.events[1].type == InputEvent::Type::Wheel && game.events[1].wheel == -1);
     game.events.clear();
     assert(game.cursor == std::make_pair(50, 60));
