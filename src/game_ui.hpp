@@ -13,7 +13,7 @@ namespace tongs {
 // How the widget tree reader treats one class of widget, told apart by the
 // vtable at the widget pointer (the GUI classes have no RTTI).
 struct UiKind {
-    enum class Children { None, Window, Container, Listbox, SmoothListbox, Scrollbar };
+    enum class Children { None, Window, Container, Listbox, SmoothListbox, Overlapping, Grid, Scrollbar };
     unsigned vtable = 0;  // RVA
     UiType type = UiType::Other;
     unsigned node = 0;    // the widget's render node pointer; 0 = none
@@ -113,6 +113,17 @@ struct UiLayout {
     unsigned listbox_scrollbar = U32(sym::listbox_scrollbar.scrollbar);
     unsigned smooth_item_window = U32(sym::smooth_listbox_find_child.item_window);
     unsigned smooth_scrollbar = U32(sym::smooth_listbox_scrollbar.scrollbar);
+    // Overlapping elements boxes: the same item list through the object at
+    // +list_object, whose slot list_slot is type_name_slot (item_list_head_slot),
+    // and no scroll bar.
+    unsigned overlapping_items = U32(sym::overlapping_box_find_child.list_object) + U32(sym::type_name_slot.head);
+    unsigned overlapping_item_window = U32(sym::overlapping_box_find_child.item_window);
+    // Grid boxes: a std::vector of item pointers; each item holds the full
+    // object of its window. The scroll bar is a separate pointer.
+    unsigned grid_items = U32(sym::grid_box_show.items);
+    static_assert(sym::grid_box_show.items_end == sym::grid_box_show.items + 8);
+    unsigned grid_item_window = U32(sym::grid_item_window.window);
+    unsigned grid_scrollbar = U32(sym::grid_box_show.scrollbar);
     // Scroll bars hold their four buttons: slider, track, down, up.
     unsigned scrollbar_parts[4] = {U32(sym::scrollbar_slider_up.slider), U32(sym::scrollbar_down_track.track),
                                    U32(sym::scrollbar_down_track.down), U32(sym::scrollbar_slider_up.up)};
@@ -151,7 +162,10 @@ struct UiLayout {
          UiKind::Children::Listbox},
         {U32(sym::smooth_listbox_vtable.vtable), UiType::Listbox, U32(sym::smooth_listbox_render_node.node), 0, false,
          UiKind::Children::SmoothListbox},
-        {U32(sym::grid_box_vtable.vtable), UiType::Listbox},
+        {U32(sym::overlapping_box_vtable.vtable), UiType::Listbox, U32(sym::overlapping_box_render_node.node), 0, false,
+         UiKind::Children::Overlapping},
+        {U32(sym::grid_box_vtable.vtable), UiType::Listbox, U32(sym::grid_box_render_node.node), 0, false,
+         UiKind::Children::Grid},
         {U32(sym::scrollbar_vtable.vtable), UiType::Other, 0, 0, false, UiKind::Children::Scrollbar},
     };
 };

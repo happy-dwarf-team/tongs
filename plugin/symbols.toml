@@ -294,6 +294,43 @@ values.down = { at = 3, size = 4 }
 values.track = { at = 24, size = 4 }
 note = "scrollbarType: down button at +0x2F8, track button at +0x2F0"
 
+[symbol.overlapping_box_find_child]
+rva = 0x163D540
+bytes = """
+48 89 5C 24 08 57 48 83 EC 20 48 81 C1 F0 00 00 00 48 8B FA 48 8B 01 FF 50 58 48 8B 58 08 48 85
+DB 74 58 0F 1F 40 00 66 0F 1F 84 00 00 00 00 00 48 8B 03 48 8B 48 40 48 8B 41 30 48 83 C1 30
+"""
+memory = "code"
+values.list_object = { at = 13, size = 4 }
+values.list_slot = { at = 25, size = 1 }
+values.item_window = { at = 54, size = 1 }
+note = "OverlappingElementsBoxType find child: item list through the object at +0xF0 (its slot 0x58), item window at +0x40"
+
+[symbol.item_list_head_slot]
+rva = 0x1D90370
+memory = "read"
+points_to = 0x9A920
+note = "slot 0x58 of the item list object's vtable (0x1D90318): type_name_slot, the list head at +0x10"
+
+[symbol.grid_box_show]
+rva = 0x158F300
+bytes = """
+48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B D9 0F B6 F2 48 8B 89 40 01 00 00 48 85 C9 74
+09 48 8B 01 FF 90 80 00 00 00 48 8B 83 98 01 00 00 33 FF 48 2B 83 90 01 00 00
+"""
+memory = "code"
+values.scrollbar = { at = 24, size = 4 }
+values.items_end = { at = 45, size = 4 }
+values.items = { at = 54, size = 4 }
+note = "gridBoxType slot 0x80: scroll bar at +0x140, std::vector of item pointers at +0x190"
+
+[symbol.grid_item_window]
+rva = 0x158F0F0
+bytes = "48 83 EC 28 48 8B 49 10 48 85 C9 74 1A 48 8B 01 FF 90 38 01 00 00"
+memory = "code"
+values.window = { at = 7, size = 1 }
+note = "grid box item: the full object of its window at +0x10"
+
 # --- Stale widgets (docs/design.md, "Stale widgets") ---
 
 [symbol.row_type_lookup]
@@ -528,6 +565,20 @@ memory = "code"
 values.node = { at = 3, size = 4 }
 note = "smoothListboxType slot 0xD8: render node at +0x218"
 
+[symbol.overlapping_box_render_node]
+rva = 0x163CBC0
+bytes = "4C 8B 81 68 01 00 00 F3 41 0F 2C 80 DC 00 00 00"
+memory = "code"
+values.node = { at = 3, size = 4 }
+note = "OverlappingElementsBoxType slot 0xD8: render node at +0x168"
+
+[symbol.grid_box_render_node]
+rva = 0x1590F50
+bytes = "4C 8B 81 30 01 00 00 F3 41 0F 2C 80 DC 00 00 00"
+memory = "code"
+values.node = { at = 3, size = 4 }
+note = "gridBoxType slot 0xD8: render node at +0x130"
+
 # --- Displayed text ---
 
 [symbol.button_set_text]
@@ -665,6 +716,13 @@ bytes = "48 8D 05 FA 76 80 00 49 89 06"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "gridBoxType vtable"
+
+[symbol.overlapping_box_vtable]
+rva = 0x163CD07
+bytes = "48 8D 05 02 7C 76 00 48 89 06"
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "OverlappingElementsBoxType vtable"
 
 [symbol.scrollbar_vtable]
 rva = 0x1552BFC
