@@ -5,6 +5,8 @@
 ## Overview
 Tongs is for people who automate EU4: mod testers, tool makers and anyone who wants an AI agent to look at a game and press its buttons. While the game runs, a program on your own computer can ask Tongs what is going on (the date, the speed, the open windows and events, a screenshot) and, if you allow it, pause, change speed, press keys and click buttons by name, just as a player would.
 
+Other Anvil plugins can read the game's interface through Tongs too, even while its pipe is switched off.
+
 On its own Tongs does nothing you can see. It waits until you switch it on, and it only listens to programs on your own computer.
 
 ![](https://i.imgur.com/Uf8Z21n.png)

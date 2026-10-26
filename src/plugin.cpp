@@ -9,6 +9,7 @@
 #include "game_symbols.hpp"
 #include "game_threads.hpp"
 #include "game_ui.hpp"
+#include "game_ui_service.hpp"
 #include "game_window.hpp"
 #include "load_watch.hpp"
 #include "notify_sources.hpp"
@@ -18,6 +19,7 @@
 
 #include <anvil/anvil.hpp>
 #include <anvil/anvil_game.h>
+#include <tongs/tongs_ui.h>
 
 #include <windows.h>
 
@@ -51,11 +53,18 @@ struct Tongs : anvil::Plugin {
         const std::filesystem::path data_dir = host.data_dir();
         const tongs::Config config = tongs::LoadSettings(data_dir);
         for (const auto& note : config.notes) host.warn("{}", note);
+        const std::uintptr_t image_base = host.game().image_base;
+        const tongs::UiLayout ui_layout = tongs::UiLayout::Load();
+        // tongs.ui only reads, so it is there whatever the settings say (docs/adr/0002).
+        if (const std::string error = tongs::RegisterUiService(image_base, ui_layout); error.empty()) {
+            host.info("service {} v{} registered", TONGS_UI_SERVICE, TONGS_UI_SERVICE_VERSION);
+        } else {
+            host.warn("cannot register {} ({})", TONGS_UI_SERVICE, error);
+        }
         if (!config.enabled) {
             host.info("pipe disabled (set enabled = true in anvil/data/tongs/settings.toml)");
             return;
         }
-        const std::uintptr_t image_base = host.game().image_base;
         const tongs::GameLayout game_layout = tongs::GameLayout::Load();
         const tongs::EventLayout event_layout = tongs::EventLayout::Load();
         tongs::Handlers handlers;
@@ -105,7 +114,6 @@ struct Tongs : anvil::Plugin {
             handlers.dispatcher = &dispatcher;
             handlers.frame_stats = &frame_stats;
             handlers.current_thread_id = [] { return static_cast<std::uint32_t>(GetCurrentThreadId()); };
-            const tongs::UiLayout ui_layout = tongs::UiLayout::Load();
             handlers.read_ui = [image_base, ui_layout](tongs::UiTree& tree) {
                 const tongs::WindowSnapshot window = tongs::ReadGameWindow();
                 const tongs::UiRect client{0, 0, window.found ? window.width : 0, window.found ? window.height : 0};

@@ -74,6 +74,8 @@ public:
     // The widget path: names from a top-level window down, with [n] where
     // siblings share a name. Resolve() of it with the same `all` finds the widget again.
     std::string PathOf(int widget) const;
+    // The last step of PathOf: the widget's name, or position, among its siblings.
+    std::string StepOf(int widget) const;
     bool Visible(int widget) const { return visible_[widget] != 0; }
     bool Usable(int widget) const {
         return (include_hidden_ || Visible(widget)) && (include_stale_ || !tree_.widgets[widget].stale);

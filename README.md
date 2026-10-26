@@ -22,6 +22,8 @@ outside the forge.
 > commands, which change game state; without it, it never does. A connection
 > can also subscribe to notifications: state and date changes, events opening
 > and closing, new `error.log` lines and other clients' input and game calls.
+> Other Anvil plugins can read the widget tree through the service `tongs.ui`
+> (see [For other plugins](#for-other-plugins-tongsui)).
 > Supported game build: EU4 1.37.5
 > (Steam, Windows 64-bit); Anvil skips it on other builds. It needs Anvil
 > 1.0 or newer with its standard plugin `anvil-game`. From 0.16.0 it is also
@@ -87,6 +89,19 @@ command, its answer and its options are in
 - [`mcp/`](mcp/README.md): an MCP server (stdio) with one tool per command
   family, for agents such as Claude Code:
   `claude mcp add --transport stdio tongs -- uv run --frozen --directory C:\path\to\tongs\mcp tongs-mcp`.
+
+## For other plugins: `tongs.ui`
+
+Another Anvil plugin in the game's process can read the widget tree without
+the pipe, through the service `tongs.ui` version 1: `find` (a selector, as
+`ui find`) and `hovered` (the widget under the game's pointer and its
+ancestors). Its header is [include/tongs/tongs_ui.h](include/tongs/tongs_ui.h),
+also in the release zip (`tongs/include/`); vendor it, declare a dependency on
+`tongs` and call it on the game's main thread, from `anvil-game.frame`. The
+service only reads, and Tongs registers it on every load, also with
+`enabled = false` (no pipe then). Design:
+[docs/design.md](docs/design.md#the-tongsui-service), decision:
+[ADR 0002](docs/adr/0002-widget-tree-as-in-process-service.md).
 
 ## Safety
 

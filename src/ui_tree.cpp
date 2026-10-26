@@ -324,27 +324,28 @@ std::string UiView::PathOf(int widget) const {
     for (int w = widget; w != -1; w = parent_[w]) chain.push_back(w);
     std::string path;
     for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
-        const int w = *it;
-        const std::vector<int> siblings = parent_[w] == -1 ? Roots() : Children(parent_[w]);
-        const std::string& name = tree_.widgets[w].name;
         if (!path.empty()) path += '/';
-        if (PlainName(name)) {
-            int same = 0, index = 0;
-            for (const int s : siblings) {
-                if (SameName(tree_.widgets[s].name, name)) {
-                    ++same;
-                    if (s == w) index = same;
-                }
-            }
-            path += name;
-            if (same > 1) path += "[" + std::to_string(index) + "]";
-        } else {
-            // Positional, as a step made only of filters: the n-th sibling of any name.
-            const auto at = std::find(siblings.begin(), siblings.end(), w);
-            path += "[" + std::to_string(at - siblings.begin() + 1) + "]";
-        }
+        path += StepOf(*it);
     }
     return path;
+}
+
+std::string UiView::StepOf(int widget) const {
+    const std::vector<int> siblings = parent_[widget] == -1 ? Roots() : Children(parent_[widget]);
+    const std::string& name = tree_.widgets[widget].name;
+    if (PlainName(name)) {
+        int same = 0, index = 0;
+        for (const int s : siblings) {
+            if (SameName(tree_.widgets[s].name, name)) {
+                ++same;
+                if (s == widget) index = same;
+            }
+        }
+        return same > 1 ? name + "[" + std::to_string(index) + "]" : name;
+    }
+    // Positional, as a step made only of filters: the n-th sibling of any name.
+    const auto at = std::find(siblings.begin(), siblings.end(), widget);
+    return "[" + std::to_string(at - siblings.begin() + 1) + "]";
 }
 
 std::string ParseUiRequest(std::string_view argument, UiRequest& out) {
