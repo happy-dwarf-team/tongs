@@ -71,3 +71,13 @@ _Avoid_: listener, channel, watch
 A key press, typed text or mouse action that Tongs gives the game the way a player's
 keyboard and mouse would.
 _Avoid_: injection, synthetic event
+
+**Client**:
+A program connected to Tongs through the pipe, such as a script or the MCP
+server.
+_Avoid_: consumer (for a pipe program), user
+
+**Consumer**:
+Another Anvil plugin that uses a service Tongs registers, from inside the
+game's process; never a client.
+_Avoid_: client, caller, dependent
