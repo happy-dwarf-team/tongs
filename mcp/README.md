@@ -31,7 +31,15 @@ cd tongs\mcp
 uv sync --frozen
 ```
 
-The server is then `uv run --frozen --directory C:\path\to\tongs\mcp tongs-mcp`.
+The server is then `uv run --frozen --directory C:\path\to\tongs\mcp python -m tongs_mcp`.
+
+Run it as a module, not through the `tongs-mcp.exe` entry point. `uv run`
+reinstalls the project when its version changes, which every release does, and
+Windows does not let it replace `tongs-mcp.exe` while another client's server
+runs from it: the new server then exits with `os error 32` before it answers,
+and the client reports the connection as closed. A server started with
+`python -m` holds only the environment's `python.exe`, which the reinstall
+leaves in place.
 
 Without a clone, uv can run a release tag directly. This pins only the direct
 dependency (`mcp==2.3.0`); the rest is resolved at install time:
@@ -51,7 +59,7 @@ py -3.11 -m venv .venv
 ### Claude Code
 
 ```powershell
-claude mcp add --transport stdio --scope user tongs -- uv run --frozen --directory C:\path\to\tongs\mcp tongs-mcp
+claude mcp add --transport stdio --scope user tongs -- uv run --frozen --directory C:\path\to\tongs\mcp python -m tongs_mcp
 ```
 
 `--scope` is `local` (default: you, this project), `project` (a `.mcp.json`
@@ -64,7 +72,7 @@ shared with the repository) or `user` (you, every project). Everything after
     "tongs": {
       "type": "stdio",
       "command": "uv",
-      "args": ["run", "--frozen", "--directory", "C:/path/to/tongs/mcp", "tongs-mcp"]
+      "args": ["run", "--frozen", "--directory", "C:/path/to/tongs/mcp", "python", "-m", "tongs_mcp"]
     }
   }
 }
@@ -78,7 +86,7 @@ above), VS Code's `.vscode/mcp.json` (`"servers"` instead of `"mcpServers"`),
 or the MCP Inspector:
 
 ```powershell
-npx @modelcontextprotocol/inspector uv run --frozen --directory C:\path\to\tongs\mcp tongs-mcp
+npx @modelcontextprotocol/inspector uv run --frozen --directory C:\path\to\tongs\mcp python -m tongs_mcp
 ```
 
 ## Tools
