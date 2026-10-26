@@ -7,15 +7,27 @@ name: workshop-publish
 # Workshop and GitHub serve the same build. The release notes become the
 # Workshop change note, and workshop/description.md the item's description.
 #
+# Run by hand (workflow_dispatch, on main) it publishes the given release again
+# with the description of main: the way to update the Workshop page between
+# releases. The release must be the one in workshop/descriptor.mod, that is the
+# latest. Steam keeps the mod's version when its files are unchanged and then
+# records no change note.
+#
 # Opt-in: it runs only when the repository variable WORKSHOP_PUBLISH is `true`
 # (Settings → Secrets and variables → Actions → Variables). It also needs
 # remote_file_id in workshop/descriptor.mod (`pdx-ws init`), the organization
 # secrets STEAM_USERNAME and STEAM_SESSION with this repository selected, and
 # the `steam-workshop` environment that gates the job; see the README,
-# "Steam Workshop".
+# "Steam Workshop". A run by hand also needs the environment to allow main.
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release to publish again with main's description, e.g. v0.16.0
+        required: true
+        type: string
 
 permissions: {}
 
@@ -33,9 +45,9 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      TAG: ${{ github.event.release.tag_name }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
-      # The release event checks out the release's tag.
+      # The release event checks out the release's tag, a run by hand its branch.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -75,12 +87,12 @@ jobs:
           mv "$dir/package/tongs" workshop/anvil/tongs
           find workshop -type f | sort
 
-      - uses: happy-dwarf-team/paradox-workshop-publish@v0.2.0
+      - uses: happy-dwarf-team/paradox-workshop-publish@v0.2.1
         id: workshop
         with:
           steam-username: ${{ secrets.STEAM_USERNAME }}
           steam-session: ${{ secrets.STEAM_SESSION }}
-          change-note: ${{ github.event.release.body }}
+          change-note: ${{ github.event_name == 'workflow_dispatch' && 'Updated the Workshop page.' || github.event.release.body }}
 
       - name: Link the Workshop item
         env:
