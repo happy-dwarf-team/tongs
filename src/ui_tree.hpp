@@ -34,6 +34,8 @@ struct UiWidget {
     bool has_checked = false;  // check boxes
     bool checked = false;
     bool stale = false;  // built from a definition a reload freed, or inside such a widget (ui_definitions.hpp)
+    bool has_definition_file = false;  // only when the widget's definition is live
+    std::string definition_file;       // the game path of the defining .gui file, UTF-8; tongs.ui only
     std::vector<int> children;  // indices into UiTree::widgets, in the game's order
     std::uintptr_t address = 0;  // the widget pointer in the game: matches event buttons and the hovered widget; not reported
 };
