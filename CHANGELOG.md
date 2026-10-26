@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.17.0](https://github.com/happy-dwarf-team/tongs/compare/v0.16.0...v0.17.0) (2026-10-26)
+
+
+### Features
+
+* a hovered call cheap enough for every frame ([#90](https://github.com/happy-dwarf-team/tongs/issues/90)) ([365e37e](https://github.com/happy-dwarf-team/tongs/commit/365e37edee2a9da740397c57777a1a32f947da7d))
+* register the widget tree as the service tongs.ui version 1 ([#88](https://github.com/happy-dwarf-team/tongs/issues/88)) ([f63142e](https://github.com/happy-dwarf-team/tongs/commit/f63142e0bebdea2a0a046e5ebec535d392f1ee92))
+* the definition file of each widget in tongs.ui ([#91](https://github.com/happy-dwarf-team/tongs/issues/91)) ([6efac0f](https://github.com/happy-dwarf-team/tongs/commit/6efac0f7da2cf22f3d1b3d1728e40a4997601442))
+
 ## [0.16.0](https://github.com/happy-dwarf-team/tongs/compare/v0.15.0...v0.16.0) (2026-10-25)
 
 
