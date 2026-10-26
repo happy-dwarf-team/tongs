@@ -1069,8 +1069,10 @@ holds the contract; the release zip carries it in `tongs/include/tongs/`
   ancestors are usable too (shown and stale pass down), so the flags never
   hide an ancestor.
 - **hovered** visits the widget at `mgr+0x130` and then its ancestors, each
-  `parent` the next visit. In 0.17.0 it reads the whole tree, like `find`;
-  `path` is still NULL without `TONGS_UI_PATHS`, as the header says.
+  `parent` the next visit. With `TONGS_UI_PATHS` it reads the whole tree,
+  like `find`; without it, only the hovered widget and its ancestors (below,
+  [tongs#84](https://github.com/happy-dwarf-team/tongs/issues/84)), and
+  `path` is NULL.
 - **Flags.** A call takes `TONGS_UI_HIDDEN` (the pipe's `all`),
   `TONGS_UI_STALE` and `TONGS_UI_PATHS`; any other bit is
   `ANVIL_ERROR_INVALID_ARGUMENT`, so a flag added later within version 1
@@ -1095,11 +1097,79 @@ holds the contract; the release zip carries it in `tongs/include/tongs/`
   no hook and no thread. The service reads, sends no input and makes no game
   call, so neither `input` nor `game_calls` applies, and suspension in
   ironman or multiplayer does not stop it.
+- **Cheap hovered.** Without `TONGS_UI_PATHS`, `hovered` must be cheap
+  enough for every frame (Etch's pick mode follows the pointer).
+  `src/ui_structure.cpp` now places widgets for both reads: `ReadAll` is the
+  whole tree's placement as before (the first holder in registry order, else
+  the owner of the render node's parent), moved out of `game_ui.cpp` behind
+  `ReadMemory` so the tests can run it; `Climb` places only the hovered
+  widget and its ancestors:
+  - it copies the registry vector (one read) and takes a pointer as a widget
+    only when the registry has it and it is not dead, as the whole read does;
+  - from each widget it climbs the render nodes (`+0x110` parent, `+0x118`
+    owner) to the first live owner, as the whole read places code-held
+    widgets;
+  - the parent is that owner when the owner's containers hold the widget,
+    else a list, overlapping or grid box or a scroll bar the owner holds
+    (two levels down) that holds it, because a list box's node may have no
+    owner and a scroll bar has none, and else the owner itself (a code-held
+    widget);
+  - a scroll bar climbs from its buttons' nodes; a widget of a class Tongs
+    does not know has no node to read, so the climb reports itself
+    incomplete and `hovered` reads the whole tree instead.
+
+  The chain is described like the whole tree (`Describer` in
+  `game_ui.cpp`: kind, shown, rect, text, state), plus the children its
+  windows' containers hold where `FitRects` takes a window's rect from its
+  children; then `PropagateStale` and `FitRects` run on that small tree, and
+  the adapter visits it as it visits the whole one. Names are read, not
+  called: every widget kind but windows and containers has the slot `0xA0`
+  thunk `0xFBF480` (`widget_name_slot`), which jumps to the definition's
+  slot `0x40`, and every definition class's slot `0x40` is `0x9A920`
+  (`type_name_slot`, `lea rax, [rcx+0x10]`): the name is the `std::string`
+  at `definition+0x10`. Windows and containers return their own name first
+  (`window_name_slot`, `container_name_slot`). A slot Tongs does not know
+  gives no name on this path.
+
+  Whether a definition is live comes from `LiveDefinitionCache`
+  (`src/ui_definitions.cpp`). It keeps the last collection of live
+  definitions with a witness for each: the slot that held it (a registry
+  node's value, a nested map node's value or a pointer field) and the
+  definition owning that slot. A known definition is live while each slot on
+  its way up still holds it (a few reads); a reload replaces the registry's
+  value, which breaks the way up of everything the old definition held. A
+  definition it does not know, or whose way broke, makes it collect again,
+  at most once per call; what is still unknown then is stale until the next
+  collection. Because the cheap path never calls a name slot, a wrong
+  verdict (a slot in freed memory that still holds its old value) can give a
+  wrong name, not a crash.
+
+  **Cost** (live,
+  [tongs#87](https://github.com/happy-dwarf-team/tongs/issues/87), a test
+  consumer timing each call from `anvil-game.frame` with
+  `QueryPerformanceCounter`, the lab's Russia save paused, about 16 200
+  widgets): the cheap `hovered` took a median of 48 µs per call (p90 88 µs,
+  p99 116 µs, 1 573 calls) while the pointer moved over buttons, list rows
+  and a scroll bar, and 64 µs after a `reload`. The first call, and the
+  first after a `reload`, collect the live definitions: 3.2–3.6 ms once.
+  In the main menu, mostly with nothing hovered, the median was 7 µs.
+  `hovered` with `TONGS_UI_PATHS` took a median of 12.5 ms, as the whole
+  tree does.
 - **Unit tests** (`tests/test_core.cpp`, `TestUiService*`) run the adapter
   over the hand-built trees of the `ui` tests: the same paths and rectangles
   as `ui find`, ancestors, `[n]` and positional steps, hidden and stale
   widgets, a consumer stopping early, and the front's argument checks,
   threads, a call from inside a visit and an unreadable tree.
+  `TestUiStructureClimb` builds a GUI in the test's memory (a window holding
+  a container, a list box whose node has no owner, rows held by their full
+  objects, a scroll bar without a node, a code-held button, a dead button
+  and a widget of an unknown class) and checks that the climb from every
+  widget gives the ancestors and holder names `ReadAll` gives, with fewer
+  reads. `TestLiveDefinitionCache` checks the reads of the way up, one
+  collection per call for an unknown definition, and a reload.
+  `TestUiServiceHoveredChain` checks that `hovered` takes the chain without
+  `TONGS_UI_PATHS`, the whole tree with it or when the chain is incomplete,
+  with the same visits.
 
 ## Clicking widgets (0.6.0)
 

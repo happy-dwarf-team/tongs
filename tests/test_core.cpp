@@ -6,6 +6,7 @@
 #include "protocol.hpp"
 #include "ui_definitions.hpp"
 #include "ui_service.hpp"
+#include "ui_structure.hpp"
 #include "ui_tree.hpp"
 
 #include <atomic>
@@ -2844,6 +2845,318 @@ static void TestUiServiceCalls() {
     assert(service.Find("//*", 0, &SeenVisits::Visit, &seen, &count) == ANVIL_ERROR_INTERNAL && logged.size() == 2);
 }
 
+// A GUI in the test's own memory for UiStructure: widgets with render nodes,
+// the child containers of windows, containers, list boxes and scroll bars, and
+// the registry. Vtables are small numbers (image base 0), so they are the RVAs.
+struct FakeWidgets {
+    static constexpr unsigned kWindow = 0x100, kContainer = 0x110, kListbox = 0x120, kScrollbar = 0x130,
+                              kButton = 0x140, kUnknown = 0x150;
+    static constexpr std::size_t kBlock = 0x800, kPart = 0x40;  // a widget pointer is kPart into its block (window_part)
+
+    std::deque<std::vector<unsigned char>> blocks;
+    std::vector<std::uintptr_t> registry;
+    std::vector<std::uintptr_t> manager = std::vector<std::uintptr_t>(4, 0);
+    int reads = 0;
+    UiStructureLayout layout;
+
+    FakeWidgets() {
+        UiStructureLayout& l = layout;
+        l.registry_begin = 0x10;
+        l.registry_end = 0x18;
+        l.dead = 0xC4;
+        l.window_part = kPart;
+        l.window_pairs = 0x300;
+        l.pair_names = 0x18;
+        l.name_size = 0x20;
+        l.window_pair_count = 1;
+        l.window_maps = 0x500;  // empty lists (full object)
+        l.window_map_count = 1;
+        l.map_stride = 0x40;
+        l.map_list_head = 0x20;
+        l.list_node_next = 0x10;
+        l.window_subwindows = 0x600;  // an empty vector (full object)
+        l.subwindow_size = 0x28;
+        l.subwindow_pointer = 0x20;
+        l.container_pairs = 0x300;
+        l.container_pair_count = 1;
+        l.pair_stride = 0x30;
+        l.list_items = 0x400;
+        l.listbox_item_window = 0x40;
+        l.listbox_scrollbar = 0x408;
+        l.scrollbar_parts[0] = 0x300;
+        l.scrollbar_parts[1] = 0x308;
+        l.scrollbar_parts[2] = 0x310;
+        l.scrollbar_parts[3] = 0x318;
+        l.node_owner = 0x118;
+        l.node_parent = 0x110;
+        using C = UiKind::Children;
+        l.kinds = {{kWindow, UiType::Window, 0x200, 0, false, C::Window},
+                   {kContainer, UiType::Window, 0x200, 0, false, C::Container},
+                   {kListbox, UiType::Listbox, 0x200, 0, false, C::Listbox},
+                   {kScrollbar, UiType::Other, 0, 0, false, C::Scrollbar},
+                   {kButton, UiType::Button, 0x200}};
+    }
+
+    std::uintptr_t Block() {
+        blocks.emplace_back(kBlock);
+        return reinterpret_cast<std::uintptr_t>(blocks.back().data());
+    }
+    template <typename T> static void Put(std::uintptr_t at, T value) { std::memcpy(reinterpret_cast<void*>(at), &value, sizeof value); }
+
+    // A widget of class `vtable` with a render node under `parent_node` (owned by
+    // `owner_of_node`: the widget itself, or 0 as a list box's may be), in the registry.
+    std::uintptr_t Widget(unsigned vtable, std::uintptr_t parent_node, bool node = true, bool owned_node = true) {
+        const std::uintptr_t w = Block() + kPart;
+        Put<std::uintptr_t>(w, vtable);
+        if (node) {
+            const std::uintptr_t n = Block();
+            Put<std::uintptr_t>(n + layout.node_parent, parent_node);
+            Put<std::uintptr_t>(n + layout.node_owner, owned_node ? w : 0);
+            Put<std::uintptr_t>(w + 0x200, n);
+        }
+        registry.push_back(w);
+        return w;
+    }
+    static std::uintptr_t NodeOf(std::uintptr_t widget) { return *reinterpret_cast<std::uintptr_t*>(widget + 0x200); }
+
+    // A vector pair at `at`: the children and their names (std::string, short, in place).
+    void Pair(std::uintptr_t at, const std::vector<std::uintptr_t>& children, const std::vector<std::string>& names) {
+        const std::uintptr_t pointers = Block(), strings = Block();
+        for (std::size_t i = 0; i < children.size(); ++i) {
+            Put(pointers + i * 8, children[i]);
+            const std::uintptr_t s = strings + i * layout.name_size;
+            std::memcpy(reinterpret_cast<void*>(s), names[i].c_str(), names[i].size() + 1);
+            Put<std::uint64_t>(s + 0x10, names[i].size());
+            Put<std::uint64_t>(s + 0x18, 15);
+        }
+        Put(at, pointers);
+        Put(at + 8, pointers + children.size() * 8);
+        Put(at + layout.pair_names, strings);
+        Put(at + layout.pair_names + 8, strings + names.size() * layout.name_size);
+    }
+    // A list box's items: an insertion list whose items hold the full objects of their windows.
+    void Items(std::uintptr_t listbox, const std::vector<std::uintptr_t>& windows) {
+        std::uintptr_t previous = 0;
+        for (const std::uintptr_t window : windows) {
+            const std::uintptr_t node = Block(), item = Block();
+            Put(node, item);
+            Put(item + layout.listbox_item_window, window - kPart);
+            Put(previous == 0 ? listbox + layout.list_items : previous + layout.list_node_next, node);
+            previous = node;
+        }
+    }
+
+    ReadMemory Reader() {
+        return [this](std::uintptr_t address, void* out, std::size_t size) {
+            ++reads;
+            const auto inside = [&](const unsigned char* begin, std::size_t length) {
+                const auto b = reinterpret_cast<std::uintptr_t>(begin);
+                return address >= b && address + size <= b + length;
+            };
+            bool ok = inside(reinterpret_cast<const unsigned char*>(manager.data()), manager.size() * 8) ||
+                      (!registry.empty() &&
+                       inside(reinterpret_cast<const unsigned char*>(registry.data()), registry.size() * 8));
+            for (const auto& b : blocks) ok = ok || inside(b.data(), b.size());
+            if (!ok) return false;
+            std::memcpy(out, reinterpret_cast<const void*>(address), size);
+            return true;
+        };
+    }
+    std::uintptr_t Manager() {
+        manager[2] = reinterpret_cast<std::uintptr_t>(registry.data());
+        manager[3] = manager[2] + registry.size() * 8;
+        return reinterpret_cast<std::uintptr_t>(manager.data());
+    }
+};
+
+// The widget's ancestors in a whole-registry placement, from the widget up.
+static std::vector<std::uintptr_t> PlacedChain(const UiStructure& all, std::uintptr_t widget) {
+    std::vector<std::uintptr_t> chain;
+    int at = -1;
+    for (int i = 0; i < static_cast<int>(all.entries().size()); ++i) {
+        if (all.entries()[i].pointer == widget) at = i;
+    }
+    for (; at != -1; at = all.entries()[at].parent) chain.push_back(all.entries()[at].pointer);
+    return chain;
+}
+
+static void TestUiStructureClimb() {
+    FakeWidgets g;
+    // A top-level window holding a container, a list box and a button. The list
+    // box's node has no owner; its rows are windows its items hold by their
+    // full objects, and its scroll bar (no node) holds two buttons. The
+    // container holds a button by name and has a button only the game's code
+    // holds (its node under the container's). A second top-level window, and a
+    // dead button the window still lists.
+    const std::uintptr_t top = g.Widget(FakeWidgets::kWindow, 0);
+    const std::uintptr_t container = g.Widget(FakeWidgets::kContainer, FakeWidgets::NodeOf(top));
+    const std::uintptr_t list = g.Widget(FakeWidgets::kListbox, FakeWidgets::NodeOf(top), true, false);
+    const std::uintptr_t button = g.Widget(FakeWidgets::kButton, FakeWidgets::NodeOf(top));
+    const std::uintptr_t named = g.Widget(FakeWidgets::kButton, FakeWidgets::NodeOf(container));
+    const std::uintptr_t coded = g.Widget(FakeWidgets::kButton, FakeWidgets::NodeOf(container));
+    const std::uintptr_t row1 = g.Widget(FakeWidgets::kWindow, FakeWidgets::NodeOf(list));
+    const std::uintptr_t row2 = g.Widget(FakeWidgets::kWindow, FakeWidgets::NodeOf(list));
+    const std::uintptr_t row_button = g.Widget(FakeWidgets::kButton, FakeWidgets::NodeOf(row2));
+    const std::uintptr_t bar = g.Widget(FakeWidgets::kScrollbar, 0, false);
+    const std::uintptr_t slider = g.Widget(FakeWidgets::kButton, FakeWidgets::NodeOf(list));
+    const std::uintptr_t track = g.Widget(FakeWidgets::kButton, FakeWidgets::NodeOf(list));
+    const std::uintptr_t other = g.Widget(FakeWidgets::kWindow, 0);
+    const std::uintptr_t unknown = g.Widget(FakeWidgets::kUnknown, FakeWidgets::NodeOf(other));
+    const std::uintptr_t dead = g.Widget(FakeWidgets::kButton, FakeWidgets::NodeOf(top));
+    FakeWidgets::Put<std::uint8_t>(dead + g.layout.dead, 1);
+    g.Pair(top + g.layout.window_pairs, {container, list, button, dead}, {"box", "rows", "ok", "gone"});
+    g.Pair(container + g.layout.container_pairs, {named}, {"named"});
+    g.Pair(row2 + g.layout.window_pairs, {row_button}, {"pick"});
+    g.Pair(other + g.layout.window_pairs, {unknown}, {"minimap"});
+    g.Items(list, {row1, row2});
+    FakeWidgets::Put(list + g.layout.listbox_scrollbar, bar);
+    FakeWidgets::Put(bar + g.layout.scrollbar_parts[0], slider);
+    FakeWidgets::Put(bar + g.layout.scrollbar_parts[1], track);
+
+    UiStructure all(g.layout, 0, g.Reader());
+    const std::uintptr_t manager = g.Manager();
+    assert(all.ReadAll(manager).empty());
+    assert(all.entries().size() == g.registry.size() - 1);  // the dead button is not placed
+    using V = std::vector<std::uintptr_t>;
+    assert((PlacedChain(all, slider) == V{slider, bar, list, top}));
+    assert((PlacedChain(all, row_button) == V{row_button, row2, list, top}));
+    assert((PlacedChain(all, coded) == V{coded, container, top}));
+    assert((PlacedChain(all, unknown) == V{unknown, other}));
+    assert(all.roots().size() == 2);
+
+    // The climb from any widget gives the placement's chain, and the holder's name.
+    for (const UiEntry& e : all.entries()) {
+        UiStructure one(g.layout, 0, g.Reader());
+        assert(one.Climb(manager, e.pointer).empty());
+        // A class without a known node cannot climb: the caller reads the whole tree.
+        assert(one.complete() == (e.pointer != unknown));
+        if (!one.complete()) continue;
+        V chain;
+        for (std::size_t i = 0; i < one.entries().size(); ++i) {
+            chain.push_back(one.entries()[i].pointer);
+            assert(one.entries()[i].parent == (i + 1 < one.entries().size() ? static_cast<int>(i) + 1 : -1));
+            const UiEntry& placed = all.entries()[std::find_if(all.entries().begin(), all.entries().end(), [&](const UiEntry& x) {
+                                        return x.pointer == chain.back();
+                                    }) - all.entries().begin()];
+            assert(one.entries()[i].held_name == placed.held_name);
+        }
+        assert(chain == PlacedChain(all, e.pointer));
+    }
+    // Far fewer reads than the whole placement.
+    g.reads = 0;
+    assert(all.ReadAll(manager).empty());
+    const int whole = g.reads;
+    g.reads = 0;
+    UiStructure one(g.layout, 0, g.Reader());
+    assert(one.Climb(manager, row_button).empty() && g.reads < whole);
+    // Not a live widget of the registry: the dead button, a pointer outside it, nothing.
+    for (const std::uintptr_t not_live : {dead, std::uintptr_t{0x1234}, std::uintptr_t{0}}) {
+        assert(one.Climb(manager, not_live).empty() && one.entries().empty());
+    }
+    // A full object finds its window.
+    assert(one.Climb(manager, row1 - FakeWidgets::kPart).empty() && one.entries().size() == 3 &&
+           one.entries()[0].pointer == row1);
+    // A registry that is not readable.
+    g.manager[3] = g.manager[2] - 8;
+    assert(!one.Climb(reinterpret_cast<std::uintptr_t>(g.manager.data()), row1).empty());
+}
+
+static void TestLiveDefinitionCache() {
+    FakeGui gui;
+    const std::uintptr_t topbar = gui.Define(FakeGui::kWindowVtable);
+    const std::uintptr_t icon = gui.Define(FakeGui::kIconVtable);
+    const std::uintptr_t inner = gui.Define(FakeGui::kWindowVtable);
+    const std::uintptr_t deep = gui.Define(FakeGui::kIconVtable);
+    const std::uintptr_t alerts = gui.Define(FakeGui::kWindowVtable);
+    gui.Insert(FakeGui::MapOf(topbar), "icon", icon);
+    gui.Insert(FakeGui::MapOf(topbar), "inner", inner);
+    gui.Insert(FakeGui::MapOf(inner), "deep", deep);
+    gui.Insert(gui.registry, "topbar", topbar);
+    gui.Insert(gui.registry, "alerts_parent", alerts);
+    const std::uintptr_t registry = reinterpret_cast<std::uintptr_t>(&gui.registry);
+
+    LiveDefinitionCache cache;
+    const auto live = [&](std::uintptr_t definition) {
+        bool out = false;
+        assert(cache.IsLive(registry, gui.Layout(), gui.Reader(), definition, out).empty());
+        return out;
+    };
+    // The first question collects; later ones read only the way up.
+    cache.Begin();
+    assert(live(deep) && cache.collections() == 1);
+    gui.reads.clear();
+    cache.Begin();
+    assert(live(deep) && live(icon) && live(alerts) && cache.collections() == 1);
+    assert(gui.reads.size() == 3 + 2 + 1);  // deep: its node, inner's, topbar's; icon: two; alerts: one
+    assert(!live(0) && cache.collections() == 1);
+    // A definition it does not know collects once per Begin(); then it is stale until the next collection.
+    const std::uintptr_t unknown = gui.Define(FakeGui::kIconVtable);
+    assert(!live(unknown) && cache.collections() == 2);
+    assert(!live(unknown) && cache.collections() == 2);
+    cache.Begin();
+    assert(!live(unknown) && cache.collections() == 2);
+
+    // A reload replaces the registry's value: the old definitions' way up breaks.
+    const std::uintptr_t topbar2 = gui.Define(FakeGui::kWindowVtable);
+    const std::uintptr_t icon2 = gui.Define(FakeGui::kIconVtable);
+    gui.Insert(FakeGui::MapOf(topbar2), "icon", icon2);
+    gui.Insert(gui.registry, "topbar", topbar2);
+    cache.Begin();
+    assert(!live(deep) && cache.collections() == 3);  // broke, collected again, still not there
+    assert(!live(icon) && !live(topbar) && cache.collections() == 3);
+    assert(live(icon2) && live(alerts) && cache.collections() == 3);
+    // An unreadable registry is an error, not an answer.
+    const ReadMemory none = [](std::uintptr_t, void*, std::size_t) { return false; };
+    LiveDefinitionCache broken;
+    bool out = true;
+    broken.Begin();
+    assert(!broken.IsLive(registry, gui.Layout(), none, icon2, out).empty() && !out);
+}
+
+// hovered without TONGS_UI_PATHS takes the chain; with it, or when the chain is incomplete, the whole tree.
+static void TestUiServiceHoveredChain() {
+    const UiTree sample = AddressedSampleTree();
+    // The chain of the second option button as ReadHoveredChain gives it: the
+    // button, its entry, the list box and the event window, each the child of the next.
+    UiTree chain;
+    for (const int i : {13, 12, 9, 8}) chain.widgets.push_back(sample.widgets[i]);
+    for (auto& w : chain.widgets) w.children.clear();
+    for (int i = 0; i + 1 < 4; ++i) chain.widgets[i + 1].children.push_back(i);
+    chain.roots = {3};
+    int trees = 0, chains = 0;
+    bool complete = true;
+    UiServiceHost h;
+    h.current_thread = [] { return 7u; };
+    h.main_thread = [] { return 7u; };
+    h.read_tree = [&](UiTree& tree) {
+        ++trees;
+        tree = sample;
+        return std::string();
+    };
+    h.read_hovered = [] { return Address(13); };
+    h.read_hovered_chain = [&](UiTree& tree, std::uintptr_t& hovered, bool& whole) {
+        ++chains;
+        tree = chain;
+        hovered = Address(13);
+        whole = complete;
+        return std::string();
+    };
+    h.log_error = [](const std::string&) {};
+    UiService service(h);
+    SeenVisits cheap, full;
+    assert(service.Hovered(0, &SeenVisits::Visit, &cheap) == ANVIL_OK && chains == 1 && trees == 0);
+    assert(service.Hovered(TONGS_UI_PATHS, &SeenVisits::Visit, &full) == ANVIL_OK && chains == 1 && trees == 1);
+    assert(cheap.Ids() == full.Ids() && cheap.Parents() == full.Parents() && cheap.widgets.size() == 4);
+    for (std::size_t i = 0; i < 4; ++i) {
+        assert(cheap.widgets[i].raw.flags == full.widgets[i].raw.flags && !cheap.widgets[i].has_path &&
+               full.widgets[i].has_path && cheap.widgets[i].name == full.widgets[i].name);
+    }
+    complete = false;
+    cheap = {};
+    assert(service.Hovered(0, &SeenVisits::Visit, &cheap) == ANVIL_OK && chains == 2 && trees == 2);
+    assert(cheap.Ids() == full.Ids() && !cheap.widgets[0].has_path);
+}
+
 int main() {
     TestSubscribeParsing();
     TestDateCrosses();
@@ -2864,6 +3177,9 @@ int main() {
     TestUiServiceFind();
     TestUiServiceHovered();
     TestUiServiceCalls();
+    TestUiServiceHoveredChain();
+    TestUiStructureClimb();
+    TestLiveDefinitionCache();
     TestChildrenBounds();
     TestFitRects();
     TestUiClickCommand();

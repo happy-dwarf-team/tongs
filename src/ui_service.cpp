@@ -107,8 +107,7 @@ AnvilResult UiService::Admit() const {
     return ANVIL_OK;
 }
 
-AnvilResult UiService::ReadTree(UiTree& tree) {
-    std::string error = host_.read_tree(tree);
+AnvilResult UiService::Report(std::string error) {
     if (error.empty()) {
         last_error_.clear();
         return ANVIL_OK;
@@ -129,7 +128,7 @@ AnvilResult UiService::Find(const char* selector, std::uint32_t flags, TongsUiVi
     if (const AnvilResult admitted = Admit(); admitted != ANVIL_OK) return admitted;
     try {
         UiTree tree;
-        if (const AnvilResult read = ReadTree(tree); read != ANVIL_OK) return read;
+        if (const AnvilResult read = Report(host_.read_tree(tree)); read != ANVIL_OK) return read;
         const std::uintptr_t hovered = host_.read_hovered();
         const Visiting guard(visiting_);
         const std::uint32_t matches = VisitUiFind(tree, parsed, flags, hovered, visit, context);
@@ -146,10 +145,20 @@ AnvilResult UiService::Hovered(std::uint32_t flags, TongsUiVisit visit, void* co
     if (visit == nullptr || (flags & ~kUiServiceFlags) != 0) return ANVIL_ERROR_INVALID_ARGUMENT;
     if (const AnvilResult admitted = Admit(); admitted != ANVIL_OK) return admitted;
     try {
-        const std::uintptr_t hovered = host_.read_hovered();
-        if (hovered == 0) return ANVIL_OK;
         UiTree tree;
-        if (const AnvilResult read = ReadTree(tree); read != ANVIL_OK) return read;
+        std::uintptr_t hovered = 0;
+        bool complete = false;
+        if ((flags & TONGS_UI_PATHS) == 0 && host_.read_hovered_chain) {
+            // A few reads up from the hovered widget instead of the whole tree.
+            if (const AnvilResult read = Report(host_.read_hovered_chain(tree, hovered, complete)); read != ANVIL_OK) {
+                return read;
+            }
+        }
+        if (!complete) {
+            hovered = host_.read_hovered();
+            if (hovered == 0) return ANVIL_OK;
+            if (const AnvilResult read = Report(host_.read_tree(tree)); read != ANVIL_OK) return read;
+        }
         const Visiting guard(visiting_);
         VisitUiHovered(tree, hovered, flags, visit, context);
         return ANVIL_OK;

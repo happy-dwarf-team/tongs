@@ -191,14 +191,17 @@ note = "button hide: visible byte +0xC5"
 rva = 0xFBF480
 bytes = "48 8B 89 B0 00 00 00 48 8B 01 48 FF 60 40"
 memory = "code"
-note = "widget vtable slot 0xA0 (name): .gui type at +0xB0, its slot 0x40"
+values.definition = { at = 3, size = 4 }
+values.name_slot = { at = 13, size = 1 }
+note = "widget vtable slot 0xA0 (name): .gui type at +0xB0, its slot 0x40; every kind but windows and containers"
 
 [symbol.type_name_slot]
 rva = 0x9A920
 bytes = "48 8D 41 10 C3"
 memory = "code"
 values.head = { at = 3, size = 1 }
-note = "type slot 0x40 (name at type+0x10); list object slot 0x60 (head at +0x10)"
+values.name = { at = 3, size = 1 }
+note = "type slot 0x40 (name at type+0x10) of every definition class; list object slot 0x60 (head at +0x10)"
 
 [symbol.button_state]
 rva = 0x1148250

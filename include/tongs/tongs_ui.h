@@ -132,7 +132,11 @@ typedef struct TongsUiService {
      * top-level window: each visit's parent is the next one visited (-1 for
      * the last). Nothing is visited when nothing is hovered, or when the
      * hovered widget is hidden or stale and the flags do not ask for it.
-     * Errors as find. */
+     * Without TONGS_UI_PATHS it reads only these widgets and `path` is NULL;
+     * the widgets, names, text and flags are those a call with it gives, and
+     * so are the rects, except that a window without a size of its own takes
+     * the bounds of the children its containers hold, not of those the
+     * game's own code adds to it. Errors as find. */
     AnvilResult (*hovered)(uint32_t flags, TongsUiVisit visit, void *context);
 } TongsUiService;
 

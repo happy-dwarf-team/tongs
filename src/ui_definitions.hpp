@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -59,6 +60,49 @@ constexpr unsigned kMaxTypeNodeSize = 0x40;
 // text, or empty on success; on an error `out` is incomplete and must not be used.
 std::string CollectLiveDefinitions(std::uintptr_t registry, const TypeTreeLayout& layout, const ReadMemory& read,
                                    std::unordered_set<std::uintptr_t>& out);
+
+// Where a live definition was found: the slot that holds it (the value of a
+// registry node, of a nested map's node, or a pointer field) and the definition
+// that slot belongs to (0 for the registry).
+struct DefinitionWitness {
+    std::uintptr_t slot = 0;
+    std::uintptr_t parent = 0;
+};
+
+// As above, and records the first witness of each definition in `witnesses`.
+std::string CollectLiveDefinitions(std::uintptr_t registry, const TypeTreeLayout& layout, const ReadMemory& read,
+                                   std::unordered_set<std::uintptr_t>& out,
+                                   std::unordered_map<std::uintptr_t, DefinitionWitness>& witnesses);
+
+// Tells whether single definitions are live without collecting all of them
+// each time (tongs.ui's cheap hovered). It keeps the last collection with its
+// witnesses: a known definition is live while every slot on its way up to the
+// registry still holds it, a few reads. A reload replaces the registry's value,
+// so the way up breaks for everything the old definition held. A definition it
+// does not know, or whose way up broke, makes it collect again, at most once
+// between two Begin(); a definition still unknown after that is stale until
+// the next collection.
+//
+// A freed address that a later definition reuses can still pass, as in the
+// whole collection, and so can a slot in freed memory that still holds its old
+// value. So the answer decides what is read (the name and file strings of a
+// definition), never what is called.
+class LiveDefinitionCache {
+public:
+    void Begin() { collected_now_ = false; }
+    // Sets `live`; returns an error text when a collection failed (then `live` is false).
+    std::string IsLive(std::uintptr_t registry, const TypeTreeLayout& layout, const ReadMemory& read,
+                       std::uintptr_t definition, bool& live);
+    std::size_t collections() const { return collections_; }
+
+private:
+    bool Verify(std::uintptr_t definition, const ReadMemory& read) const;
+
+    std::unordered_map<std::uintptr_t, DefinitionWitness> live_;
+    std::unordered_set<std::uintptr_t> stale_;
+    bool collected_now_ = false;
+    std::size_t collections_ = 0;
+};
 
 struct UiNamePlan {
     enum class Source { None, Definition, Holder, Override };

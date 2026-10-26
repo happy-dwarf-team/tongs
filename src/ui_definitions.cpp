@@ -6,8 +6,10 @@ namespace tongs {
 namespace {
 
 // Adds the values of the map at `map` that are new to `out`, and queues them.
-std::string WalkMap(std::uintptr_t map, const TypeTreeLayout& layout, const ReadMemory& read, std::size_t& nodes,
-                    std::unordered_set<std::uintptr_t>& out, std::vector<std::uintptr_t>& found) {
+// `owner`: the definition the map belongs to, 0 for the registry; witnesses may be null.
+std::string WalkMap(std::uintptr_t map, std::uintptr_t owner, const TypeTreeLayout& layout, const ReadMemory& read,
+                    std::size_t& nodes, std::unordered_set<std::uintptr_t>& out, std::vector<std::uintptr_t>& found,
+                    std::unordered_map<std::uintptr_t, DefinitionWitness>* witnesses) {
     std::uintptr_t root = 0;
     if (!read(map + layout.root, &root, sizeof root)) return "the GUI type registry is unreadable";
     // Iterative, and bounded: a tree changing under us (never on the main thread) cannot loop forever.
@@ -24,7 +26,10 @@ std::string WalkMap(std::uintptr_t map, const TypeTreeLayout& layout, const Read
             std::memcpy(&p, raw + at, sizeof p);
             return p;
         };
-        if (const std::uintptr_t value = field(layout.value); value != 0 && out.insert(value).second) found.push_back(value);
+        if (const std::uintptr_t value = field(layout.value); value != 0 && out.insert(value).second) {
+            found.push_back(value);
+            if (witnesses) witnesses->emplace(value, DefinitionWitness{node + layout.value, owner});
+        }
         for (const unsigned link : {layout.higher, layout.next, layout.lower}) {
             if (const std::uintptr_t child = field(link); child != 0) stack.push_back(child);
         }
@@ -32,10 +37,9 @@ std::string WalkMap(std::uintptr_t map, const TypeTreeLayout& layout, const Read
     return {};
 }
 
-}  // namespace
-
-std::string CollectLiveDefinitions(std::uintptr_t registry, const TypeTreeLayout& layout, const ReadMemory& read,
-                                   std::unordered_set<std::uintptr_t>& out) {
+std::string Collect(std::uintptr_t registry, const TypeTreeLayout& layout, const ReadMemory& read,
+                    std::unordered_set<std::uintptr_t>& out,
+                    std::unordered_map<std::uintptr_t, DefinitionWitness>* witnesses) {
     const unsigned fields[] = {layout.value, layout.lower, layout.higher, layout.next};
     if (layout.node_size == 0 || layout.node_size > kMaxTypeNodeSize) return "bad type registry layout";
     for (const unsigned field : fields) {
@@ -43,7 +47,9 @@ std::string CollectLiveDefinitions(std::uintptr_t registry, const TypeTreeLayout
     }
     std::size_t nodes = 0;
     std::vector<std::uintptr_t> pending;
-    if (std::string error = WalkMap(registry, layout, read, nodes, out, pending); !error.empty()) return error;
+    if (std::string error = WalkMap(registry, 0, layout, read, nodes, out, pending, witnesses); !error.empty()) {
+        return error;
+    }
     // Every definition in `pending` is live, so reading it is safe. Its nested
     // map counts only when the class is known and the map's vtable is in place;
     // a pointer field only when the class is known and the target has its class.
@@ -57,7 +63,8 @@ std::string CollectLiveDefinitions(std::uintptr_t registry, const TypeTreeLayout
             std::uintptr_t map_vtable = 0;
             if (!read(definition + n.map, &map_vtable, sizeof map_vtable)) return "a live GUI definition is unreadable";
             if (map_vtable != layout.map_vtable) continue;
-            if (std::string error = WalkMap(definition + n.map, layout, read, nodes, out, pending); !error.empty()) {
+            if (std::string error = WalkMap(definition + n.map, definition, layout, read, nodes, out, pending, witnesses);
+                !error.empty()) {
                 return error;
             }
         }
@@ -72,8 +79,60 @@ std::string CollectLiveDefinitions(std::uintptr_t registry, const TypeTreeLayout
             if (target_vtable != p.target) continue;
             out.insert(target);
             pending.push_back(target);
+            if (witnesses) witnesses->emplace(target, DefinitionWitness{definition + p.field, definition});
         }
     }
+    return {};
+}
+
+}  // namespace
+
+std::string CollectLiveDefinitions(std::uintptr_t registry, const TypeTreeLayout& layout, const ReadMemory& read,
+                                   std::unordered_set<std::uintptr_t>& out) {
+    return Collect(registry, layout, read, out, nullptr);
+}
+
+std::string CollectLiveDefinitions(std::uintptr_t registry, const TypeTreeLayout& layout, const ReadMemory& read,
+                                   std::unordered_set<std::uintptr_t>& out,
+                                   std::unordered_map<std::uintptr_t, DefinitionWitness>& witnesses) {
+    witnesses.clear();
+    return Collect(registry, layout, read, out, &witnesses);
+}
+
+bool LiveDefinitionCache::Verify(std::uintptr_t definition, const ReadMemory& read) const {
+    // Nesting is shallow (a window in a window in a file); a longer way is a loop.
+    for (int depth = 0; depth < 64; ++depth) {
+        const auto it = live_.find(definition);
+        std::uintptr_t held = 0;
+        if (it == live_.end() || !read(it->second.slot, &held, sizeof held) || held != definition) return false;
+        if (it->second.parent == 0) return true;
+        definition = it->second.parent;
+    }
+    return false;
+}
+
+std::string LiveDefinitionCache::IsLive(std::uintptr_t registry, const TypeTreeLayout& layout, const ReadMemory& read,
+                                        std::uintptr_t definition, bool& live) {
+    live = false;
+    if (definition == 0) return {};
+    const bool known = live_.contains(definition);
+    if (known && Verify(definition, read)) {
+        live = true;
+        return {};
+    }
+    if (!known && stale_.contains(definition)) return {};
+    if (!collected_now_) {
+        collected_now_ = true;
+        ++collections_;
+        std::unordered_set<std::uintptr_t> all;
+        stale_.clear();
+        if (std::string error = CollectLiveDefinitions(registry, layout, read, all, live_); !error.empty()) {
+            live_.clear();
+            return error;
+        }
+    }
+    live = live_.contains(definition) && Verify(definition, read);
+    if (!live) stale_.insert(definition);
     return {};
 }
 
