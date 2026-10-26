@@ -1,33 +1,41 @@
 name: website
 
-# Rebuilds anvil.happydwarf.dev so the plugin page shows the new version. The
-# website reads the latest published release, so this runs when the draft that
-# release.yml creates is published, not when the draft is created. Needs a
-# WEBSITE_DISPATCH_TOKEN secret allowed to dispatch to happy-dwarf-team/anvil-website.
+# Rebuilds the sites that show the new Tongs version: anvil.happydwarf.dev (the
+# plugin page) and happydwarf.dev (the hub). The sites read the latest published
+# release, so this runs when the draft that release.yml creates is published, not
+# when the draft is created. Run it by hand to resend the dispatch. Needs a
+# WEBSITE_DISPATCH_TOKEN secret with Contents: write on happy-dwarf-team/anvil-website
+# and happy-dwarf-team/happydwarf-website.
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 permissions: {}
 
 jobs:
   notify-website:
+    strategy:
+      fail-fast: false
+      matrix:
+        website: [anvil-website, happydwarf-website]
     runs-on: ubuntu-24.04
     permissions: {}
     env:
       DISPATCH_TOKEN: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}
+      WEBSITE: ${{ matrix.website }}
     steps:
       - name: Trigger website rebuild
         if: env.DISPATCH_TOKEN != ''
         env:
           GH_TOKEN: ${{ env.DISPATCH_TOKEN }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: |
-          gh api repos/happy-dwarf-team/anvil-website/dispatches \
+          gh api "repos/happy-dwarf-team/${WEBSITE}/dispatches" \
             -f event_type=plugin-release \
             -f "client_payload[repository]=${GITHUB_REPOSITORY}" \
             -f "client_payload[tag]=${TAG}"
 
       - name: Skip website rebuild (no WEBSITE_DISPATCH_TOKEN)
         if: env.DISPATCH_TOKEN == ''
-        run: echo "::notice::WEBSITE_DISPATCH_TOKEN is not set; website rebuild not triggered"
+        run: echo "::notice::WEBSITE_DISPATCH_TOKEN is not set; ${WEBSITE} rebuild not triggered"
