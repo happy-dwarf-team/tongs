@@ -12,7 +12,7 @@ On its own Tongs does nothing you can see. It waits until you switch it on, and 
 ## Before you subscribe
 - **[Anvil](https://anvil.happydwarf.dev/) 1.3 or newer** must be installed in the game folder. Get it from [anvil.happydwarf.dev](https://anvil.happydwarf.dev/) and press Download. The Workshop can't install it for you: a dwarf has to carry it in by hand, once.
 - **EU4 1.37.5** (Steam, Windows). On any other version Tongs stays out of the way and the game starts as usual.
-- **Something to talk to it:** a script or an agent. The [GitHub page](https://github.com/happy-dwarf-team/tongs) has ready clients for PowerShell and Python and a server for AI agents.
+- **Something to talk to it:** a script or an agent. The [GitHub page](https://github.com/happy-dwarf-team/tongs) has ready clients for PowerShell and Python and an MCP server, which lets Claude Code and other AI agents use Tongs as a set of tools.
 
 ![](https://i.imgur.com/Uf8Z21n.png)
 
@@ -30,6 +30,14 @@ Anvil asks again after every update. Until you approve, the version you trusted 
 - Reading the game changes nothing. Keyboard, mouse and console commands do change your game, exactly as if you had pressed the keys yourself, and each of them needs its own switch.
 - In ironman and multiplayer Anvil keeps Tongs asleep unless you allow it there yourself.
 - Unsubscribe and it's gone. Nothing is left in your saves.
+
+![](https://i.imgur.com/Uf8Z21n.png)
+
+## More from Happy Dwarf Team
+- **[Anvil](https://anvil.happydwarf.dev/)**: the plugin loader Tongs runs on. Without it, Tongs is just a folder; with it, you see which plugins load and switch each one on or off in Anvil Manager.
+- **[Bellows](https://steamcommunity.com/sharedfiles/filedetails/?id=3823747170)**: test loops restart the game often; Bellows cuts each start from about 37 to about 13 seconds on our test machine.
+- **[Etch](https://etch.happydwarf.dev/)**: for interface modders, see your `.gui` window as the game draws it, right in VS Code.
+- Everything we make: [happydwarf.dev](https://happydwarf.dev/)
 
 ![](https://i.imgur.com/Uf8Z21n.png)
 
