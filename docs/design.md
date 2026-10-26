@@ -1044,6 +1044,63 @@ pointer fields: `dropDownBoxType` (vtable `0x1D9EE40`, destructor
 `+0x110` and a third object at `+0x118`. No vanilla `.gui` file under
 `interface/` uses it, so the walk does not follow it.
 
+## The tongs.ui service (0.17.0)
+
+Other Anvil plugins (consumers) read the widget tree through the service
+`tongs.ui` version 1, without the pipe
+([ADR 0002](adr/0002-widget-tree-as-in-process-service.md),
+[tongs#83](https://github.com/happy-dwarf-team/tongs/issues/83)). The header
+[`include/tongs/tongs_ui.h`](../include/tongs/tongs_ui.h) is plain C11 and
+holds the contract; the release zip carries it in `tongs/include/tongs/`
+(inside the plugin folder, because the zip is extracted into
+`anvil/plugins/`, where any other folder would look like one more plugin).
+
+- **Two adapters, one reader.** The pipe's `ui find` and the service share
+  the main-thread read (`src/game_ui.cpp`) and the view over it
+  (`UiView`, `src/ui_tree.cpp`). `src/ui_service.cpp` turns a view into
+  visits instead of JSON: the same matches in the same order, the same
+  paths, rectangles and text. `UiView::StepOf` gives a path's last step, so
+  the service builds each path from its parent's.
+- **find** visits the matches and their ancestors in the tree's walk order:
+  an ancestor once, right before the first match inside it, without
+  `TONGS_UI_MATCH`. Every `parent` is then an earlier visit, -1 only for a
+  top-level window, as the ADR's sketch defines it; `TONGS_UI_MATCH`, which
+  the sketch did not have, tells the matches apart. A usable widget's
+  ancestors are usable too (shown and stale pass down), so the flags never
+  hide an ancestor.
+- **hovered** visits the widget at `mgr+0x130` and then its ancestors, each
+  `parent` the next visit. In 0.17.0 it reads the whole tree, like `find`;
+  `path` is still NULL without `TONGS_UI_PATHS`, as the header says.
+- **Flags.** A call takes `TONGS_UI_HIDDEN` (the pipe's `all`),
+  `TONGS_UI_STALE` and `TONGS_UI_PATHS`; any other bit is
+  `ANVIL_ERROR_INVALID_ARGUMENT`, so a flag added later within version 1
+  only turns that error into an answer. A widget carries
+  `TONGS_UI_VISIBLE`, `TONGS_UI_ENABLED` (set for everything but a disabled
+  button), `TONGS_UI_CHECKED`, `TONGS_UI_IS_STALE`, `TONGS_UI_HOVERED` (also
+  in `find`) and `TONGS_UI_MATCH`. `id` is the widget pointer the registry
+  holds (`UiWidget::address`).
+- **Thread.** A call runs only when the calling thread is `anvil-game`'s
+  `main_thread_id` (0 before the first frame counts as no main thread), and
+  not from inside a visit of another call; otherwise it answers
+  `ANVIL_ERROR_WRONG_PHASE` before reading anything. A main-thread call can
+  come only from a frame handler or from `run_on_main_thread` work, both
+  after an outer frame, when the pipe's dispatcher reads the tree too.
+- **Errors.** A bad selector, unknown flags or a NULL `visit` answer
+  `ANVIL_ERROR_INVALID_ARGUMENT` before the thread check. A tree that cannot
+  be read (no GUI manager yet, an unreadable registry or definition)
+  answers `ANVIL_ERROR_INTERNAL` and is logged once until the error changes;
+  a consumer calling every frame does not fill the log.
+- **Settings.** Tongs registers the service before it looks at `enabled`:
+  with `enabled = false` it registers the service and returns, with no pipe,
+  no hook and no thread. The service reads, sends no input and makes no game
+  call, so neither `input` nor `game_calls` applies, and suspension in
+  ironman or multiplayer does not stop it.
+- **Unit tests** (`tests/test_core.cpp`, `TestUiService*`) run the adapter
+  over the hand-built trees of the `ui` tests: the same paths and rectangles
+  as `ui find`, ancestors, `[n]` and positional steps, hidden and stale
+  widgets, a consumer stopping early, and the front's argument checks,
+  threads, a call from inside a visit and an unreadable tree.
+
 ## Clicking widgets (0.6.0)
 
 `ui click SEL` resolves the selector as a main-thread read, then clicks the
@@ -2011,6 +2068,8 @@ Not in draft 4:
   `settings.toml` and applies in that start; and in an ironman game without
   the opt-in Tongs is suspended (input and `console` refused, reads going on)
   and resumed after the session.
+- The tongs.ui service (0.17.0): nothing of it ran in the game yet; the live
+  check is [tongs#87](https://github.com/happy-dwarf-team/tongs/issues/87).
 - Stale widgets (0.14.0): reloads of other files than `outliner.gui` and
   `topbar.gui`, list rows built before a reload, and `ui click` refusing a
   stale widget in the game (only unit-tested).

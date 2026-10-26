@@ -5,6 +5,7 @@
 #include "notify_sources.hpp"
 #include "protocol.hpp"
 #include "ui_definitions.hpp"
+#include "ui_service.hpp"
 #include "ui_tree.hpp"
 
 #include <atomic>
@@ -2614,6 +2615,235 @@ static void TestStaleWidgets() {
     assert(cover.covered && cover.covered_by == "[3]/text");
 }
 
+// What one tongs.ui visit gave, copied: the widget's strings live only for the visit.
+struct SeenWidget {
+    TongsUiWidget raw{};
+    std::string name;
+    bool has_path = false;
+    std::string path;
+    bool has_text = false;
+    std::string text;
+};
+
+struct SeenVisits {
+    std::vector<SeenWidget> widgets;
+    int stop_after = -1;  // return 0 from this visit on
+
+    static int Visit(void* context, const TongsUiWidget* widget) {
+        auto& self = *static_cast<SeenVisits*>(context);
+        SeenWidget w;
+        w.raw = *widget;
+        w.name = widget->name;
+        w.has_path = widget->path != nullptr;
+        if (w.has_path) w.path = widget->path;
+        w.has_text = widget->text != nullptr;
+        if (w.has_text) w.text = widget->text;
+        assert(widget->size == sizeof(TongsUiWidget) && widget->definition_file == nullptr);
+        self.widgets.push_back(std::move(w));
+        return self.stop_after < 0 || static_cast<int>(self.widgets.size()) < self.stop_after;
+    }
+    std::vector<std::uint64_t> Ids() const {
+        std::vector<std::uint64_t> out;
+        for (const auto& w : widgets) out.push_back(w.raw.id);
+        return out;
+    }
+    std::vector<int> Parents() const {
+        std::vector<int> out;
+        for (const auto& w : widgets) out.push_back(w.raw.parent);
+        return out;
+    }
+};
+
+static UiTree AddressedSampleTree() {
+    UiTree t = SampleTree();
+    for (int i = 0; i < static_cast<int>(t.widgets.size()); ++i) t.widgets[i].address = Address(i);
+    return t;
+}
+
+static void TestUiServiceFind() {
+    const UiTree t = AddressedSampleTree();
+    UiSelector sel;
+    // The matches of the pipe's `ui find`, in its order, each after its ancestors.
+    assert(ParseUiSelector("EventWindow//event_option_button", sel).empty());
+    SeenVisits seen;
+    std::uint32_t count = VisitUiFind(t, sel, 0, 0, &SeenVisits::Visit, &seen);
+    assert(count == 3);
+    assert((seen.Ids() == std::vector<std::uint64_t>{Address(8), Address(9), Address(10), Address(11), Address(12),
+                                                      Address(13), Address(14), Address(15)}));
+    assert((seen.Parents() == std::vector<int>{-1, 0, 1, 2, 1, 4, 1, 6}));
+    std::vector<std::string> matched;
+    for (const auto& w : seen.widgets) {
+        assert(w.has_path);
+        if (w.raw.flags & TONGS_UI_MATCH) matched.push_back(w.path);
+    }
+    assert(matched == Paths(t, "EventWindow//event_option_button"));
+    assert(seen.widgets[1].path == "EventWindow/event_option_listbox" && seen.widgets[1].raw.type == TONGS_UI_LISTBOX);
+    // Rectangles, text and flags as the pipe's answer has them.
+    const SeenWidget& refuse = seen.widgets[5];
+    assert(refuse.raw.x == 1376 && refuse.raw.y == 960 && refuse.raw.width == 500 && refuse.raw.height == 56);
+    assert(refuse.has_text && refuse.text == "Refuse them" && refuse.name == "event_option_button");
+    assert(refuse.raw.flags == (TONGS_UI_MATCH | TONGS_UI_VISIBLE | TONGS_UI_ENABLED) &&
+           refuse.raw.type == TONGS_UI_BUTTON);
+    assert(!(seen.widgets[7].raw.flags & TONGS_UI_ENABLED));  // the disabled third option
+    assert(seen.widgets[0].raw.flags == (TONGS_UI_VISIBLE | TONGS_UI_ENABLED) && !seen.widgets[0].has_text);
+    UiRequest r;
+    bool found = false;
+    assert(ParseUiRequest("find EventWindow//event_option_button", r).empty());
+    assert(Contains(UiAnswer(t, r, found), "\"path\":\"EventWindow/event_option_listbox/event_option_entry[2]/"
+                                           "event_option_button\",\"type\":\"button\",\"visible\":true,"
+                                           "\"rect\":{\"x\":1376,\"y\":960,\"w\":500,\"h\":56}"));
+
+    // A match inside a match is visited once, as a match; the hovered widget is marked.
+    assert(ParseUiSelector("//[type=window]", sel).empty());
+    seen = {};
+    count = VisitUiFind(t, sel, 0, Address(12), &SeenVisits::Visit, &seen);
+    assert(count == 5 && seen.widgets.size() == 6);  // speed_controls, EventWindow, the list box and its three entries
+    assert(!(seen.widgets[2].raw.flags & TONGS_UI_MATCH) && seen.widgets[2].raw.id == Address(9));
+    assert((seen.widgets[4].raw.flags & TONGS_UI_HOVERED) && seen.widgets[4].raw.id == Address(12));
+    for (std::size_t i = 0; i < seen.widgets.size(); ++i) assert(i == 4 || !(seen.widgets[i].raw.flags & TONGS_UI_HOVERED));
+    // A visit that returns 0 stops the call; count still has every match.
+    seen = {};
+    seen.stop_after = 2;
+    assert(VisitUiFind(t, sel, 0, 0, &SeenVisits::Visit, &seen) == 5 && seen.widgets.size() == 2);
+
+    // Hidden widgets only with TONGS_UI_HIDDEN, as with `all`; then their paths count them too.
+    assert(ParseUiSelector("//timeline_pause", sel).empty());
+    seen = {};
+    assert(VisitUiFind(t, sel, 0, 0, &SeenVisits::Visit, &seen) == 0 && seen.widgets.empty());
+    assert(VisitUiFind(t, sel, TONGS_UI_HIDDEN, 0, &SeenVisits::Visit, &seen) == 1 && seen.widgets.size() == 2);
+    assert(seen.widgets[1].path == "timeline_controls/timeline_pause" &&
+           seen.widgets[1].raw.flags == (TONGS_UI_MATCH | TONGS_UI_ENABLED));
+    assert(ParseUiSelector("EventWindow", sel).empty());
+    seen = {};
+    assert(VisitUiFind(t, sel, TONGS_UI_HIDDEN, 0, &SeenVisits::Visit, &seen) == 2);
+    assert(seen.widgets[0].path == "EventWindow[1]" && seen.widgets[1].path == "EventWindow[2]");
+    // A widget without a name: "" and a positional step.
+    assert(ParseUiSelector("EventWindow/[2]", sel).empty());
+    seen = {};
+    assert(VisitUiFind(t, sel, 0, 0, &SeenVisits::Visit, &seen) == 1 && seen.widgets[1].name.empty() &&
+           seen.widgets[1].path == "EventWindow/[2]" && seen.widgets[1].raw.type == TONGS_UI_OTHER);
+
+    // Stale widgets only with TONGS_UI_STALE, flagged, with their ancestors.
+    const UiTree stale = StaleTree();
+    assert(ParseUiSelector("//text", sel).empty());
+    seen = {};
+    assert(VisitUiFind(stale, sel, 0, 0, &SeenVisits::Visit, &seen) == 0);
+    assert(VisitUiFind(stale, sel, TONGS_UI_STALE, 0, &SeenVisits::Visit, &seen) == 1 && seen.widgets.size() == 2);
+    assert(seen.widgets[0].path == "[3]" && (seen.widgets[0].raw.flags & TONGS_UI_IS_STALE) &&
+           seen.widgets[1].path == "[3]/text" && (seen.widgets[1].raw.flags & TONGS_UI_IS_STALE));
+}
+
+static void TestUiServiceHovered() {
+    const UiTree t = AddressedSampleTree();
+    // The hovered widget, then its ancestors; each parent is the next visit.
+    SeenVisits seen;
+    VisitUiHovered(t, Address(13), 0, &SeenVisits::Visit, &seen);
+    assert((seen.Ids() == std::vector<std::uint64_t>{Address(13), Address(12), Address(9), Address(8)}));
+    assert((seen.Parents() == std::vector<int>{1, 2, 3, -1}));
+    assert(seen.widgets[0].raw.flags == (TONGS_UI_HOVERED | TONGS_UI_VISIBLE | TONGS_UI_ENABLED));
+    for (const auto& w : seen.widgets) assert(!w.has_path);
+    seen = {};
+    VisitUiHovered(t, Address(13), TONGS_UI_PATHS, &SeenVisits::Visit, &seen);
+    assert(seen.widgets.size() == 4 &&
+           seen.widgets[0].path == "EventWindow/event_option_listbox/event_option_entry[2]/event_option_button" &&
+           seen.widgets[3].path == "EventWindow");
+    seen = {};
+    seen.stop_after = 1;
+    VisitUiHovered(t, Address(13), 0, &SeenVisits::Visit, &seen);
+    assert(seen.widgets.size() == 1);
+    // Nothing hovered, a widget not in the tree, or a hidden one without TONGS_UI_HIDDEN: no visit.
+    seen = {};
+    VisitUiHovered(t, 0, 0, &SeenVisits::Visit, &seen);
+    VisitUiHovered(t, 0xDEAD0, 0, &SeenVisits::Visit, &seen);
+    VisitUiHovered(t, Address(7), 0, &SeenVisits::Visit, &seen);
+    assert(seen.widgets.empty());
+    VisitUiHovered(t, Address(7), TONGS_UI_HIDDEN, &SeenVisits::Visit, &seen);
+    assert(seen.widgets.size() == 2 && seen.widgets[1].raw.id == Address(5));
+    // A stale one only with TONGS_UI_STALE.
+    const UiTree stale = StaleTree();
+    seen = {};
+    VisitUiHovered(stale, Address(20), 0, &SeenVisits::Visit, &seen);
+    assert(seen.widgets.empty());
+    VisitUiHovered(stale, Address(20), TONGS_UI_STALE | TONGS_UI_PATHS, &SeenVisits::Visit, &seen);
+    assert(seen.widgets.size() == 2 && seen.widgets[0].path == "[3]/text" &&
+           (seen.widgets[0].raw.flags & (TONGS_UI_IS_STALE | TONGS_UI_HOVERED)) == (TONGS_UI_IS_STALE | TONGS_UI_HOVERED));
+}
+
+// The service's front: arguments, the main thread, calls from inside a visit, a tree that cannot be read.
+static void TestUiServiceCalls() {
+    const UiTree sample = AddressedSampleTree();
+    std::uint32_t thread = 7, main = 7;
+    int reads = 0;
+    std::string error;
+    std::vector<std::string> logged;
+    UiServiceHost h;
+    h.current_thread = [&] { return thread; };
+    h.main_thread = [&] { return main; };
+    h.read_tree = [&](UiTree& tree) {
+        ++reads;
+        tree = sample;
+        return error;
+    };
+    h.read_hovered = [] { return Address(3); };
+    h.log_error = [&](const std::string& message) { logged.push_back(message); };
+    UiService service(h);
+
+    SeenVisits seen;
+    std::uint32_t count = 99;
+    assert(service.Find("speed_controls/button_*", 0, &SeenVisits::Visit, &seen, &count) == ANVIL_OK && count == 2);
+    assert(seen.widgets.size() == 3 && (seen.widgets[1].raw.flags & TONGS_UI_HOVERED) && reads == 1);
+    assert(service.Find("speed_controls/button_*", TONGS_UI_PATHS, &SeenVisits::Visit, &seen, nullptr) == ANVIL_OK);
+    // Bad arguments are refused before anything is read.
+    for (const char* bad : {"", "/a", "a[x=1]"}) {
+        assert(service.Find(bad, 0, &SeenVisits::Visit, &seen, &count) == ANVIL_ERROR_INVALID_ARGUMENT && count == 0);
+    }
+    assert(service.Find(nullptr, 0, &SeenVisits::Visit, &seen, nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+    assert(service.Find("//x", 0, nullptr, nullptr, nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+    assert(service.Find("//x", 0x8, &SeenVisits::Visit, &seen, nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+    assert(service.Hovered(0x100, &SeenVisits::Visit, &seen) == ANVIL_ERROR_INVALID_ARGUMENT);
+    assert(service.Hovered(0, nullptr, nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+    assert(reads == 2);
+
+    // Off the main thread, or before the first frame: refused, nothing read.
+    thread = 8;
+    seen = {};
+    assert(service.Find("//*", 0, &SeenVisits::Visit, &seen, &count) == ANVIL_ERROR_WRONG_PHASE && count == 0);
+    assert(service.Hovered(0, &SeenVisits::Visit, &seen) == ANVIL_ERROR_WRONG_PHASE);
+    thread = main = 0;
+    assert(service.Find("//*", 0, &SeenVisits::Visit, &seen, &count) == ANVIL_ERROR_WRONG_PHASE);
+    assert(reads == 2 && seen.widgets.empty());
+    thread = main = 7;
+
+    // A call from inside a visit is refused; the outer call goes on.
+    struct Nested {
+        UiService* service;
+        AnvilResult inner = ANVIL_OK;
+        int visits = 0;
+        static int Visit(void* context, const TongsUiWidget*) {
+            auto& self = *static_cast<Nested*>(context);
+            ++self.visits;
+            SeenVisits ignored;
+            self.inner = self.service->Hovered(0, &SeenVisits::Visit, &ignored);
+            return 1;
+        }
+    } nested{&service};
+    assert(service.Find("speed_controls", 0, &Nested::Visit, &nested, &count) == ANVIL_OK && count == 1);
+    assert(nested.visits == 1 && nested.inner == ANVIL_ERROR_WRONG_PHASE);
+    seen = {};
+    assert(service.Hovered(0, &SeenVisits::Visit, &seen) == ANVIL_OK && seen.widgets.size() == 2);  // usable again
+
+    // A tree that cannot be read: an error, logged once until it changes or goes away.
+    error = "no GUI manager";
+    seen = {};
+    assert(service.Find("//*", 0, &SeenVisits::Visit, &seen, &count) == ANVIL_ERROR_INTERNAL && count == 0);
+    assert(service.Hovered(0, &SeenVisits::Visit, &seen) == ANVIL_ERROR_INTERNAL && seen.widgets.empty());
+    assert(logged == std::vector<std::string>{"tongs.ui: no GUI manager"});
+    error.clear();
+    assert(service.Find("//*", 0, &SeenVisits::Visit, &seen, &count) == ANVIL_OK && count > 0);
+    error = "no GUI manager";
+    assert(service.Find("//*", 0, &SeenVisits::Visit, &seen, &count) == ANVIL_ERROR_INTERNAL && logged.size() == 2);
+}
+
 int main() {
     TestSubscribeParsing();
     TestDateCrosses();
@@ -2631,6 +2861,9 @@ int main() {
     TestLivePointerDefinitions();
     TestWidgetNamePlan();
     TestStaleWidgets();
+    TestUiServiceFind();
+    TestUiServiceHovered();
+    TestUiServiceCalls();
     TestChildrenBounds();
     TestFitRects();
     TestUiClickCommand();
