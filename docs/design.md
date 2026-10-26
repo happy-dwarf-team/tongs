@@ -1143,6 +1143,18 @@ holds the contract; the release zip carries it in `tongs/include/tongs/`
   collection. Because the cheap path never calls a name slot, a wrong
   verdict (a slot in freed memory that still holds its old value) can give a
   wrong name, not a crash.
+
+  **Cost** (live,
+  [tongs#87](https://github.com/happy-dwarf-team/tongs/issues/87), a test
+  consumer timing each call from `anvil-game.frame` with
+  `QueryPerformanceCounter`, the lab's Russia save paused, about 16 200
+  widgets): the cheap `hovered` took a median of 48 µs per call (p90 88 µs,
+  p99 116 µs, 1 573 calls) while the pointer moved over buttons, list rows
+  and a scroll bar, and 64 µs after a `reload`. The first call, and the
+  first after a `reload`, collect the live definitions: 3.2–3.6 ms once.
+  In the main menu, mostly with nothing hovered, the median was 7 µs.
+  `hovered` with `TONGS_UI_PATHS` took a median of 12.5 ms, as the whole
+  tree does.
 - **Unit tests** (`tests/test_core.cpp`, `TestUiService*`) run the adapter
   over the hand-built trees of the `ui` tests: the same paths and rectangles
   as `ui find`, ancestors, `[n]` and positional steps, hidden and stale
