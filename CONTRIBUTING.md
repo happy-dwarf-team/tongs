@@ -47,7 +47,8 @@ game and fails when the lock does not match `symbols.toml`.
 release; the release workflow then builds the tag and attaches
 `tongs-windows-x64.zip` (the `tongs/` plugin folder) and `SHA256SUMS.txt` with
 a build provenance attestation to the draft. Once they are attached, publish
-the draft on GitHub: that makes the release public, rebuilds the website and,
+the draft on GitHub: that makes the release public, rebuilds
+anvil.happydwarf.dev and happydwarf.dev (`website.yml`) and,
 when it is turned on, publishes the Steam Workshop mod (see the README,
 [Steam Workshop](README.md#steam-workshop)).
 
