@@ -2,6 +2,7 @@
 
 [![build](https://github.com/happy-dwarf-team/tongs/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/happy-dwarf-team/tongs/actions/workflows/build.yml)
 [![Latest release](https://img.shields.io/github/v/release/happy-dwarf-team/tongs)](https://github.com/happy-dwarf-team/tongs/releases/latest)
+[![Steam Workshop](https://img.shields.io/badge/Steam%20Workshop-Tongs-1b2838?logo=steam)](https://steamcommunity.com/sharedfiles/filedetails/?id=3826695093)
 [![License: MIT](https://img.shields.io/github/license/happy-dwarf-team/tongs)](LICENSE)
 
 **Control Europa Universalis IV from scripts and agents.** An
@@ -23,7 +24,9 @@ outside the forge.
 > and closing, new `error.log` lines and other clients' input and game calls.
 > Supported game build: EU4 1.37.5
 > (Steam, Windows 64-bit); Anvil skips it on other builds. It needs Anvil
-> 1.0 or newer with its standard plugin `anvil-game`. Design and the
+> 1.0 or newer with its standard plugin `anvil-game`. From 0.16.0 it is also
+> published as a Steam Workshop mod for Anvil 1.3 or newer (see
+> [Steam Workshop](#steam-workshop)). Design and the
 > addresses it relies on: [docs/design.md](docs/design.md) and
 > [plugin/symbols.toml](plugin/symbols.toml).
 
@@ -209,6 +212,12 @@ checksum.
   release is published. It downloads that release's `tongs-windows-x64.zip`,
   checks its build attestation, unpacks `tongs/` into `workshop/anvil/tongs/`
   and publishes the mod, with the release notes as the change note.
+- To update the Workshop page between releases, run it by hand on `main`
+  with the latest release:
+  `gh workflow run workshop-publish.yml --ref main -f tag=vX.Y.Z`. It publishes
+  that release's package again with `main`'s description; Steam keeps the
+  mod's version when the files are unchanged. The `steam-workshop` environment
+  must allow the branch `main` for this.
 
 Setting it up, once (maintainers):
 
@@ -251,7 +260,8 @@ Setting it up, once (maintainers):
    ```
 
    In **Settings → Environments → steam-workshop**, add a required reviewer and
-   allow only the tags `v*`: the environment gates every publish job.
+   allow only the tags `v*` and the branch `main`: the environment gates every
+   publish job.
 4. **Turn publishing on:** `gh variable set WORKSHOP_PUBLISH --body true`.
 
 From then on, publishing a release's draft (see
