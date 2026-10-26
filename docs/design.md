@@ -1155,6 +1155,20 @@ holds the contract; the release zip carries it in `tongs/include/tongs/`
   In the main menu, mostly with nothing hovered, the median was 7 µs.
   `hovered` with `TONGS_UI_PATHS` took a median of 12.5 ms, as the whole
   tree does.
+- **definition_file** ([tongs#85](https://github.com/happy-dwarf-team/tongs/issues/85)):
+  the game path of the `.gui` file a widget's definition was read from, such
+  as `interface/topbar.gui`. The type factory (`0x14EAC80`) copies the
+  reader's stream name to `definition+0x30` (Etch research
+  `research/pick-mode`, claims 2–4), and the game's own `guibounds` label
+  reads it there (`guibounds_definition_file`, `0x6EC056`: the definition
+  at `+0xB0`, then `add rdx, 0x30` and the `std::string`'s buffer). It is
+  the name `reload` matches, not the mod folder that supplied the file.
+  Both reads take it only from a live definition (the registry walk, or the
+  cache on the cheap path); the adapter gives NULL for every stale widget,
+  also one whose own definition is live inside a stale window. The pipe's
+  `ui tree` and `ui find` do not carry it: no client needs it yet, and it
+  would lengthen every widget of every answer; it can come later as a
+  `feat` of the pipe.
 - **Unit tests** (`tests/test_core.cpp`, `TestUiService*`) run the adapter
   over the hand-built trees of the `ui` tests: the same paths and rectangles
   as `ui find`, ancestors, `[n]` and positional steps, hidden and stale
@@ -1169,7 +1183,83 @@ holds the contract; the release zip carries it in `tongs/include/tongs/`
   collection per call for an unknown definition, and a reload.
   `TestUiServiceHoveredChain` checks that `hovered` takes the chain without
   `TONGS_UI_PATHS`, the whole tree with it or when the chain is incomplete,
-  with the same visits.
+  with the same visits. `TestUiServiceDefinitionFile` checks the file of
+  live widgets and NULL for stale ones.
+
+### Live check (2026-10-27)
+
+[tongs#87](https://github.com/happy-dwarf-team/tongs/issues/87), before the
+release that brings `tongs.ui`. Setup:
+
+- the original `eu4.exe` (`9AD3EFE1…771A`), Anvil 1.5.2 with `anvil-game`,
+  and the build of #85 (with #83 and #84 under it); the EU4 engine lab's
+  `anvil-play.ps1`, which checks the EXE hash and the Process Lasso rule
+  before each start and closes the game after the PID, path and start-time
+  check; three starts under one game lock;
+- a test consumer plugin (lab, not published) that depends on `tongs`,
+  looks up `tongs.ui` v1 and, from `anvil-game.frame`, calls `hovered`
+  every frame (and with `TONGS_UI_PATHS` and with all flags whenever the
+  chain changes, with the raw `mgr+0x130`), runs `find` on request on 20
+  consecutive frames, and calls both functions from another thread while
+  loading and once the main thread is known; each call is timed with
+  `QueryPerformanceCounter`;
+- a script comparing the consumer's answers with the pipe (`ui find … limit=5000`,
+  matched by the frame number of the pipe's answer) and moving the pointer
+  with `move`; the lab's Russia save of 17 March 1719, paused throughout.
+
+Results:
+
+1. **find and `ui find` in one frame: the same.** Count, order, paths,
+   rects, text, `visible`, `enabled` and `stale` were equal for every match
+   (the first 5000 where there were more): main menu `//*` (45 matches;
+   3 106 with `TONGS_UI_HIDDEN`), `//[type=button]`, `//[type=text]` hidden;
+   in the game `//*` (422; 16 210 hidden), `//[type=button]` (102),
+   `speed_controls//*`, `//[type=listbox]//*` (263); after the reload `//*`
+   with `TONGS_UI_HIDDEN | TONGS_UI_STALE` (15 782) and visible (362). Every
+   visit's parent was an earlier visit.
+2. **hovered.** Over the speed controls' buttons, outliner rows and their
+   header, the outliner's scroll bar button
+   (`outliner/outliner_list/standardlistbox_slider/listboxSliderButton`),
+   the top bar's shield, an outliner button after the reload and six
+   main-menu buttons, the first visit's `id` was `mgr+0x130`, and the cheap
+   chain (render nodes) equalled the whole-tree chain of a `TONGS_UI_PATHS`
+   call in ids, parents, names, text, flags, rects and files, its paths
+   each the prefix of the one before. Over the map nothing was hovered
+   (`mgr+0x130` = 0, no visit). A tooltip did not show as a window while
+   the pointer stayed on a button (no `//*tooltip*` widget); the button
+   stayed hovered. In the main menu the game hovers a button for one frame
+   after `move` and then follows the real cursor again; the one frame
+   matched too.
+3. **reload.** Before `console reload outliner.gui`, 1 787 widgets came
+   from `interface/outliner.gui`, none stale; every live widget had a file
+   (70 files). After it, 330 of the 1 787 were still there: 51 stale, all
+   with `definition_file` NULL (the outliner header rows `[85]`,
+   `[85]/outliner_header`, …), 266 live with the same file; 1 521 new ones
+   had the file. Without `TONGS_UI_STALE` no stale widget was visited. No
+   crash; reads and the cheap `hovered` went on.
+4. **Another thread:** `find` and `hovered` answered
+   `ANVIL_ERROR_WRONG_PHASE` (8) and visited nothing, both while loading
+   (no main thread yet) and once the main thread was known, in all three
+   starts.
+5. **`enabled = false`** (`ANVIL_TONGS_ENABLED=false`): Anvil's log shows
+   `service tongs.ui v1 registered`, `pipe disabled` and
+   `tongs 0.16.0: loaded (main, …, 0 change(s))`, against `2 change(s)`
+   with the pipe on (the cursor hook and the nested-frame counter);
+   `\\.\pipe\tongs` did not exist; `find` answered (394 matches of `//*`,
+   13 of `speed_controls//*`) and `hovered` gave the top bar's chain.
+6. **Cost per call:** `find` over the whole tree 12–14 ms with the visible
+   widgets (the pipe's `run_ms` 12–13 ms for the same read), 25–28 ms with
+   16 000 hidden ones visited and copied by the consumer, about 5 ms in the
+   main menu; the cheap `hovered` 48 µs median (p90 88 µs, p99 116 µs),
+   64 µs after the reload, 109 µs over the top bar in the third start, 7 µs
+   in the main menu, with one live-definition collection of 3.2–3.6 ms on
+   the first call and after the reload; `hovered` with `TONGS_UI_PATHS`
+   12.5 ms.
+
+The save was unchanged; `settings.txt` differed only in `graceful_exit`
+and `refreshRate` (restored); the EXE hash and the Process Lasso rule
+`eu4.exe,0,1-7` were unchanged afterwards and nothing of the installation
+was left in the game folder.
 
 ## Clicking widgets (0.6.0)
 
@@ -2138,8 +2228,10 @@ Not in draft 4:
   `settings.toml` and applies in that start; and in an ironman game without
   the opt-in Tongs is suspended (input and `console` refused, reads going on)
   and resumed after the session.
-- The tongs.ui service (0.17.0): nothing of it ran in the game yet; the live
-  check is [tongs#87](https://github.com/happy-dwarf-team/tongs/issues/87).
+- The tongs.ui service (0.17.0): a tooltip under the pointer (none showed as
+  a window in the live check), `hovered` over widgets of classes Tongs does
+  not know (the whole-tree fallback), and reloads of files other than
+  `outliner.gui`.
 - Stale widgets (0.14.0): reloads of other files than `outliner.gui` and
   `topbar.gui`, list rows built before a reload, and `ui click` refusing a
   stale widget in the game (only unit-tested).

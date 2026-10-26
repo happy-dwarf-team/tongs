@@ -2624,6 +2624,8 @@ struct SeenWidget {
     std::string path;
     bool has_text = false;
     std::string text;
+    bool has_file = false;
+    std::string file;
 };
 
 struct SeenVisits {
@@ -2639,7 +2641,9 @@ struct SeenVisits {
         if (w.has_path) w.path = widget->path;
         w.has_text = widget->text != nullptr;
         if (w.has_text) w.text = widget->text;
-        assert(widget->size == sizeof(TongsUiWidget) && widget->definition_file == nullptr);
+        w.has_file = widget->definition_file != nullptr;
+        if (w.has_file) w.file = widget->definition_file;
+        assert(widget->size == sizeof(TongsUiWidget));
         self.widgets.push_back(std::move(w));
         return self.stop_after < 0 || static_cast<int>(self.widgets.size()) < self.stop_after;
     }
@@ -3157,6 +3161,39 @@ static void TestUiServiceHoveredChain() {
     assert(cheap.Ids() == full.Ids() && !cheap.widgets[0].has_path);
 }
 
+// definition_file: the file of a live definition; never for a stale widget, even one whose own definition is live.
+static void TestUiServiceDefinitionFile() {
+    UiTree t = StaleTree();
+    for (const int i : {0, 3, 19, 20, 21, 22}) {
+        t.widgets[i].has_definition_file = true;
+        t.widgets[i].definition_file = i < 18 ? "interface/speed_controls.gui" : "interface/topbar.gui";
+    }
+    UiSelector sel;
+    assert(ParseUiSelector("speed_controls/button_speedup", sel).empty());
+    SeenVisits seen;
+    assert(VisitUiFind(t, sel, 0, 0, &SeenVisits::Visit, &seen) == 1 && seen.widgets.size() == 2);
+    assert(seen.widgets[0].has_file && seen.widgets[0].file == "interface/speed_controls.gui");
+    assert(seen.widgets[1].has_file && seen.widgets[1].file == "interface/speed_controls.gui");
+    assert(ParseUiSelector("speed_controls/DateText", sel).empty());
+    seen = {};
+    assert(VisitUiFind(t, sel, 0, 0, &SeenVisits::Visit, &seen) == 1 && !seen.widgets[1].has_file);  // not live
+    // The leaked hotkey_assign_parent and everything in it: stale, no file; the live one keeps it.
+    assert(ParseUiSelector("//icon", sel).empty());
+    seen = {};
+    assert(VisitUiFind(t, sel, TONGS_UI_STALE, 0, &SeenVisits::Visit, &seen) == 2 && seen.widgets.size() == 4);
+    assert(seen.widgets[0].path == "[3]" && !seen.widgets[0].has_file && seen.widgets[1].path == "[3]/icon" &&
+           (seen.widgets[1].raw.flags & TONGS_UI_IS_STALE) && !seen.widgets[1].has_file);
+    assert(seen.widgets[3].path == "hotkey_assign_parent/icon" && seen.widgets[3].has_file &&
+           seen.widgets[3].file == "interface/topbar.gui");
+    seen = {};
+    VisitUiHovered(t, Address(20), TONGS_UI_STALE, &SeenVisits::Visit, &seen);
+    assert(seen.widgets.size() == 2 && !seen.widgets[0].has_file && !seen.widgets[1].has_file);
+    // The pipe's answers do not carry it.
+    UiRequest r;
+    bool found = false;
+    assert(ParseUiRequest("find //icon", r).empty() && !Contains(UiAnswer(t, r, found), "topbar.gui"));
+}
+
 int main() {
     TestSubscribeParsing();
     TestDateCrosses();
@@ -3178,6 +3215,7 @@ int main() {
     TestUiServiceHovered();
     TestUiServiceCalls();
     TestUiServiceHoveredChain();
+    TestUiServiceDefinitionFile();
     TestUiStructureClimb();
     TestLiveDefinitionCache();
     TestChildrenBounds();

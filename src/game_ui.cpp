@@ -118,7 +118,7 @@ public:
         }
     }
 
-    // The name, without calling through a freed definition (ui_definitions.hpp):
+    // The name and the definition's file, without calling through a freed definition (ui_definitions.hpp):
     // slot 0xA0 when `live`; otherwise the widget is stale and named by its
     // holder's child list or its own name, when it has either. With `direct`,
     // what slot 0xA0 would return is read instead of called: a window's or
@@ -162,6 +162,13 @@ public:
             }
             case UiNamePlan::Source::None:
                 break;
+        }
+        // The file only from a live definition: a freed one may hold anything.
+        std::uintptr_t definition = 0;
+        std::string file;
+        if (live && tongs::Read(e.pointer + l_.definition, definition) && ReadString(definition + l_.definition_file, file)) {
+            w.has_definition_file = true;
+            w.definition_file = GameTextToUtf8(file);
         }
     }
 

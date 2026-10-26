@@ -68,6 +68,9 @@ struct UiLayout : UiStructureLayout {
     // every definition class's slot 0x40 returns the std::string at
     // definition_name; windows and containers first return their own name.
     unsigned definition_name = U32(sym::type_name_slot.name);
+    // The game path of the .gui file a definition was read from (std::string).
+    unsigned definition_file = U32(sym::guibounds_definition_file.file);
+    static_assert(sym::guibounds_definition_file.definition == sym::window_name_slot.definition);
     static_assert(sym::widget_name_slot.name_slot == 0x40);
     std::uint32_t widget_name_slot_rva = 0;     // RvaOf(sym::widget_name_slot), set when loading
     std::uint32_t window_name_slot_rva = 0;     // RvaOf(sym::window_name_slot)

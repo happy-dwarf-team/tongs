@@ -102,7 +102,9 @@ typedef struct TongsUiWidget {
     const char *name;            /* the .gui name, UTF-8, case kept; "" when the widget has no usable name */
     const char *path;            /* the widget path, as the pipe gives it; NULL from hovered without TONGS_UI_PATHS */
     const char *text;            /* displayed text, UTF-8 without colour codes; NULL for a widget without text */
-    const char *definition_file; /* the game path of the defining .gui file; NULL when its definition is not live */
+    const char *definition_file; /* the game path of the defining .gui file (e.g. "interface/topbar.gui", the
+                                  * name `reload` matches, not the mod folder that supplied it); NULL for a stale
+                                  * widget and when the definition is not live */
 } TongsUiWidget;
 
 /* Nonzero when `widget` (a const TongsUiWidget*) carries `field`. */
