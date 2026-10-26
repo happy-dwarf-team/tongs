@@ -27,7 +27,7 @@ option(TONGS_BUILD_TESTS "Build unit tests" ON)
 include(cmake/AnvilSdk.cmake)
 
 # Platform-independent parts (protocol, settings, date, dispatcher, selectors), shared with the tests.
-add_library(tongs_core STATIC src/protocol.cpp src/config.cpp src/game_date.cpp src/keys.cpp src/input.cpp src/dispatcher.cpp src/frame_stats.cpp src/ui_tree.cpp src/ui_definitions.cpp src/ui_service.cpp src/events.cpp src/console.cpp src/notifications.cpp src/notify_sources.cpp src/load_watch.cpp)
+add_library(tongs_core STATIC src/protocol.cpp src/config.cpp src/game_date.cpp src/keys.cpp src/input.cpp src/dispatcher.cpp src/frame_stats.cpp src/ui_tree.cpp src/ui_definitions.cpp src/ui_structure.cpp src/ui_service.cpp src/events.cpp src/console.cpp src/notifications.cpp src/notify_sources.cpp src/load_watch.cpp)
 # include/: the tongs.ui header for consumers, which needs Anvil's plugin header.
 get_property(TONGS_ANVIL_INCLUDE_DIR GLOBAL PROPERTY ANVIL_SDK_INCLUDE_DIR)
 target_include_directories(tongs_core PUBLIC src include "${TONGS_ANVIL_INCLUDE_DIR}")

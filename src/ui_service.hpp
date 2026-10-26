@@ -24,6 +24,11 @@ struct UiServiceHost {
     std::function<std::uint32_t()> main_thread;    // 0 before the first frame
     std::function<std::string(UiTree&)> read_tree;  // the whole tree; an error text or empty
     std::function<std::uintptr_t()> read_hovered;   // mgr+0x130; 0 when nothing is hovered
+    // hovered without TONGS_UI_PATHS: a tree of the hovered widget and its
+    // ancestors only (game_ui.hpp, ReadHoveredChain), the hovered address, and
+    // false when the chain is not complete. Unset or incomplete: hovered reads
+    // the whole tree.
+    std::function<std::string(UiTree&, std::uintptr_t&, bool&)> read_hovered_chain;
     std::function<void(const std::string&)> log_error;
 };
 
@@ -37,8 +42,8 @@ public:
 private:
     // ANVIL_OK when a call may read: on the main thread, not inside a visit.
     AnvilResult Admit() const;
-    // Reads the tree; logs an error once until the next one that differs.
-    AnvilResult ReadTree(UiTree& tree);
+    // An error of a read: logged once until the next one that differs.
+    AnvilResult Report(std::string error);
 
     UiServiceHost host_;
     bool visiting_ = false;  // main thread only
