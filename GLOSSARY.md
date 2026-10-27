@@ -11,6 +11,13 @@ that changes or may change the state of the game; a console command is the
 first kind.
 _Avoid_: function call, invoke, DOM call
 
+**Client call**:
+Game code that Tongs runs on the game's main thread on a client's request and
+that changes only what the game shows (the camera, the selection, open views),
+never the state of the game, and reaches no further than a player clicking in
+the interface; a call that would change the state is a game call instead.
+_Avoid_: UI call, navigation call, view call
+
 **Main-thread read**:
 A read of the game that Tongs does on the game's main thread and that changes
 nothing, such as reading the widget tree; not a game call.
@@ -18,13 +25,13 @@ _Avoid_: safe call, read call
 
 **Outer frame**:
 One frame of the game's main loop, as opposed to a frame the game draws from
-inside a game update or a save load; game calls and main-thread reads run only
-after outer frames.
+inside a game update or a save load; game calls, client calls and main-thread
+reads run only after outer frames.
 _Avoid_: tick, frame (unqualified)
 
 **Marked run**:
 A stretch between two dates measured by Tongs during which at least one game
-call or input from any client happened.
+call, client call or input from any client happened.
 _Avoid_: tainted run, dirty run
 
 **Widget**:
