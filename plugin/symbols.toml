@@ -484,6 +484,14 @@ values.definition = { at = 3, size = 4 }
 values.file = { at = 10, size = 1 }
 note = "guibounds (0x6EBD10) labels the hovered widget with its definition's source file: the std::string at definition+0x30, which the type factory (0x14EAC80) copies from the reader's stream, e.g. interface/topbar.gui"
 
+[symbol.guibounds_definition_line]
+rva = 0x6EC271
+bytes = "48 8B 80 B0 00 00 00 44 8B B8 A0 00 00 00"
+memory = "code"
+values.definition = { at = 3, size = 4 }
+values.line = { at = 10, size = 4 }
+note = "guibounds prints Line: %i from definition+0xA0, the reader's line counter that the type factory copies: the 1-based line of the { that opens the widget's block (Etch's pick mode checks, H2)"
+
 # --- Widget positions: the render node each kind reads in its vtable slot 0xD8 ---
 
 [symbol.window_position]

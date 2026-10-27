@@ -37,6 +37,7 @@ bool Visit(const UiView& view, int widget, int parent, std::uint32_t extra, std:
     out.text = w.has_text ? w.text.c_str() : nullptr;
     // A stale widget's own definition may be live, but the window it is in was built from a freed one.
     out.definition_file = w.has_definition_file && !w.stale ? w.definition_file.c_str() : nullptr;
+    out.definition_line = w.has_definition_file && !w.stale ? w.definition_line : 0;
     return visit(context, &out) != 0;
 }
 
