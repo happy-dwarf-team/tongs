@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/happy-dwarf-team/tongs/compare/v0.17.0...v0.18.0) (2026-10-27)
+
+
+### Features
+
+* the definition line of each widget in tongs.ui ([#92](https://github.com/happy-dwarf-team/tongs/issues/92)) ([0379d5c](https://github.com/happy-dwarf-team/tongs/commit/0379d5c11b99df589df8c1092d4c0e972da8747e))
+
 ## [0.17.0](https://github.com/happy-dwarf-team/tongs/compare/v0.16.0...v0.17.0) (2026-10-26)
 
 
