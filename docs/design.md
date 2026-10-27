@@ -1169,6 +1169,18 @@ holds the contract; the release zip carries it in `tongs/include/tongs/`
   `ui tree` and `ui find` do not carry it: no client needs it yet, and it
   would lengthen every widget of every answer; it can come later as a
   `feat` of the pipe.
+- **definition_line** ([tongs#86](https://github.com/happy-dwarf-team/tongs/issues/86)):
+  the line of that file where the widget's definition starts: the 1-based
+  line of the `{` that opens its block, not of its keyword or its `name`
+  (Etch's pick mode checks, H2: `guiButtonType = {` on line 86 of vanilla
+  `speed_controls.gui` reports 86; `iconType =` on 2135 with `{` on 2136
+  reports 2136). The type factory copies the reader's line counter to
+  `definition+0xA0`, and `guibounds` prints it as `Line: %i`
+  (`guibounds_definition_line`, `0x6EC271`: `mov rax,[rax+0xB0]` then
+  `mov r15d,[rax+0xA0]`). It follows `definition_file`'s rule: read with the
+  file from a live definition only, 0 for a stale widget and when unknown.
+  Appended to `TongsUiWidget` within version 1, so a consumer checks it with
+  `TONGS_UI_WIDGET_HAS(widget, definition_line)`.
 - **Unit tests** (`tests/test_core.cpp`, `TestUiService*`) run the adapter
   over the hand-built trees of the `ui` tests: the same paths and rectangles
   as `ui find`, ancestors, `[n]` and positional steps, hidden and stale

@@ -169,6 +169,10 @@ public:
         if (live && tongs::Read(e.pointer + l_.definition, definition) && ReadString(definition + l_.definition_file, file)) {
             w.has_definition_file = true;
             w.definition_file = GameTextToUtf8(file);
+            std::int32_t line = 0;
+            if (tongs::Read(definition + l_.definition_line, line) && line > 0) {
+                w.definition_line = static_cast<std::uint32_t>(line);
+            }
         }
     }
 

@@ -71,6 +71,9 @@ struct UiLayout : UiStructureLayout {
     // The game path of the .gui file a definition was read from (std::string).
     unsigned definition_file = U32(sym::guibounds_definition_file.file);
     static_assert(sym::guibounds_definition_file.definition == sym::window_name_slot.definition);
+    // The line of the `{` that opens the definition's block in that file (int).
+    unsigned definition_line = U32(sym::guibounds_definition_line.line);
+    static_assert(sym::guibounds_definition_line.definition == sym::window_name_slot.definition);
     static_assert(sym::widget_name_slot.name_slot == 0x40);
     std::uint32_t widget_name_slot_rva = 0;     // RvaOf(sym::widget_name_slot), set when loading
     std::uint32_t window_name_slot_rva = 0;     // RvaOf(sym::window_name_slot)
