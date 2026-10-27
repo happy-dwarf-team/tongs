@@ -1181,6 +1181,14 @@ holds the contract; the release zip carries it in `tongs/include/tongs/`
   file from a live definition only, 0 for a stale widget and when unknown.
   Appended to `TongsUiWidget` within version 1, so a consumer checks it with
   `TONGS_UI_WIDGET_HAS(widget, definition_line)`.
+  Checked in the game on 2026-10-27 with Etch's pick mode (its M9 live
+  checks, a lab build of this branch): 23 picks in vanilla and in the Anbennar
+  playset with Proper 2K UI Enhanced and P2KE Patch - Anbennar, each widget's
+  `definition_line` the line of its opening `{` in the file the game read
+  (`guiButtonType =` on 650 and `{` on 651 of P2KE's `provinceview.gui` gave
+  651; `iconType =` on 2134 and `{` on 2135 of Proper 2K's `menubar.gui` gave
+  2135), and after `reload` of a copy three lines longer the line moved by
+  three (`speed_controls.gui` 86, then 89).
 - **Unit tests** (`tests/test_core.cpp`, `TestUiService*`) run the adapter
   over the hand-built trees of the `ui` tests: the same paths and rectangles
   as `ui find`, ancestors, `[n]` and positional steps, hidden and stale
