@@ -182,6 +182,15 @@ static void TestFramesCommand() {
     assert(Contains(out, "\"ok\":true") && Contains(out, "\"command\":\"frames\"") && Contains(out, "\"outer_per_s\":"));
     assert(Contains(out, "\"longest_gap_ms\":") && Contains(out, "\"outer_total\":1") && Contains(out, "\"run_ms\":"));
     assert(Contains(out, "\"frame\":") && Contains(out, "\"queued_ms\":") && Contains(out, "\"thread_id\":4242"));
+    assert(!Contains(out, "\"in_game\""));  // no state reader
+    // With one, the state read on the same frame: which session the frame belongs to.
+    StateSnapshot game;
+    game.in_game = true;
+    game.date_raw = 58'860'240;
+    game.load = 2;
+    h.read_state = [&game] { return game; };
+    out = HandleRequest("frames", h);
+    assert(Contains(out, "\"in_game\":true,\"date\":\"1719.3.17\"") && Contains(out, "\"session\":2"));
     assert(Contains(HandleRequest("cancel", h), "\"withdrawn\":0"));
 }
 
@@ -568,6 +577,10 @@ static void TestProtocol() {
     assert(Contains(out, "\"speed\":5"));
     assert(Contains(out, "\"speed_internal\":4"));
     assert(Contains(out, "\"paused\":true"));
+    assert(!Contains(out, "\"session\""));  // not observed by LoadWatch
+    snapshot.load = 3;
+    assert(Contains(HandleRequest("state", h), "\"paused_flag\":true,\"session\":3,"));
+    assert(Contains(HandleRequest("state", h), "\"game_calls_total\":0,\"client_calls_total\":0"));
 
     assert(JsonEscape("a\"b\\c\n\x01") == "a\\\"b\\\\c\\n\\u0001");
 }
@@ -823,6 +836,16 @@ static void TestWaitUntil() {
     FakeGame menu;
     const Handlers hm = menu.Make();
     assert(Contains(HandleRequest("wait_until 1720.1.1", hm), "no game loaded"));
+
+    // A load between two polls: the session number changes, and the wait ends.
+    game.state.load = 1;
+    int polls = 0;
+    game.on_sleep = [&] {
+        if (++polls == 3) game.state.load = 2;
+    };
+    out = HandleRequest("wait_until 1800.1.1", h);
+    assert(Contains(out, "\"ok\":false") && Contains(out, "the game was left while waiting") && Contains(out, "\"session\":2"));
+    game.on_sleep = nullptr;
 }
 
 static void TestRunUntil() {
@@ -1488,7 +1511,14 @@ static void TestInputsCount() {
         if (++ticks == 5) assert(Contains(HandleRequest("key a", h), "\"ok\":true"));
     };
     std::string out = HandleRequest("wait_until 1719.4.1", h);
-    assert(Contains(out, "\"ok\":true") && Contains(out, "\"inputs\":1,"));
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"inputs\":1,\"client_calls\":0,\"game_calls\":0"));
+    // A client call of another client during the wait (ADR 0003).
+    ticks = 0;
+    game.on_sleep = [&] {
+        if (++ticks == 5) assert(CountClientCall(h, "province open", game.state) >= 1);
+    };
+    out = HandleRequest("wait_until 1719.4.15", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"inputs\":0,\"client_calls\":1,\"game_calls\":0"));
     game.on_sleep = nullptr;
     out = HandleRequest("wait_until 1719.5.1", h);
     assert(Contains(out, "\"inputs\":0,"));
@@ -1738,7 +1768,7 @@ static void TestConsoleCommand() {
         if (++ticks == 5) assert(Contains(HandleRequest("console echo y", h), "\"ok\":true"));
     };
     out = HandleRequest("wait_until 1719.4.1", h);
-    assert(Contains(out, "\"ok\":true") && Contains(out, "\"inputs\":0,\"game_calls\":1,"));
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"inputs\":0,\"client_calls\":0,\"game_calls\":1,"));
     console.game.on_sleep = nullptr;
     assert(Contains(HandleRequest("wait_until 1719.5.1", h), "\"game_calls\":0,"));
     console.game.clock_runs_date = false;
@@ -1925,6 +1955,13 @@ static void TestStateChanges() {
     other.session = 0x5E56;
     c = StateChanges(game, other);
     assert(c.size() == 2 && c[0] == ",\"change\":\"left_game\"" && Contains(c[1], "entered_game"));
+    // Another session at the same address (a reload LoadWatch saw): left, then entered with its number.
+    game.load = 1;
+    other = game;
+    other.load = 2;
+    c = StateChanges(game, other);
+    assert(c.size() == 2 && c[0] == ",\"change\":\"left_game\"" &&
+           c[1] == ",\"change\":\"entered_game\",\"speed\":2,\"paused\":true,\"paused_flag\":true,\"session\":2");
 }
 
 static void TestEventChanges() {
@@ -2279,6 +2316,15 @@ static void TestSubscribeCommands() {
     assert(Contains(lines[0], "\"notification\":\"activity\",\"seq\":1,\"date\":\"1719.3.17\"") &&
            Contains(lines[0], "\"what\":\"input\",\"command\":\"resume\",\"inputs\":") && Contains(lines[0], ",\"client\":4}"));
     assert(Contains(lines[1], "\"command\":\"pause\"") && Contains(lines[1], ",\"client\":2}"));
+    // A client call: its own `what`, the running count of client calls, and client_calls_total.
+    game.state.load = 9;
+    const std::uint64_t total = CountClientCall(h, "province goto", game.state);
+    assert(total == 1);
+    lines = Lines(activity->Take(0));
+    assert(lines.size() == 1 && Contains(lines[0], "\"what\":\"client_call\",\"command\":\"province goto\",\"client_calls\":"));
+    assert(Contains(HandleRequest("state", h), "\"client_calls_total\":1"));
+    game.state.load = 10;  // another session: the total starts again
+    assert(Contains(HandleRequest("state", h), "\"client_calls_total\":0"));
     hub.Unsubscribe(activity);
 }
 

@@ -51,14 +51,17 @@ std::vector<std::pair<std::uintptr_t, std::string>> KnownKeys(const std::vector<
 
 std::vector<std::string> StateChanges(const StateSnapshot& before, const StateSnapshot& after) {
     std::vector<std::string> out;
-    const bool new_save = before.in_game && after.in_game && before.session != after.session;
+    const bool new_save =
+        before.in_game && after.in_game && (before.session != after.session || before.load != after.load);
     if (before.in_game && (!after.in_game || new_save)) {
         std::string m = Change("left_game");
         if (!after.in_game) m += ",\"reason\":" + Quote(after.reason ? after.reason : "");
         out.push_back(m);
     }
     if (after.in_game && (!before.in_game || new_save)) {
-        out.push_back(Change("entered_game") + InGameFields(after));
+        std::string m = Change("entered_game") + InGameFields(after);
+        if (after.load != 0) m += ",\"session\":" + std::to_string(after.load);
+        out.push_back(m);
         return out;
     }
     if (!before.in_game || !after.in_game) return out;

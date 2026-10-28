@@ -12,11 +12,11 @@ connection can instead carry notifications (see [Notifications](#notifications))
 | Command | Answer |
 | --- | --- |
 | `ping` | plugin version, game process id (`pid`) and its creation time (`process_start_ms`, Unix ms) |
-| `state` | `in_game`; with a loaded game also `date` (`"1719.3.17"`), `date_raw`, `hour`, `speed` (1–5 as in the UI), `speed_internal` (0–4), `paused` (the game's own answer), `paused_flag` (the player pause byte) and `game_calls_total` (game calls since the save was loaded); always `pid` and `process_start_ms`, which every answer that carries the state repeats, so a client can tell a restarted game apart |
+| `state` | `in_game`; with a loaded game also `date` (`"1719.3.17"`), `date_raw`, `hour`, `speed` (1–5 as in the UI), `speed_internal` (0–4), `paused` (the game's own answer), `paused_flag` (the player pause byte), `session` (see [Sessions](#sessions-and-the-ready-wait)), and `game_calls_total` and `client_calls_total` (game calls and client calls since the save was loaded); always `pid` and `process_start_ms`, which every answer that carries the state repeats, so a client can tell a restarted game apart |
 | `window` | the game window: client `width` / `height`, `screen_x` / `screen_y`, `focused`, `minimized`, `thread_id` (the game's main thread), `dpi` |
 | `threads` | worker threads in each of the game's two pools, the `threads` option, process and main-thread CPU masks, ideal CPU and priority of the main thread, number of threads |
 | `screenshot [NAME]` | writes a PNG of the game window to `anvil/data/tongs/screenshots/` (keeps the newest 100) and answers with its `path`, size and capture `method`; works while the window is covered |
-| `frames [timeout=S]` | read on the game's main thread after a frame of its main loop: frames per second (`outer_per_s`, and `nested_per_s` for frames drawn inside a game update or a save load), counts and the longest gap between main-loop frames since the previous `frames`, and the main thread's `thread_id`; with `queued_ms`, `run_ms` and the game's `frame` counter. Waits up to 10 s (`timeout=` up to 600) for a frame; while a save loads none comes, and the answer is `main thread busy` |
+| `frames [timeout=S]` | read on the game's main thread after a frame of its main loop: frames per second (`outer_per_s`, and `nested_per_s` for frames drawn inside a game update or a save load), counts and the longest gap between main-loop frames since the previous `frames`, and the main thread's `thread_id`; with `queued_ms`, `run_ms`, the game's `frame` counter and the fields of `state` read on that frame, so its `session` says which session the frame belongs to. Waits up to 10 s (`timeout=` up to 600) for a frame; while a save loads none comes, and the answer is `main thread busy` |
 | `ui find SEL [all] [stale] [limit=N]` | widgets that match the selector `SEL` (see [Widgets](#widgets)): `count`, `truncated` and up to 50 `matches` (`limit=` up to 5000), each with `path`, `type`, `visible`, `rect` and `click_point` in client pixels, and `text` / `enabled` / `stale` where they apply. Read on the main thread, like `frames` |
 | `ui tree [SEL] [depth=N] [limit=N] [all]` | the widget tree from the top-level windows, or from the matches of `SEL`, as nested `widgets` (up to 200, `limit=` up to 5000); `depth=N` gives deeper levels only as `children_count` |
 | `event list [timeout=S]` | the open events, topmost first (see [Events](#events)), read on the main thread |
@@ -61,13 +61,17 @@ target date was first seen), `days_per_second`, `paused_ms` (time seen paused
 while waiting, e.g. an event that pauses the game; with `paused_date`, the
 date of the last pause), `first_change_ms`, `inputs` (input commands any
 client sent during the wait; `run_until` does not count its own presses
-before and after it) and `game_calls` (console commands any client ran during
-the wait), so a measurement can reject a run with either above 0;
+before and after it), `client_calls` (client calls any client made during the
+wait, [ADR 0003](adr/0003-client-calls.md); no command makes one yet) and
+`game_calls` (console commands any client ran during the wait), so a
+measurement can reject a run with any of them above 0, and treat a missing one
+(an older Tongs) as unknown;
 `run_until` also `start_speed` and `overshoot_hours` (game hours past the
 target when the pause took hold, usually 0). Both wait at most 1 hour by
 default (`timeout=` up to 14 400 s). `max_pause=S` ends the wait with an error
 once the game has stayed paused for `S` seconds, e.g. on an event with a
-choice, instead of waiting for the timeout.
+choice, instead of waiting for the timeout. A wait ends with an error when the
+game leaves the session: back to the menu, or a load (the `session` changes).
 
 The mouse commands also make the game's interface see the pointer at the given
 point (a hook on the game's cursor query), until `release` or until the real
@@ -75,16 +79,56 @@ mouse moves; the real cursor itself does not move.
 
 ```powershell
 .\scripts\tongs.ps1 state
-# {"ok":true,"in_game":true,"date":"1719.3.17","date_raw":58860240,"hour":0,"speed":2,"speed_internal":1,"paused":true,"paused_flag":true,"pid":21384,"process_start_ms":1792418572041,"game_calls_total":0}
+# {"ok":true,"in_game":true,"date":"1719.3.17","date_raw":58860240,"hour":0,"speed":2,"speed_internal":1,"paused":true,"paused_flag":true,"session":1,"pid":21384,"process_start_ms":1792418572041,"game_calls_total":0,"client_calls_total":0}
 .\scripts\tongs.ps1 'run_until 1719.6.1 speed=5'
 # {"ok":true,"command":"run_until","target":"1719.6.1","start_date":"1719.3.17","reached":true,"reached_date":"1719.6.1",
 #  "game_days":76.000,"days_per_second":12.352,"wall_ms":6153,"paused_ms":0,...,"overshoot_hours":0,...,"paused":true,...}
 .\scripts\tongs.ps1 'click 3350 32' screenshot
 ```
 
-Right after a save loads, the game handles input only seconds later; the
-commands wait for it. While the Esc menu is open, Space does not resume the
-game.
+Right after a save loads, the game handles input only once an outer frame of
+the new session has run; the commands wait for it, and the
+[ready wait](#sessions-and-the-ready-wait) waits for that frame first. While
+the Esc menu is open, Space does not resume the game.
+
+## Sessions and the ready wait
+
+`session` numbers the games of one game process: 1 for the first game after
+the start (from the main menu or with `continue=`), +1 at every load, by the
+player or a later Tongs command. A client pins it like `pid`: a changed
+`session` means the game state was replaced, even when the date comes back
+the same. Tongs reads the state every 20 ms to see every load. `state`
+answers it and every answer that carries the state repeats it; outside a game
+it is absent. The `state` notification `entered_game` carries it too. A load
+starts `game_calls_total` and `client_calls_total` again and ends a
+`wait_until` or `run_until` in progress.
+
+The ready wait replaces a fixed sleep after a start or a load. A client waits,
+polling, until all of these hold at once:
+
+1. the pipe answers from the expected process (`pid`, `process_start_ms`);
+2. `state` answers `in_game: true` with the expected `session`;
+3. a `frames` answer has come whose state shows that session, so an outer frame
+   of it has run (after a start, `state` says `in_game` several seconds before
+   the first outer frame, and input sent in between is handled late);
+4. `paused: true` (after a start with `continue=`, the game pauses itself
+   about a second after entering).
+
+| After | `session` | Timeout |
+| --- | --- | --- |
+| a start with `continue=` | 1 | 180 s |
+| a load | the one after the last seen | 30 s |
+| a start to the main menu | none: `in_game: false` and a `frames` answer instead | 60 s |
+
+It fails at once when the process is another one, when the `session` is past
+the expected one (`unexpected_session`), or when the game leaves the session
+after reaching it (`left_game`); on a timeout it names the first condition not
+met (`pipe`, `in_game`, `session`, `frames`, `paused`, `speed`). The ready wait
+promises an outer frame, not handled input: to prove input, set the speed
+afterwards with `speed N`, whose confirmed change and `waited_ms` show the
+game handled the press (when the speed already is `N` nothing is pressed).
+The Python client and the MCP server implement it as `ready()` and
+`tongs_ready` (see [Clients](../README.md#clients)).
 
 ## Widgets
 
@@ -180,11 +224,11 @@ is `all` or a list such as `state,date,event`:
 
 | Kind | Sent when |
 | --- | --- |
-| `state` | the game is entered or left (`change`: `entered_game`, `left_game` with `reason`), paused or resumed (`paused`, `resumed`) or the speed changes (`speed`, with `previous_speed`); each with `speed`, `paused`, `paused_flag`. Also while a save loads |
+| `state` | the game is entered or left (`change`: `entered_game` with `session`, `left_game` with `reason`; a load is `left_game` then `entered_game`), paused or resumed (`paused`, `resumed`) or the speed changes (`speed`, with `previous_speed`); each with `speed`, `paused`, `paused_flag`. Also while a save loads |
 | `date` | a new day, month (the default) or year begins, with `unit` and `previous` |
 | `event` | an event window opens (`opened`, with `id`, `title` and `options`) or closes (`closed`, with `chosen`: the option, with `by` saying who chose it: `tongs` for `event choose`, `run_until events=first` or `ui click` on the option button (`via: "ui click"`), `player` for any other click on an option (the real mouse, a plain `click`), `auto` for the game's own choice at the deadline; `null` when nobody's choice is known) |
 | `error_log` | the game writes a `line` to its `error.log`; `restarted` when the file was replaced |
-| `activity` | any client sends an input command (`what: "input"`, `command`) or a game call (`what: "game_call"`, `line`, `name`), with the `client` (pipe instance) and the running count (`inputs`, `game_calls`), so a marked run shows as it happens |
+| `activity` | any client sends an input command (`what: "input"`, `command`), makes a client call (`what: "client_call"`, `command`) or a game call (`what: "game_call"`, `line`, `name`), with the `client` (pipe instance) and the running count (`inputs`, `client_calls`, `game_calls`), so a marked run shows as it happens |
 
 ```powershell
 .\scripts\tongs.ps1 -Subscribe 'state,date,activity date=day' -Seconds 30

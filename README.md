@@ -62,30 +62,47 @@ command, its answer and its options are in
 | Keyboard and mouse | `pause`, `resume`, `speed`, `run_until`, `key`, `text`, `move`, `click`, `scroll`, `release`, `ui click`, `event choose` | `input` |
 | Game calls | `console` (**changes game state**) | `game_calls` |
 
+Answers that carry the state name the game process (`pid`,
+`process_start_ms`) and the `session` (1 for the first game, +1 at every
+load). Waits count the input, client calls and game calls of every client
+(`inputs`, `client_calls`, `game_calls`), so a measurement can reject a
+touched run.
+
 ## Clients
 
 - `scripts/tongs.ps1 CMD [CMD ...] [-AsObject] [-StopOnError] [-Subscribe KINDS [-Seconds S] [-Count N]]`:
   sends the commands over one connection and prints one answer line per
   command; with `-Subscribe`, then prints notifications for `-Seconds` (60 by
   default) or until `-Count` of them, and unsubscribes.
-- `scripts/tongs.py` (Python 3, standard library): the same from the command
-  line (`python tongs.py pause "speed 5"`), or as a module:
+- `scripts/tongs.py` (Python 3, standard library), the public client: the
+  same from the command line (`python tongs.py pause "speed 5"`), or as a
+  module:
 
   ```python
-  from tongs import Tongs
-  with Tongs() as game:
-      result = game.call("run_until 1720.1.1 speed=5", check=True)
-      print(result["days_per_second"])
+  import tongs
+  # After starting the game: no fixed sleep (docs/commands.md, "Sessions and the ready wait").
+  tongs.ready(session=1, speed=5, expect_pid=pid, expect_start_ms=start_ms)
+  with tongs.Tongs(expect_pid=pid, expect_start_ms=start_ms) as game:
+      result = game.run_until("1720.1.1", on_progress=lambda p: print(p.date))
+      print(result["days_per_second"], result["inputs"], result["client_calls"], result["game_calls"])
 
-  with Tongs() as watch:  # notifications on a connection of their own
+  with tongs.Tongs() as watch:  # notifications on a connection of their own
       watch.subscribe("state,event,activity")
       for note in watch.notifications(seconds=30):
           print(note["notification"], note.get("change"))
       watch.unsubscribe()
   ```
 
+  Every call has a read timeout (30 s, or the command's own `timeout=` and a
+  margin). A wait that times out or is interrupted with Ctrl+C is ended with
+  `cancel` on a second connection, and the error says whether its answer still
+  came (`answered_late`) or not (`unknown`). With `expect_pid` /
+  `expect_start_ms`, an answer from another game process raises
+  `ProcessMismatch`. The typed steps (`state`, `wait_until`, `run_until`,
+  `ready`) return the plugin's answer unchanged and raise on `"ok": false`.
   From the command line, `python tongs.py "subscribe all" --seconds 30`
-  prints the stream (`subscribe` comes last).
+  prints the stream (`subscribe` comes last), and
+  `python tongs.py --ready --session 1 --speed 5` waits for a started game.
 - [`mcp/`](mcp/README.md): an MCP server (stdio) with one tool per command
   family, for agents such as Claude Code:
   `claude mcp add --transport stdio tongs -- uv run --frozen --directory C:\path\to\tongs\mcp tongs-mcp`.
