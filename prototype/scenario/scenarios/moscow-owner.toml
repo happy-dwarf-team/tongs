@@ -1,0 +1,27 @@
+# PROTOTYPE (tongs#104). Moscow belongs to Russia on 17 March 1719, and `province open` shows it.
+id = "moscow-owner"
+title = "Moscow is Russian and opens by ID"
+
+[launch]
+start = { save = "russia-1719" }   # a lab alias; the lab maps it to a file in `save games`
+cpu = "default"                    # the lab's default rule; no SIMULATION masks needed
+plugins.tongs = { input = true }   # open is a client call, behind input (ADR 0003)
+
+[[step]]
+ready = true
+
+[[step]]
+open = 295                         # province open 295: client call, recorded, allowed in setup
+
+[[step]]
+read = "selection"
+expect = { view = { visible = true, province = 295 } }
+within_s = 10                      # "read until": poll until it holds
+
+[[step]]
+read = "province 295"              # one read: never assert `name` (it follows the owner's culture)
+expect = { owner = "RUS", controller = "RUS", cores = ["RUS"] }
+
+[[step]]
+read = "country RUS"
+expect = { exists = true }         # "295 in provinces" cannot be said here: only equality

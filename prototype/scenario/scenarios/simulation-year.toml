@@ -1,0 +1,43 @@
+# PROTOTYPE (tongs#104). The SIMULATION year 1720 as a scenario: warm-up to 1 January 1720 is
+# setup, the year to 1 January 1721 is the measured stretch, then a world read checks the run.
+id = "simulation-year-1720"
+title = "SIMULATION: one year from 1720 at speed 5"
+
+[launch]
+start = { save = "russia-1719" }
+cpu = "simulation"                 # the lab's profile: N+1 CPUs at start, pools verified, then 0-15, main CPU4
+workers = 8
+plugins.tongs = { input = true }
+
+[[step]]
+ready = true
+
+[[step]]
+check = "simulation-threads"       # a named lab check: not one read, not one expect
+with = { workers = 8 }
+
+[[step]]
+do = "speed 5"
+expect = { speed = 5, speed_internal = 4 }
+
+[[step]]
+run_until = "1720.1.1"             # warm-up: setup, may pause or take input
+speed = 5
+timeout = 300
+max_pause = 5
+
+[[step]]
+run_until = "1721.1.1"
+speed = 5
+timeout = 300
+max_pause = 5
+measure = "year-1720"              # a measured stretch: inputs, client_calls, game_calls must be 0
+# "starts at 1720.1.1 or the day after" has no form here: only equality
+
+[[step]]
+check = "simulation-threads"
+with = { workers = 8 }
+
+[[step]]
+read = "player"
+expect = { tag = "RUS" }
