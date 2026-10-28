@@ -465,7 +465,8 @@ Not blocking any release:
   nearest need.
 - A per-session outer-frame counter in `state`: `ready()` works with `frames`.
 - Whether `run_until events=first` chooses what `key return` does: a separate
-  check in the game, outside this specification.
+  check in the game,
+  [#110](https://github.com/happy-dwarf-team/tongs/issues/110).
 
 ## 13. Open points to check during implementation
 
