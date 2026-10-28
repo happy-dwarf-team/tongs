@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/happy-dwarf-team/tongs/compare/v0.18.0...v0.19.0) (2026-10-28)
+
+
+### Features
+
+* sessions, client-call counts and the public client with ready() ([#115](https://github.com/happy-dwarf-team/tongs/issues/115)) ([18d3852](https://github.com/happy-dwarf-team/tongs/commit/18d3852457c7bf22cd6f5c81c2b9d575fa04ce83))
+
 ## [0.18.0](https://github.com/happy-dwarf-team/tongs/compare/v0.17.0...v0.18.0) (2026-10-27)
 
 
