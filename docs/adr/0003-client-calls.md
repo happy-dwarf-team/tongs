@@ -1,6 +1,6 @@
 # Client calls run beside input and game calls, behind `input`
 
-Status: Proposed (2026-10-28)
+Status: Accepted (2026-10-28)
 
 Tests need to open a province's view by ID and move the camera to it instead of
 finding the province on a screenshot and clicking a pixel. The game's own links
