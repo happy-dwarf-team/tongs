@@ -23,6 +23,11 @@ A read of the game that Tongs does on the game's main thread and that changes
 nothing, such as reading the widget tree; not a game call.
 _Avoid_: safe call, read call
 
+**World read**:
+A main-thread read of the game's world (a province, a country, the player, the
+last selected province) that answers values as the game stores them.
+_Avoid_: query, inspect, world call
+
 **Outer frame**:
 One frame of the game's main loop, as opposed to a frame the game draws from
 inside a game update or a save load; game calls, client calls and main-thread
