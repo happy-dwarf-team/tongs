@@ -34,6 +34,12 @@ A stretch between two dates measured by Tongs during which at least one game
 call, client call or input from any client happened.
 _Avoid_: tainted run, dirty run
 
+**Session**:
+One loaded game in the running game process, from loading a save or starting
+a game until the next load or leaving to the main menu; every load starts a
+new session, even of the same save.
+_Avoid_: game (unqualified), campaign, playthrough
+
 **Widget**:
 One element of the game's interface (a window, button, text, icon), named as
 in the game's `.gui` files.
