@@ -45,6 +45,12 @@ a game until the next load or leaving to the main menu; every load starts a
 new session, even of the same save.
 _Avoid_: game (unqualified), campaign, playthrough
 
+**Ready**:
+The point at which a session can take a client's next step: the game shows
+the session in game, has drawn an outer frame of it and stands paused; a
+session in game is not yet ready.
+_Avoid_: loaded, settled, idle
+
 **Widget**:
 One element of the game's interface (a window, button, text, icon), named as
 in the game's `.gui` files.
