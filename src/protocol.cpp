@@ -26,6 +26,8 @@ std::atomic<std::uint64_t> g_cancel_generation{0};
 std::atomic<std::uint64_t> g_inputs{0};
 // Game calls made for any client, for `game_calls` in wait_until / run_until.
 std::atomic<std::uint64_t> g_game_calls{0};
+// Client calls made for any client, for `client_calls` in wait_until / run_until (ADR 0003).
+std::atomic<std::uint64_t> g_client_calls{0};
 // Set by a game call that faulted; refuses every later game call until the game exits.
 std::atomic<bool> g_game_calls_tripped{false};
 // The pipe instance (from 1) whose request this thread is handling, for `activity`.
@@ -42,10 +44,10 @@ void PublishActivity(const Handlers& h, const std::string& members) {
     h.notifications->Publish(NotificationKind::Activity, date, members + ",\"client\":" + std::to_string(t_client));
 }
 
-// Game calls since the save was loaded, for `game_calls_total` in `state`. A
-// loaded save is told by the load the state reads saw (LoadWatch: a moment
-// without a game in between), its session object, or a date earlier than the
-// last call's. Guarded by g_total_mutex.
+// Calls since the save was loaded, for `game_calls_total` and
+// `client_calls_total` in `state`. A loaded save is told by the session the
+// state reads saw (LoadWatch: a moment without a game in between), its session
+// object, or a date earlier than the last call's. Guarded by g_total_mutex.
 struct TotalCalls {
     std::uint64_t load = 0;
     std::uintptr_t session = 0;
@@ -53,22 +55,23 @@ struct TotalCalls {
     std::uint64_t count = 0;
 };
 std::mutex g_total_mutex;
-TotalCalls g_total;
+TotalCalls g_game_total;
+TotalCalls g_client_total;
 
-bool SameSave(const StateSnapshot& s) {
-    return s.load == g_total.load && s.session == g_total.session && s.date_raw >= g_total.date_raw;
+bool SameSave(const TotalCalls& total, const StateSnapshot& s) {
+    return s.load == total.load && s.session == total.session && s.date_raw >= total.date_raw;
 }
 
-std::uint64_t TotalCallsFor(const StateSnapshot& s) {
+std::uint64_t TotalCallsFor(const TotalCalls& total, const StateSnapshot& s) {
     std::lock_guard lock(g_total_mutex);
-    return SameSave(s) ? g_total.count : 0;
+    return SameSave(total, s) ? total.count : 0;
 }
 
-std::uint64_t AddTotalCall(const StateSnapshot& s) {
+std::uint64_t AddTotalCall(TotalCalls& total, const StateSnapshot& s) {
     std::lock_guard lock(g_total_mutex);
-    if (!SameSave(s)) g_total = {s.load, s.session, s.date_raw, 0};
-    g_total.date_raw = s.date_raw;
-    return ++g_total.count;
+    if (!SameSave(total, s)) total = {s.load, s.session, s.date_raw, 0};
+    total.date_raw = s.date_raw;
+    return ++total.count;
 }
 
 // The handlers with a send_input that notices whether anything was queued; the
@@ -164,6 +167,7 @@ std::string StateFields(const StateSnapshot& s) {
     out += ",\"speed_internal\":" + std::to_string(s.speed);
     out += std::string(",\"paused\":") + Bool(s.paused);
     out += std::string(",\"paused_flag\":") + Bool(s.paused_flag);
+    if (s.load != 0) out += ",\"session\":" + std::to_string(s.load);
     return out + process;
 }
 
@@ -352,6 +356,7 @@ struct WaitResult {
     std::int32_t first_change_raw = 0;
     std::uint64_t inputs = 0;      // input commands of any client during the wait
     std::uint64_t game_calls = 0;  // game calls of any client during the wait
+    std::uint64_t client_calls = 0;  // client calls of any client during the wait
     bool stopped = false;          // the poll hook ended the wait
     StateSnapshot state;
 };
@@ -365,15 +370,18 @@ WaitResult WaitForDate(const Handlers& h, std::int32_t target, int timeout_s, in
     const std::uint64_t generation = g_cancel_generation.load();
     const std::uint64_t inputs = g_inputs.load();
     const std::uint64_t game_calls = g_game_calls.load();
+    const std::uint64_t client_calls = g_client_calls.load();
     const std::uint64_t start = h.now_ms();
     const std::uint64_t deadline = start + static_cast<std::uint64_t>(timeout_s) * 1000;
     w.state = h.read_state();
     w.start_raw = w.state.date_raw;
+    const std::uint64_t session = w.state.load;
     std::uint64_t last = start;
     std::uint64_t paused_since = 0;  // start of the current pause; 0 = running
     for (;;) {
         const std::uint64_t now = h.now_ms();
-        if (!w.state.in_game) {
+        // A load can come between two polls; the session tells it.
+        if (!w.state.in_game || w.state.load != session) {
             w.left_game = true;
             break;
         }
@@ -419,6 +427,7 @@ WaitResult WaitForDate(const Handlers& h, std::int32_t target, int timeout_s, in
     if (!w.reached) w.wall_ms = h.now_ms() - start;
     w.inputs = g_inputs.load() - inputs;
     w.game_calls = g_game_calls.load() - game_calls;
+    w.client_calls = g_client_calls.load() - client_calls;
     return w;
 }
 
@@ -440,6 +449,7 @@ std::string WaitFields(const WaitResult& w, std::int32_t target) {
     out += ",\"wall_ms\":" + std::to_string(w.wall_ms);
     out += ",\"paused_ms\":" + std::to_string(w.paused_ms);
     out += ",\"inputs\":" + std::to_string(w.inputs);
+    out += ",\"client_calls\":" + std::to_string(w.client_calls);
     out += ",\"game_calls\":" + std::to_string(w.game_calls);
     if (w.paused_ms > 0) out += ",\"paused_date\":\"" + DateText(w.pause_raw) + "\"";
     if (w.first_change_ms > 0) {
@@ -692,16 +702,19 @@ std::string FramesCommand(const Handlers& h, std::string_view argument) {
     FrameStats& stats = *h.frame_stats;
     const auto& now = h.now_ms;
     const auto& thread_id = h.current_thread_id;
+    const auto& read_state = h.read_state;
     const Dispatcher::Outcome outcome = h.dispatcher->Run(
         Dispatcher::Kind::Read,
-        [&stats, &now, &thread_id] {
+        [&stats, &now, &thread_id, &read_state] {
             const FrameStats::Snapshot s = stats.Take(now());
             const std::string thread = thread_id ? ",\"thread_id\":" + std::to_string(thread_id()) : std::string();
+            // The state on the same frame, so a client sees which session the frame belongs to.
+            const std::string state = read_state ? "," + StateFields(read_state()) : std::string();
             return thread + ",\"outer_per_s\":" + std::to_string(s.outer_per_s) + ",\"nested_per_s\":" +
                    std::to_string(s.nested_per_s) + ",\"outer_since\":" + std::to_string(s.outer_since) +
                    ",\"nested_since\":" + std::to_string(s.nested_since) + ",\"since_ms\":" + std::to_string(s.since_ms) +
                    ",\"longest_gap_ms\":" + std::to_string(s.longest_gap_ms) + ",\"outer_total\":" +
-                   std::to_string(s.outer_total) + ",\"nested_total\":" + std::to_string(s.nested_total);
+                   std::to_string(s.outer_total) + ",\"nested_total\":" + std::to_string(s.nested_total) + state;
         },
         timeout_ms);
     return MainThreadJson("frames", outcome);
@@ -1256,7 +1269,7 @@ public:
         std::uint64_t total = 0;
         if (called_) {
             const std::uint64_t calls = g_game_calls.fetch_add(1) + 1;
-            total = AddTotalCall(before_);
+            total = AddTotalCall(g_game_total, before_);
             PublishActivity(h_, ",\"what\":\"game_call\",\"command\":\"console\",\"line\":" + Quoted(line_) +
                                     ",\"name\":" + Quoted(name_) + ",\"game_calls\":" + std::to_string(calls));
         }
@@ -1416,6 +1429,14 @@ bool Served(const Handlers& h, NotificationKind kind) {
 
 bool IsSubscribe(std::string_view line) { return SplitCommand(line).first == "subscribe"; }
 
+std::uint64_t CountClientCall(const Handlers& h, std::string_view command, const StateSnapshot& before) {
+    const std::uint64_t calls = g_client_calls.fetch_add(1) + 1;
+    const std::uint64_t total = AddTotalCall(g_client_total, before);
+    PublishActivity(h, ",\"what\":\"client_call\",\"command\":" + Quote(command) +
+                           ",\"client_calls\":" + std::to_string(calls));
+    return total;
+}
+
 std::string Subscribe(std::string_view line, const Handlers& h, std::shared_ptr<Subscription>& out) {
     const std::string_view argument = SplitCommand(line).second;
     if (!h.notifications) return Refused("subscribe", "unavailable", "notifications are not set up");
@@ -1507,7 +1528,10 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
         if (!handlers.read_state) return Error("state reader unavailable");
         const StateSnapshot s = handlers.read_state();
         std::string out = "{\"ok\":true," + StateFields(s);
-        if (s.in_game) out += ",\"game_calls_total\":" + std::to_string(TotalCallsFor(s));
+        if (s.in_game) {
+            out += ",\"game_calls_total\":" + std::to_string(TotalCallsFor(g_game_total, s));
+            out += ",\"client_calls_total\":" + std::to_string(TotalCallsFor(g_client_total, s));
+        }
         return out + "}";
     }
     if (command == "screenshot") {

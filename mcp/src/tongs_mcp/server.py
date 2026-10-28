@@ -6,7 +6,9 @@ line as text, the parsed object as structured content, and `isError` when the
 answer has `"ok": false`. Later text items can follow: notes on the outcome of
 calls the client cancelled. The adapter adds nothing the pipe does not offer:
 input and game calls still depend on `input` and `game_calls` in the plugin's
-config.
+config. Connections, read timeouts, date progress and the ready wait are the
+pipe client's (tongs.py, a copy of scripts/tongs.py); this module adds the
+async layer and the notes on cancelled calls.
 """
 
 import base64
@@ -26,7 +28,10 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import CallToolResult, ImageContent, TextContent, ToolAnnotations
 from pydantic import Field
 
-PIPE = r"\\.\pipe\tongs"
+from .tongs import PIPE, CallTimeout, TongsError, follow_dates, game_days, wait_ready
+
+__all__ = ["build_server", "game_days", "main"]
+
 # Screenshots larger than this are not inlined (base64 adds a third).
 MAX_IMAGE_BYTES = int(os.environ.get("TONGS_MCP_MAX_IMAGE_BYTES", 3_000_000))
 PROGRESS_POLL_S = 0.5  # how long the progress stream reads before reporting
@@ -51,7 +56,7 @@ class Connection(Protocol):
 
 
 def open_pipe() -> Connection:
-    from .tongs import Tongs  # Windows only (msvcrt, kernel32)
+    from .tongs import Tongs
 
     return Tongs(timeout_s=2.0)
 
@@ -96,23 +101,6 @@ class Abandoned:
     told: str | None = None  # what the notes said last: None, "pending", "answer" or "failure"
 
 
-# --- game dates (EU4: 365 days, no leap years) -------------------------------
-
-_MONTH_START = (0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
-
-
-def game_days(date: str | None) -> float | None:
-    """`1720.1.1` or `1720.1.1.12` as days (and hours) since year 0; None if not a date."""
-    try:
-        parts = [int(p) for p in str(date).split(".")]
-        if len(parts) not in (3, 4) or not 1 <= parts[1] <= 12:
-            return None
-        hours = parts[3] if len(parts) == 4 else 0
-        return parts[0] * 365 + _MONTH_START[parts[1] - 1] + parts[2] - 1 + hours / 24
-    except (TypeError, ValueError):
-        return None
-
-
 # --- the server --------------------------------------------------------------
 
 INSTRUCTIONS = """\
@@ -120,14 +108,19 @@ Tongs controls a running Europa Universalis IV 1.37.5 (with the Anvil loader) th
 the local pipe \\\\.\\pipe\\tongs. Every tool sends one command and returns the plugin's
 JSON answer unchanged; "ok": false answers come back as errors with an "error" field.
 
-- Start with tongs_state (in_game, date, speed, paused, pid). Use tongs_ui_find before
-  clicking, and prefer tongs_ui_click (by widget name) over tongs_click_point.
+- Start with tongs_state (in_game, date, speed, paused, session, pid). After starting the
+  game or loading a save, tongs_ready waits until it takes input instead of a fixed sleep.
+  Use tongs_ui_find before clicking, and prefer tongs_ui_click (by widget name) over
+  tongs_click_point.
 - Answers that carry the state include pid and process_start_ms: when they change, the
-  game was restarted and earlier answers describe another process.
+  game was restarted and earlier answers describe another process. `session` is 1 for
+  the first game of the process and +1 at every load: when it changes, the game state
+  was replaced.
 - Input tools (pause, resume, speed, key, text, mouse, ui click, event choose, run_until)
   work only with input = true in the plugin config and are counted in "inputs" of any
   wait in progress. tongs_console works only with game_calls = true, changes game
-  state and is counted in "game_calls" (a marked run).
+  state and is counted in "game_calls". A run with inputs, client_calls or game_calls
+  above 0 is a marked run, which measurements reject.
 - tongs_wait_until / tongs_run_until can take hours of wall time: the call returns when
   the date is reached, the timeout passes or tongs_cancel ends it. Progress
   notifications report the game date when the client asks for progress, and a heartbeat
@@ -241,6 +234,10 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
             raise ToolError(f"cannot open {PIPE} ({e}); all 8 pipe instances may be busy") from None
         try:
             return conn.raw(line)
+        except CallTimeout as e:
+            if e.late is not None:
+                return json.dumps(e.late, ensure_ascii=False)
+            raise ToolError("no answer within the read timeout; the plugin may still carry the command out") from None
         except (ConnectionError, OSError) as e:
             raise ToolError(
                 f"the pipe closed without an answer ({e}); did the game exit? The command may or may not "
@@ -326,40 +323,37 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
 
     async def report_dates(ctx: Context, target: float | None) -> None:
         """Reports the game date as progress until cancelled; quietly stops on any pipe trouble.
-        While no new day comes (the game is paused), a heartbeat every HEARTBEAT_S seconds pings
-        the plugin on the same connection and, if it answers, reports progress a tiny step on."""
+        While no new day comes (the game is paused), the client's heartbeat pings the plugin
+        every HEARTBEAT_S seconds and, if it answers, progress moves a tiny step on."""
         try:
             conn = await anyio.to_thread.run_sync(connect)
         except (OSError, ModuleNotFoundError):
             return
+        end = object()
         try:
-            first = json.loads(await anyio.to_thread.run_sync(conn.raw, "subscribe date date=day"))
-            start = game_days(first.get("date"))
-            if not first.get("ok") or start is None:
-                return
-            total = target - start if target is not None and target > start else None
-            last = first["date"]
+            feed = follow_dates(conn, HEARTBEAT_S, PROGRESS_POLL_S)
+            start = 0.0
+            total: float | None = None
             sent: float | None = None  # the last progress value reported
-            new_day_at = reported_at = anyio.current_time()
             while True:
-                notes = await anyio.to_thread.run_sync(lambda: list(conn.notifications(seconds=PROGRESS_POLL_S)))
-                dates = [n["date"] for n in notes if n.get("notification") == "date" and n.get("date")]
-                now = anyio.current_time()
-                if dates and dates[-1] != last and (done := game_days(dates[-1])) is not None:
-                    last, new_day_at = dates[-1], now
-                    value = done - start if sent is None else max(done - start, sent + HEARTBEAT_STEP)
-                    message = f"game date {last}"
-                elif HEARTBEAT_S > 0 and now - reported_at >= HEARTBEAT_S:
-                    # `ping` is one of the two requests a subscribed connection answers.
-                    if not json.loads(await anyio.to_thread.run_sync(conn.raw, "ping")).get("ok"):
-                        return
-                    value = 0.0 if sent is None else sent + HEARTBEAT_STEP
-                    message = f"game date {last}, no new day for {now - new_day_at:.0f} s"
-                else:
+                p = await anyio.to_thread.run_sync(lambda: next(feed, end))
+                if p is end:
+                    return
+                if p is None:
                     continue
+                if p.kind == "start":
+                    start = p.days
+                    total = target - start if target is not None and target > start else None
+                    continue
+                if p.kind == "day":
+                    value = p.days - start if sent is None else max(p.days - start, sent + HEARTBEAT_STEP)
+                    message = f"game date {p.date}"
+                else:
+                    value = 0.0 if sent is None else sent + HEARTBEAT_STEP
+                    message = f"game date {p.date}, no new day for {p.idle_s:.0f} s"
                 await ctx.report_progress(value, total, message)
-                sent, reported_at = value, now
-        except (OSError, ConnectionError, ValueError):
+                sent = value
+        except (OSError, ValueError, TongsError):
             return
         finally:
             conn.close()  # reads above are not abandoned, so nothing else uses it
@@ -386,9 +380,64 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
     @tool(READ)
     async def tongs_state() -> CallToolResult:
         """Game state: in_game, and with a loaded game date ("1719.3.17"), hour, speed (1-5 as in
-        the UI), paused, paused_flag (the player pause) and game_calls_total; always pid and
-        process_start_ms (Unix ms) of the game process. Cheap; call it first."""
+        the UI), paused, paused_flag (the player pause), session (1 for the first game of the
+        process, +1 at every load), game_calls_total and client_calls_total (since the save was
+        loaded); always pid and process_start_ms (Unix ms) of the game process. Cheap; call it
+        first."""
         return await call("state")
+
+    @tool(INPUT)
+    async def tongs_ready(
+        session: Annotated[
+            int | None,
+            Field(ge=1, description="The session to wait for: 1 after a start, the save load's session after it."),
+        ] = None,
+        in_game: Annotated[bool, Field(description="false: wait for the main menu instead.")] = True,
+        speed: Annotated[
+            int | None,
+            Field(ge=1, le=5, description="Then set this speed; the change proves input is handled (input = true)."),
+        ] = None,
+        timeout: Annotated[
+            int | None,
+            Field(ge=1, le=600, description="Seconds (default 180 after a start, 30 after a load, 60 for the menu)."),
+        ] = None,
+        expect_pid: Annotated[int | None, Field(ge=1, description="Fail unless the game process has this id.")] = None,
+        expect_start_ms: Annotated[
+            int | None, Field(ge=1, description="Fail unless the game process was created at this Unix ms.")
+        ] = None,
+    ) -> CallToolResult:
+        """Waits, without a fixed sleep, until the game is ready for the next step: the pipe answers
+        (from the expected process), the game is in the expected session, an outer frame of that
+        session has run and the game is paused (with in_game=false: the main menu and a frame).
+        Answers with state, session, frame, waited_ms, and with `speed` the speed answer and
+        input_proven. Fails at once on process_mismatch, unexpected_session and left_game; a
+        timeout names the first unmet condition (pipe, in_game, session, frames, paused, speed)
+        and carries the last state. Without `speed` it presses nothing; with it, a press needs
+        input = true and counts in "inputs" of every wait_until / run_until in progress."""
+        stop = threading.Event()
+
+        def ask(line: str) -> dict[str, Any]:
+            conn = connect()
+            try:
+                return json.loads(conn.raw(line))
+            finally:
+                conn.close()
+
+        def run() -> dict[str, Any]:
+            try:
+                return wait_ready(
+                    ask, session=session, in_game=in_game, speed=speed, timeout=timeout,
+                    expect_pid=expect_pid, expect_start_ms=expect_start_ms, cancelled=stop.is_set,
+                )  # fmt: skip
+            except TongsError as e:
+                return e.answer
+
+        try:
+            answer = await anyio.to_thread.run_sync(run, abandon_on_cancel=True)
+        except anyio.get_cancelled_exc_class():
+            stop.set()
+            raise
+        return finish(_answer(json.dumps(answer, ensure_ascii=False)))
 
     @tool(READ)
     async def tongs_window() -> CallToolResult:
@@ -405,8 +454,8 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
     @tool(READ)
     async def tongs_frames(timeout: Timeout = None) -> CallToolResult:
         """Frame statistics read on the game's main thread after a main-loop frame: frames per second,
-        counts and the longest gap since the previous call. While a save loads the answer is
-        `main thread busy`."""
+        counts and the longest gap since the previous call, and the state on that frame (with its
+        session). While a save loads the answer is `main thread busy`."""
         return await call(_line("frames", timeout=timeout))
 
     @tool(FILES)
@@ -453,9 +502,9 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         progress: Progress = True,
     ) -> CallToolResult:
         """Waits, without touching the game, until the game date reaches `date`, then answers with the
-        timing: reached, reached_date, game_days, wall_ms, days_per_second, paused_ms, inputs and
-        game_calls (input commands and game calls any client sent meanwhile; a measurement should
-        reject a run with either above 0). Blocks for as long as the game takes: set the MCP
+        timing: reached, reached_date, game_days, wall_ms, days_per_second, paused_ms, inputs,
+        client_calls and game_calls (input commands, client calls and game calls of any client
+        meanwhile; a measurement should reject a run with any above 0). A load ends it. Blocks for as long as the game takes: set the MCP
         client's tool timeout above `timeout`. tongs_cancel ends it; cancelling this call sends
         `cancel`, which ends every wait in progress."""
         return await wait(_line("wait_until", date, timeout=timeout, max_pause=max_pause), date, progress, ctx)

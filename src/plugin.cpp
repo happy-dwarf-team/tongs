@@ -72,7 +72,8 @@ struct Tongs : anvil::Plugin {
         handlers.process_start_ms = ProcessStartMs();
         handlers.log = [](int level, const std::string& message) { Log(level, message); };
         handlers.game_calls = config.game_calls;
-        // Every state read also tells LoadWatch whether a game was loaded, so a reloaded save starts game_calls_total again.
+        // Every state read also tells LoadWatch whether a game was loaded: the `session` number,
+        // and a reloaded save starts game_calls_total and client_calls_total again.
         static tongs::LoadWatch load_watch;
         handlers.read_state = [image_base, game_layout, pid = handlers.process_id, start_ms = handlers.process_start_ms] {
             tongs::StateSnapshot s = tongs::ReadState(image_base, game_layout);
@@ -158,17 +159,17 @@ struct Tongs : anvil::Plugin {
                       allowed.empty() ? "" : "; console_allow: " + allowed,
                       config.game_calls.ironman ? "; allowed in ironman" : "",
                       config.game_calls.multiplayer ? "; allowed in multiplayer" : "");
-            // The moment without a game while a save loads lasts a second or more; reads every
-            // 20 ms see it even when no client asks. Only with game calls, which are what it counts.
-            std::thread([read_state = handlers.read_state] {
-                for (;;) {
-                    read_state();
-                    Sleep(20);
-                }
-            }).detach();
         } else {
             host.info("game calls disabled (game_calls = false)");
         }
+        // The moment without a game while a save loads lasts a second or more; reads every 20 ms
+        // see it even when no client asks, so `session` and the totals count every load.
+        std::thread([read_state = handlers.read_state] {
+            for (;;) {
+                read_state();
+                Sleep(20);
+            }
+        }).detach();
         // Notifications: the hub of every subscription and the threads that feed it,
         // idle while nobody subscribes.
         static tongs::NotificationHub hub(handlers.now_ms);

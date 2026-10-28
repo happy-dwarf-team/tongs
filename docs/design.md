@@ -1611,10 +1611,11 @@ in-game menu keeps the session object at its address and the date where it
 was (live, `tongs-harden-1`: the count stayed 1), so neither tells loads
 apart. `src/load_watch.cpp` does: every state read is observed, and a read
 that sees a loaded game after one that saw none starts a new load; another
-session object or an earlier date also does. With `game_calls = true` a Tongs
-thread reads the state every 20 ms, so the second without a session while a
-save loads is always seen. Tongs keys the count by load, session object and
-date, and starts again from 0 when any of them says another save.
+session object or an earlier date also does. A Tongs thread reads the state
+every 20 ms (since 0.19.0 always, before only with `game_calls = true`), so
+the second without a session while a save loads is always seen. Tongs keys
+the count by load, session object and date, and starts again from 0 when any
+of them says another save.
 
 ### Live check (2026-10-19)
 
@@ -2211,6 +2212,61 @@ runs `anvil gen`, builds `tongs.dll` with the static CRT and lays out
 pinned Anvil release (URL and SHA-256); `-DTONGS_ANVIL_SDK` points at an
 unpacked SDK instead. CI runs `anvil check plugin --format github`, which also
 fails on a stale `symbols.lock`.
+
+## Sessions, client calls and the client (0.19.0)
+
+Release 0.19 of the [scenario support v1 spec](spec/scenarios-v1.md)
+(sections 2–4). No new game addresses.
+
+- **`session`** is LoadWatch's load number, which already keyed
+  `game_calls_total`: 1 for the first game of the process, +1 whenever a read
+  sees a loaded game after one that saw none, another session object or an
+  earlier date. The 20 ms state thread of "Game calls" now runs whatever the
+  settings, so a load is counted even when no client reads (the moment without
+  a game lasts seconds). `state`, every answer with the state, `frames` (the
+  state read on its frame) and `entered_game` carry it. A changed number also
+  makes the `state` notifications report `left_game` and `entered_game` for a
+  reload at the same address, and ends `wait_until` / `run_until` even when
+  their polls missed the moment without a game.
+- **Client calls** ([ADR 0003](adr/0003-client-calls.md)) get their counts
+  before their first command: `client_calls` in the waits, `client_calls_total`
+  in `state` (keyed like `game_calls_total`) and `CountClientCall`, which
+  publishes `activity` with `what: "client_call"`. Until a command calls it
+  (0.21), every count is 0; a client judging a stretch no longer meets a
+  missing field.
+- **The client** `scripts/tongs.py` is public and `mcp/` builds on it: a
+  read timeout per call (30 s, a command's `timeout=` plus 30 s, or the
+  default hour of a wait plus 30 s), polling reads (`PeekNamedPipe`) so
+  Ctrl+C interrupts them, `cancel` on a second connection when a wait times
+  out or is interrupted and a bounded wait (5 s) for the late answer, process
+  pinning against `ping` and every answer with `pid` / `process_start_ms`, the
+  date feed (`follow_dates`: `subscribe date date=day` with a `ping`
+  heartbeat), `game_days` and the ready wait.
+- **`ready()`** composes `state`, `frames` and `paused` on the client, as
+  #109 decided; nothing in the plugin waits. The MCP tool opens a connection
+  per request, so it also waits for the pipe of a game still starting.
+
+### Live check (2026-10-28)
+
+Lab run `t111-live1`: EU4 1.37.5 with the original `eu4.exe`, Anvil 1.5.2 and
+`anvil-game`, this branch's Tongs with `input` and `game_calls` on, the
+Russia save of 1719.3.17 started with `continue=`, driven by
+`scripts/tongs.py` from the branch; the save was unchanged afterwards.
+
+| Step | Seen |
+| --- | --- |
+| `ready(session=1)` right after the start | ready after 37.0 s; its `frames` job waited 4.3 s for the first outer frame; `session` 1, paused |
+| `ready(session=1, speed=3)` | 1 press, the `speed` answer after **176 ms** (#109's 2–7 s did not come back: input is late only before the first outer frame) |
+| `console echo t111` | `game_calls_total` 1, `client_calls_total` 0 |
+| a `wait_until 1800.1.1` and a `state,activity` subscription on other connections, then a load of the same save by the player (Esc menu, Load Game, the row, Load, the confirmation, all with `ui click` / `click`) | the wait ended "the game was left while waiting" with `inputs` 12, `client_calls` 0, `game_calls` 0; `left_game`, then `entered_game` with `session` 2 about 2.3 s later; `game_calls_total` 0 and `client_calls_total` 0 afterwards |
+| `ready(session=2)` | ready 7.6 s after the confirmation (the load held the main thread; `frames` waited 5.1 s) |
+| the first `speed` after it | **no change within 10 s**: the in-game menu stays open after a load from it, and the speed keys do nothing while it is open; after `ui click menu/menu_panel/menu_close_button`, `speed` took 31 ms |
+| a second load the same way, `ready(session=3)`, then closing the menu and `speed` | ready after 7.9 s, `session` 3 in `state`, `frames` and `entered_game`; closing the menu 243 ms, `speed` 31 ms |
+
+Seen on the way: in the Load dialog the title text of a save row covers its
+check box, so `ui click` on `save_game` refuses `covered`; a plain `click` on
+the row beside the title selects it. The same `[n]` path named another row
+in `ui find ... all` than without `all`.
 
 ## Releases
 

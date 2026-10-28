@@ -26,7 +26,9 @@ struct StateSnapshot {
     bool paused = false;         // the game's own "is paused" answer (0x7E01B0)
     bool paused_flag = false;    // the player pause byte (+0x48) alone
     std::uintptr_t session = 0;  // the session object (root+0x1E00); not reported, tells loaded saves apart
-    std::uint64_t load = 0;      // which load of a save the read saw (LoadWatch); 0 when not observed; not reported
+    // The session the read saw (LoadWatch): 1 for the first game of the process, +1 at every
+    // load; 0 when not observed. Reported as `session`.
+    std::uint64_t load = 0;
     // The game process, so a client can tell answers of a restarted game apart:
     // its id and creation time (Unix ms). Filled by the plugin; 0 when unknown, then not reported.
     std::uint32_t pid = 0;
@@ -162,5 +164,11 @@ std::string Subscribe(std::string_view line, const Handlers& handlers, std::shar
 std::string SubscribedRequest(std::string_view line, const Handlers& handlers, std::shared_ptr<Subscription>& subscription);
 
 std::string JsonEscape(std::string_view text);
+
+// Counts one client call (ADR 0003) that called the game: `client_calls` of
+// every wait in progress, an `activity` notification with what "client_call",
+// and client_calls_total of the save `before` was read in, which it returns.
+// For the commands that make client calls; none does before 0.21.
+std::uint64_t CountClientCall(const Handlers& handlers, std::string_view command, const StateSnapshot& before);
 
 }  // namespace tongs

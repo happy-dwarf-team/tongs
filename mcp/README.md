@@ -94,6 +94,7 @@ npx @modelcontextprotocol/inspector uv run --frozen --directory C:\path\to\tongs
 | Tool | Command | Notes |
 | --- | --- | --- |
 | `tongs_state`, `tongs_window`, `tongs_threads` | `state`, `window`, `threads` | read only |
+| `tongs_ready` | `state`, `frames`, then `speed N` with `speed` | waits until the game is ready after a start or a load, without a fixed sleep; input only with `speed` |
 | `tongs_frames` | `frames [timeout=S]` | read on the main thread |
 | `tongs_screenshot` | `screenshot [NAME]` | answers with `path`; `image=true` attaches the PNG when small enough |
 | `tongs_wait_until` | `wait_until DATE [timeout=S] [max_pause=S]` | long; progress (below) |
@@ -116,7 +117,15 @@ npx @modelcontextprotocol/inspector uv run --frozen --directory C:\path\to\tongs
   count in `inputs` of every `wait_until` / `run_until` in progress.
   `tongs_console` works only with `game_calls = true`, changes game state and
   counts in `game_calls` and `game_calls_total`: the run becomes a marked run
-  that measurements reject. The tool descriptions say so.
+  that measurements reject. The tool descriptions say so. Waits also answer
+  `client_calls` (ADR 0003; no tool makes one yet).
+- **Ready.** `tongs_ready` is the ready wait of
+  [docs/commands.md](../docs/commands.md#sessions-and-the-ready-wait), built
+  on the pipe client: the expected `session` (1 after a start), optionally
+  `expect_pid` / `expect_start_ms`, and `speed` to prove input by setting it.
+  It opens a connection per request, so it also waits for the pipe of a game
+  still starting. A failure is an error answer with `error`, `unmet` and the
+  last `state`.
 - **Annotations** declare what a tool does beyond answering. `readOnlyHint`:
   the reads (`state`, `window`, `threads`, `frames`, `ui find`, `ui tree`,
   `event list`). `destructiveHint`: the tools that act as the player
@@ -136,7 +145,9 @@ npx @modelcontextprotocol/inspector uv run --frozen --directory C:\path\to\tongs
 - **Connections.** Each call opens its own pipe connection and closes it after
   the answer, so one tool call can wait in `run_until` while another reads
   `tongs_state` or sends `tongs_cancel`. A wait with progress uses a second
-  connection; the pipe has 8.
+  connection; the pipe has 8. The connections, read timeouts, date progress
+  and the ready wait are those of the pipe client `scripts/tongs.py`, which
+  `src/tongs_mcp/tongs.py` copies.
 
 ## Long waits
 

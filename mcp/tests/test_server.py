@@ -66,7 +66,7 @@ async def call(pipe: FakePipe, tool: str, args: dict | None = None, **kwargs):
 
 
 ALL_TOOLS = {
-    "tongs_state", "tongs_window", "tongs_threads", "tongs_frames", "tongs_screenshot",
+    "tongs_state", "tongs_ready", "tongs_window", "tongs_threads", "tongs_frames", "tongs_screenshot",
     "tongs_wait_until", "tongs_run_until", "tongs_cancel",
     "tongs_pause", "tongs_resume", "tongs_speed", "tongs_key", "tongs_text",
     "tongs_move", "tongs_click_point", "tongs_scroll", "tongs_release",
@@ -75,7 +75,7 @@ ALL_TOOLS = {
 }  # fmt: skip
 
 INPUT_TOOLS = {
-    "tongs_run_until", "tongs_pause", "tongs_resume", "tongs_speed", "tongs_key", "tongs_text",
+    "tongs_ready", "tongs_run_until", "tongs_pause", "tongs_resume", "tongs_speed", "tongs_key", "tongs_text",
     "tongs_move", "tongs_click_point", "tongs_scroll", "tongs_release", "tongs_ui_click", "tongs_event_choose",
 }  # fmt: skip
 
@@ -178,8 +178,12 @@ async def test_request_line(tool, args, line):
     assert pipe.closed == 1
 
 
+# Tools that send several requests, tested on their own.
+SEVERAL_REQUESTS = {"tongs_ready"}
+
+
 def test_every_tool_has_a_request_line_case():
-    assert {tool for tool, _, _ in LINES} == ALL_TOOLS
+    assert {tool for tool, _, _ in LINES} == ALL_TOOLS - SEVERAL_REQUESTS
 
 
 async def test_answer_passes_through_unchanged():
@@ -224,6 +228,8 @@ async def test_answer_that_is_not_json_is_an_error():
         ("tongs_key", {"name": "a b"}),
         ("tongs_wait_until", {"date": "next year"}),
         ("tongs_screenshot", {"name": "../x"}),
+        ("tongs_ready", {"speed": 0}),
+        ("tongs_ready", {"session": 0}),
     ],
 )
 async def test_refused_without_sending(tool, args):
@@ -593,3 +599,93 @@ async def test_runs_over_stdio():
         assert tools == ALL_TOOLS
         result = await client.call_tool("tongs_raw", {"line": "subscribe all"})
         assert result.is_error
+
+
+# --- tongs_ready ---------------------------------------------------------------
+
+GAME = {"ok": True, "in_game": True, "date": "1719.3.17", "speed": 2, "paused": True, "session": 1, "pid": 42,
+        "process_start_ms": 7}  # fmt: skip
+
+
+def ready_game(state=None, frames=None, speed=None):
+    """A game that answers state, frames and speed; each argument overrides that answer."""
+
+    def handler(line):
+        if line == "state":
+            return {**GAME, **(state or {})}
+        if line.startswith("frames"):
+            return {"ok": True, "command": "frames", "frame": 9, **GAME, **(frames or {})}
+        if line.startswith("speed"):
+            return {"ok": True, "command": "speed", "presses": 3, "waited_ms": 20, **GAME, "speed": 5,
+                    **(speed or {})}  # fmt: skip
+        return {"ok": False, "error": "unexpected " + line}
+
+    return FakePipe(handler)
+
+
+async def test_ready_after_a_start():
+    pipe = ready_game()
+    result = await call(pipe, "tongs_ready", {"session": 1, "expect_pid": 42, "expect_start_ms": 7})
+    assert not result.is_error
+    answer = result.structured_content
+    assert answer["ok"] is True and answer["command"] == "ready"
+    assert answer["session"] == 1 and answer["frame"] == 9 and answer["input_proven"] is False
+    assert answer["speed"] is None
+    assert pipe.sent == ["state", "frames timeout=10"]
+    assert pipe.closed == 2
+
+
+async def test_ready_with_speed_proves_input():
+    pipe = ready_game()
+    result = await call(pipe, "tongs_ready", {"session": 1, "speed": 5})
+    answer = result.structured_content
+    assert not result.is_error and answer["input_proven"] is True
+    assert answer["speed"]["waited_ms"] == 20 and answer["state"]["speed"] == 5
+    assert pipe.sent[-1] == "speed 5"
+
+
+async def test_ready_at_that_speed_presses_nothing():
+    pipe = ready_game()
+    result = await call(pipe, "tongs_ready", {"speed": 2})
+    assert not result.is_error and result.structured_content["input_proven"] is False
+    assert "speed 2" not in pipe.sent
+
+
+async def test_ready_fails_at_once_on_a_later_session():
+    pipe = ready_game(state={"session": 3})
+    result = await call(pipe, "tongs_ready", {"session": 2})
+    assert result.is_error
+    assert result.structured_content["error"] == "unexpected_session"
+    assert pipe.sent == ["state"]
+
+
+async def test_ready_fails_at_once_on_another_process():
+    pipe = ready_game()
+    result = await call(pipe, "tongs_ready", {"expect_pid": 41})
+    assert result.is_error
+    assert result.structured_content["error"] == "process_mismatch"
+
+
+async def test_ready_timeout_names_the_unmet_condition():
+    pipe = ready_game(frames={"paused": False})
+    result = await call(pipe, "tongs_ready", {"timeout": 1})
+    answer = result.structured_content
+    assert result.is_error and answer["error"] == "timeout" and answer["unmet"] == "paused"
+    assert answer["state"]["paused"] is False
+
+
+async def test_ready_waits_for_the_pipe():
+    def connect():
+        raise FileNotFoundError(2, "not found")
+
+    async with Client(build_server(connect)) as client:
+        result = await client.call_tool("tongs_ready", {"timeout": 1})
+    assert result.is_error
+    assert result.structured_content["unmet"] == "pipe" and result.structured_content["state"] is None
+
+
+async def test_ready_for_the_main_menu():
+    pipe = ready_game(state={"in_game": False, "session": None}, frames={"in_game": False})
+    result = await call(pipe, "tongs_ready", {"in_game": False, "speed": 5})
+    assert not result.is_error
+    assert pipe.sent == ["state", "frames timeout=10"]  # no speed outside a game
