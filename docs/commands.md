@@ -127,6 +127,11 @@ met (`pipe`, `in_game`, `session`, `frames`, `paused`, `speed`). The ready wait
 promises an outer frame, not handled input: to prove input, set the speed
 afterwards with `speed N`, whose confirmed change and `waited_ms` show the
 game handled the press (when the speed already is `N` nothing is pressed).
+In the game, the first `speed` after the ready wait took 176 ms after a start
+and 31 ms after a load. A load from the in-game menu leaves that menu open,
+and the speed keys do nothing while it is: close it first
+(`ui click menu/menu_panel/menu_close_button`); the ready wait does not look
+at windows.
 The Python client and the MCP server implement it as `ready()` and
 `tongs_ready` (see [Clients](../README.md#clients)).
 
