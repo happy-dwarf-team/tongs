@@ -28,7 +28,8 @@ struct UiWidget {
     bool shown = false;  // the widget's own visible flag; `visible` in answers also needs every ancestor shown
     UiRect rect;
     bool has_text = false;
-    std::string text;  // UTF-8
+    std::string text;    // UTF-8
+    std::string markup;  // UTF-8 with the colour codes kept (§ as U+00A7); tongs.ui only
     bool has_enabled = false;
     bool enabled = false;
     bool has_checked = false;  // check boxes
@@ -172,7 +173,7 @@ UiRect ChildrenBounds(const UiTree& tree, int parent);
 void FitRects(UiTree& tree, UiRect client);
 
 // The game's 8-bit text (Windows-1252) as UTF-8, without its colour codes (§ and
-// the next character, e.g. "§YName§!" -> "Name").
-std::string GameTextToUtf8(std::string_view text);
+// the next character, e.g. "§YName§!" -> "Name"), or with them when `colour_codes`.
+std::string GameTextToUtf8(std::string_view text, bool colour_codes = false);
 
 }  // namespace tongs

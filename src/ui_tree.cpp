@@ -652,7 +652,7 @@ void FitRects(UiTree& tree, UiRect client) {
     }
 }
 
-std::string GameTextToUtf8(std::string_view text) {
+std::string GameTextToUtf8(std::string_view text, bool colour_codes) {
     // 0x80-0x9F of Windows-1252; 0 marks the five bytes it leaves undefined (kept as U+0080-U+009F).
     static constexpr char16_t kHigh[32] = {0x20AC, 0,      0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021,
                                            0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0,      0x017D, 0,
@@ -662,7 +662,7 @@ std::string GameTextToUtf8(std::string_view text) {
     out.reserve(text.size());
     for (std::size_t i = 0; i < text.size(); ++i) {
         const auto c = static_cast<unsigned char>(text[i]);
-        if (c == 0xA7) {  // a colour code: § and the character after it are not displayed
+        if (c == 0xA7 && !colour_codes) {  // a colour code: § and the character after it are not displayed
             ++i;
             continue;
         }
