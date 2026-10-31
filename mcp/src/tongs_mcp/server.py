@@ -122,8 +122,8 @@ JSON answer unchanged; "ok": false answers come back as errors with an "error" f
   change only the camera, the selection and open views, and count in "client_calls".
 - Input tools (pause, resume, speed, key, text, mouse, ui click, event choose, run_until)
   work only with input = true in the plugin config and are counted in "inputs" of any
-  wait in progress. tongs_console works only with game_calls = true, changes game
-  state and is counted in "game_calls". A run with inputs, client_calls or game_calls
+  wait in progress. tongs_console and tongs_save_load work only with game_calls = true,
+  change game state and are counted in "game_calls". A run with inputs, client_calls or game_calls
   above 0 is a marked run, which measurements reject.
 - tongs_wait_until / tongs_run_until can take hours of wall time: the call returns when
   the date is reached, the timeout passes or tongs_cancel ends it. Progress
@@ -770,6 +770,30 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         that measurements reject."""
         _check(line)
         return await call("console " + line)
+
+    @tool(GAME_CALL)
+    async def tongs_save_load(
+        name: Annotated[
+            str,
+            Field(
+                pattern=r"^[^/\\\"\x00-\x1f]{1,200}$",
+                description="A save at the top level of `save games`, e.g. mp_Russia1719_03_17 (.eu4 optional).",
+            ),
+        ],
+        timeout: Annotated[
+            int | None, Field(ge=1, le=600, description="Seconds for the whole load (plugin default 120).")
+        ] = None,
+    ) -> CallToolResult:
+        """Loads a save in the running game, as the in-game Load dialog does: a GAME CALL that CHANGES
+        GAME STATE. The running game is discarded WITHOUT SAVING. Needs game_calls = true; the game
+        must be paused. Answers save, save_date, player, compatible (from this version), load_ms,
+        session (the new one; then tongs_ready with it) and covered_by once the next frame shows the
+        save's date and player. Refuses before calling: bad_name, no_such_save, unreadable_save,
+        ironman_save, not_paused; after calling: no_such_save / rejected (called: true), not_loaded,
+        timeout (started: true). Counts as one game call: a marked run."""
+        _check(name)
+        quoted = f'"{name}"' if " " in name else name
+        return await call(_line("save load", quoted, timeout=timeout))
 
     @tool(GAME_CALL)
     async def tongs_raw(

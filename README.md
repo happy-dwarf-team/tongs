@@ -62,7 +62,7 @@ command, its answer and its options are in
 | Waiting and notifications | `wait_until`, `cancel`, `subscribe`, `unsubscribe` | `enabled` |
 | Keyboard and mouse | `pause`, `resume`, `speed`, `run_until`, `key`, `text`, `move`, `click`, `scroll`, `release`, `ui click`, `event choose` | `input` |
 | Navigation (client calls) | `province open`, `province goto` | `input` |
-| Game calls | `console` (**changes game state**) | `game_calls` |
+| Game calls | `console`, `save load` (**change game state**) | `game_calls` |
 
 Answers that carry the state name the game process (`pid`,
 `process_start_ms`) and the `session` (1 for the first game, +1 at every
@@ -89,6 +89,8 @@ touched run.
       print(result["days_per_second"], result["inputs"], result["client_calls"], result["game_calls"])
       print(game.province(295)["owner"], game.country("RUS")["province_count"])  # world reads
       game.open_province(295)  # the province view, as the game's own links open it
+      loaded = game.load_save("mp_Russia1719_03_17")  # a game call: the running game is discarded
+      game.ready(session=loaded["session"])
 
   with tongs.Tongs() as watch:  # notifications on a connection of their own
       watch.subscribe("state,event,activity")
@@ -104,7 +106,7 @@ touched run.
   `expect_start_ms`, an answer from another game process raises
   `ProcessMismatch`. The typed steps (`state`, `wait_until`, `run_until`,
   `ready`, the world reads `province`, `country`, `player`, `selection`, and
-  the navigation `open_province`, `goto_province`)
+  the navigation `open_province`, `goto_province`, and `load_save`)
   return the plugin's answer unchanged and raise on `"ok": false`.
   From the command line, `python tongs.py "subscribe all" --seconds 30`
   prints the stream (`subscribe` comes last), and

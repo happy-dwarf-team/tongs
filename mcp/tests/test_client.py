@@ -174,6 +174,11 @@ def test_a_wait_that_times_out_is_cancelled_on_a_second_connection(serve):
     assert server.lines == ["wait_until 1720.1.1", "cancel"]
 
 
+def test_save_load_read_timeout():
+    assert read_timeout("save load x") == 150
+    assert read_timeout("save load x timeout=300") == 330
+
+
 def test_read_timeouts():
     assert read_timeout("state") == tongs.READ_TIMEOUT_S
     assert read_timeout("frames timeout=60") == 60 + tongs.TIMEOUT_MARGIN_S
@@ -349,3 +354,12 @@ def test_navigation_steps_send_their_lines(serve):
         assert conn.open_province(295)["command"] == "province open"
         assert conn.goto_province("1252", timeout=5)["command"] == "province goto"
     assert server.lines == ["province open 295", "province goto 1252 timeout=5"]
+
+
+@windows
+def test_load_save_quotes_names_with_spaces(serve):
+    server = serve(lambda line: {"ok": True, "command": "save load", "session": 2})
+    with Tongs() as conn:
+        assert conn.load_save("mp_Russia1719_03_17")["session"] == 2
+        conn.load_save("Russia test", timeout=300)
+    assert server.lines == ["save load mp_Russia1719_03_17", 'save load "Russia test" timeout=300']

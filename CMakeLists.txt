@@ -27,7 +27,7 @@ option(TONGS_BUILD_TESTS "Build unit tests" ON)
 include(cmake/AnvilSdk.cmake)
 
 # Platform-independent parts (protocol, settings, date, dispatcher, selectors), shared with the tests.
-add_library(tongs_core STATIC src/protocol.cpp src/config.cpp src/game_date.cpp src/keys.cpp src/input.cpp src/dispatcher.cpp src/frame_stats.cpp src/ui_tree.cpp src/ui_definitions.cpp src/ui_structure.cpp src/ui_service.cpp src/events.cpp src/console.cpp src/notifications.cpp src/notify_sources.cpp src/load_watch.cpp src/world.cpp src/navigation.cpp)
+add_library(tongs_core STATIC src/protocol.cpp src/config.cpp src/game_date.cpp src/keys.cpp src/input.cpp src/dispatcher.cpp src/frame_stats.cpp src/ui_tree.cpp src/ui_definitions.cpp src/ui_structure.cpp src/ui_service.cpp src/events.cpp src/console.cpp src/notifications.cpp src/notify_sources.cpp src/load_watch.cpp src/world.cpp src/navigation.cpp src/save_meta.cpp)
 # include/: the tongs.ui header for consumers, which needs Anvil's plugin header.
 get_property(TONGS_ANVIL_INCLUDE_DIR GLOBAL PROPERTY ANVIL_SDK_INCLUDE_DIR)
 target_include_directories(tongs_core PUBLIC src include "${TONGS_ANVIL_INCLUDE_DIR}")
@@ -41,7 +41,7 @@ endif()
 # tongs-check runs `anvil check plugin` (with -DEU4_EXE=<eu4.exe> it also
 # verifies the symbols and rewrites plugin/symbols.lock).
 set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
-anvil_add_plugin(tongs PLUGIN_DIR plugin SOURCES src/plugin.cpp src/settings.cpp src/game_state.cpp src/game_input.cpp src/game_window.cpp src/game_cursor.cpp src/game_frame.cpp src/game_threads.cpp src/game_ui.cpp src/game_ui_service.cpp src/game_events.cpp src/game_console.cpp src/game_world.cpp src/game_navigation.cpp src/game_files.cpp src/game_memory.cpp src/pipe_server.cpp src/screenshot.cpp)
+anvil_add_plugin(tongs PLUGIN_DIR plugin SOURCES src/plugin.cpp src/settings.cpp src/game_state.cpp src/game_input.cpp src/game_window.cpp src/game_cursor.cpp src/game_frame.cpp src/game_threads.cpp src/game_ui.cpp src/game_ui_service.cpp src/game_events.cpp src/game_console.cpp src/game_world.cpp src/game_navigation.cpp src/game_save.cpp src/game_files.cpp src/game_memory.cpp src/pipe_server.cpp src/screenshot.cpp)
 unset(CMAKE_COMPILE_WARNING_AS_ERROR)
 target_link_libraries(tongs PRIVATE tongs_core advapi32 user32 gdi32 ole32 shell32 windowscodecs)
 

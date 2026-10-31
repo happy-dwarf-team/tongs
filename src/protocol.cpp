@@ -4,10 +4,13 @@
 
 #include <atomic>
 #include <charconv>
+#include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -1690,6 +1693,242 @@ std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
     return out + state_tail() + "}";
 }
 
+// The session (StateSnapshot::load) the running `save load` makes: set before the loader
+// is called, so the entered_game notification, which may come during the load, names it.
+std::atomic<std::uint64_t> g_tongs_load{0};
+
+constexpr int kDefaultLoadTimeoutS = 120;
+constexpr int kMaxLoadTimeoutS = 600;
+
+// save load NAME [timeout=S]: a game call (ADR 0001) through the in-game Load
+// dialog's own loader. The metadata is read first, on the pipe thread; one
+// main-thread job checks the game and calls the loader, which returns after the
+// whole load; the next outer frame checks the loaded session.
+std::string SaveLoad(const Handlers& h, std::string_view argument, int client) {
+    std::string name;
+    std::string_view rest;
+    const std::string name_error = ParseSaveName(argument, name, rest);
+    const auto state_tail = [&h] { return h.read_state ? "," + StateFields(h.read_state()) : std::string(); };
+    const auto answer = [&](bool ok, const std::string& error, const std::string& detail, const std::string& extra) {
+        std::string out = std::string("{\"ok\":") + Bool(ok);
+        if (!ok) out += ",\"error\":" + Quote(error) + ",\"detail\":" + Quote(detail);
+        out += ",\"command\":\"save load\"";
+        if (!name.empty()) out += ",\"save\":" + Quote(name);
+        return out + extra + state_tail() + "}";
+    };
+    const auto log = [&h, &name, client](int level, const std::string& what) {
+        if (h.log) h.log(level, "save load \"" + JsonEscape(name) + "\" (pipe " + std::to_string(client) + "): " + what);
+    };
+    const auto refuse = [&](const std::string& error, const std::string& detail, const std::string& extra = {}) {
+        log(kLogWarning, error + " (" + detail + ")");
+        return answer(false, error, detail, extra);
+    };
+    if (!name_error.empty()) return refuse("bad_name", name_error);
+    int timeout_s = kDefaultLoadTimeoutS;
+    for (const std::string_view word : SplitWords(rest)) {
+        int seconds = 0;
+        if (!word.starts_with("timeout=") || !ParseInt(word.substr(8), seconds) || seconds < 1 || seconds > kMaxLoadTimeoutS) {
+            return refuse("bad_command", "save load takes NAME and an optional timeout=SECONDS (1-" +
+                                             std::to_string(kMaxLoadTimeoutS) + ")");
+        }
+        timeout_s = seconds;
+    }
+    if (!h.game_calls.enabled) {
+        return refuse("game_calls_disabled", "game calls are disabled (set game_calls = true in anvil/data/tongs/settings.toml)");
+    }
+    if (Suspended(h)) return refuse("suspended", kSuspended);
+    if (!h.dispatcher || !h.read_state || !h.now_ms || !h.locate_save || !h.read_save || !h.call_load ||
+        !h.close_windows || !h.read_loading || !h.read_player) {
+        return refuse("unavailable", h.dispatcher ? "loading saves is not set up" : kNoDispatch);
+    }
+    if (g_game_calls_tripped.load()) return refuse("game_calls_tripped", "game calls are off until the game exits after a game call faulted");
+
+    // The file and its metadata, before anything is called.
+    std::string path, bytes;
+    bool exists = false;
+    if (std::string error = h.locate_save(name, path, exists); !error.empty()) return refuse("unavailable", error);
+    if (!exists) return refuse("no_such_save", "no " + name + ".eu4 in save games");
+    SaveMeta meta;
+    if (std::string error = h.read_save(path, bytes); !error.empty()) return refuse("unreadable_save", error);
+    if (std::string error = ReadSaveMeta(bytes, h.save_tokens, meta); !error.empty()) return refuse("unreadable_save", error);
+    bytes.clear();
+    bytes.shrink_to_fit();
+    if (meta.ironman && !h.game_calls.ironman) {
+        return refuse("ironman_save", "the save is an ironman save, which the game would write to after the load; "
+                                      "it needs game_calls_ironman = true");
+    }
+    std::array<int, 4> running{};
+    const bool version = h.read_version && h.read_version(running);
+    const bool compatible = version && VersionListed(meta.versions, running);
+    std::string game_version = "null";
+    if (version) {
+        game_version = "\"" + std::to_string(running[0]) + "." + std::to_string(running[1]) + "." +
+                       std::to_string(running[2]) + "." + std::to_string(running[3]) + "\"";
+    }
+    std::string save_versions = "[";
+    for (std::size_t i = 0; i < meta.versions.size(); ++i) save_versions += (i ? "," : "") + Quote(meta.versions[i]);
+    const std::string meta_members = ",\"save_date\":\"" + DateText(meta.date_raw) + "\",\"player\":" + Quote(meta.player) +
+                                     ",\"compatible\":" + Bool(compatible) + ",\"save_versions\":" + save_versions +
+                                     "],\"game_version\":" + game_version;
+
+    std::lock_guard lock(g_input_mutex);  // game calls take turns with input
+    const std::uint64_t start = h.now_ms();
+    const std::uint64_t deadline = start + static_cast<std::uint64_t>(timeout_s) * 1000;
+    // The job, on a thread of its own: the answer can come at the timeout while the load still runs.
+    struct Call {
+        std::mutex mutex;
+        std::condition_variable done_cv;
+        bool done = false;
+        bool called = false;     // the loader was called
+        bool abandoned = false;  // the answer went out at the timeout: the thread counts the call
+        Dispatcher::Outcome outcome;
+        std::string refusal, refusal_detail;
+        StateSnapshot before;
+        LoadCall load;
+        std::uint64_t load_ms = 0;
+        bool closed = false;
+    };
+    auto call = std::make_shared<Call>();
+    const Handlers handlers = h;  // the thread may outlive this request
+    std::thread([call, handlers, name, timeout_s] {
+        const Handlers& hh = handlers;
+        Dispatcher::Outcome o = hh.dispatcher->Run(
+            Dispatcher::Kind::GameCall,
+            [&] {
+                StateSnapshot before = hh.read_state();
+                call->before = before;
+                const auto refused = [&](const char* error, std::string detail) {
+                    call->refusal = error;
+                    call->refusal_detail = std::move(detail);
+                    return std::string();
+                };
+                if (!before.in_game) return refused("not_in_game", before.reason ? before.reason : "no game loaded");
+                if (!before.paused) return refused("not_paused", "the game runs; a player loads from the paused in-game menu");
+                if (hh.read_console) {
+                    ConsoleRaw raw;
+                    if (std::string error = hh.read_console(raw); !error.empty()) return refused("console_unavailable", error);
+                    if (ConsoleRefusal r = CheckConsoleMode(hh.game_calls, raw); r.refused()) {
+                        call->refusal = r.error;
+                        call->refusal_detail = r.detail;
+                        return std::string();
+                    }
+                }
+                if (g_game_calls_tripped.load()) return refused("game_calls_tripped", "game calls are off until the game exits");
+                g_tongs_load.store(before.load + 1);
+                call->called = true;
+                const std::uint64_t t0 = hh.now_ms();
+                call->load = hh.call_load(name);
+                call->load_ms = hh.now_ms() - t0;
+                if (call->load.faulted) {
+                    g_game_calls_tripped.store(true);
+                } else if (call->load.result == 0) {
+                    unsigned long code = 0;
+                    call->closed = hh.close_windows(code);
+                }
+                return std::string();
+            },
+            timeout_s * 1000);
+        std::lock_guard g(call->mutex);
+        call->outcome = o;
+        call->done = true;
+        if (call->abandoned && call->called) {
+            // Nobody waits for this load any more; it is still one game call.
+            g_game_calls.fetch_add(1);
+            AddTotalCall(g_game_total, hh.read_state());
+        }
+        call->done_cv.notify_all();
+    }).detach();
+    {
+        const std::uint64_t now = h.now_ms();
+        std::unique_lock g(call->mutex);
+        call->done_cv.wait_for(g, std::chrono::milliseconds(deadline > now ? deadline - now : 0), [&call] { return call->done; });
+        if (!call->done) {
+            // The job started (a queued one is withdrawn at its own limit): the load is still running.
+            call->abandoned = true;
+            log(kLogWarning, "timeout while the game loads; its effect is unknown");
+            return answer(false, "timeout", "the load did not finish within " + std::to_string(timeout_s) + " s; its effect is unknown",
+                          ",\"started\":true" + meta_members);
+        }
+    }
+    if (!call->outcome.ran) return refuse(call->outcome.error, "no outer frame came within the timeout; nothing was called");
+    if (!call->refusal.empty()) return refuse(call->refusal, call->refusal_detail, meta_members);
+
+    // Called: one game call, counted in the session it made (game_calls_total is 1 afterwards).
+    const std::uint64_t calls = g_game_calls.fetch_add(1) + 1;
+    PublishActivity(h, ",\"what\":\"game_call\",\"command\":\"save load\",\"name\":\"save load\",\"save\":" + Quote(name) +
+                           ",\"game_calls\":" + std::to_string(calls));
+    const std::string called = ",\"called\":true,\"load_ms\":" + std::to_string(call->load_ms) + meta_members;
+    if (call->load.faulted) {
+        char code[16];
+        std::snprintf(code, sizeof code, "0x%08lX", call->load.fault_code);
+        log(kLogError, std::string("faulted (exception ") + code + ")");
+        return refuse("faulted", std::string("exception ") + code + " in the game's loader; game calls are off until the game exits",
+                      called);
+    }
+    if (call->load.result != 0) {
+        const int r = call->load.result;
+        const char* error = r == 1 ? "bad_name" : r == 2 ? "no_such_save" : "rejected";
+        const std::string detail = r == 1   ? "the game found the name empty"
+                                   : r == 2 ? "the game found no such save"
+                                   : r == 3 ? "the game rejected the save's metadata (no player, or ironman in a modded game)"
+                                            : "the game's loader returned " + std::to_string(r);
+        const StateSnapshot after = h.read_state();
+        const std::uint64_t total = AddTotalCall(g_game_total, after.in_game ? after : call->before);
+        return refuse(error, detail, called + ",\"result\":" + std::to_string(r) + ",\"game_calls_total\":" + std::to_string(total));
+    }
+
+    // The next outer frame: in game, not loading, the save's date and player.
+    StateSnapshot after;
+    bool loading = true, read_loading = false;
+    PlayerRaw player;
+    WorldFailure player_failure;
+    const int left = deadline > h.now_ms() ? static_cast<int>(deadline - h.now_ms()) : 1;
+    const Dispatcher::Outcome check = h.dispatcher->Run(
+        Dispatcher::Kind::Read,
+        [&] {
+            after = h.read_state();
+            read_loading = h.read_loading(loading);
+            if (after.in_game) player_failure = h.read_player(player);
+            return std::string();
+        },
+        left);
+    if (!check.ran) return refuse("not_loaded", "the load returned, but no outer frame came to check it", called);
+    const std::uint64_t total = AddTotalCall(g_game_total, after.in_game ? after : call->before);
+    const std::string counts = ",\"game_calls_total\":" + std::to_string(total);
+    if (!after.in_game || !read_loading || loading || player_failure.failed() || after.date_raw != meta.date_raw ||
+        player.tag != meta.player) {
+        std::string seen = ",\"seen\":{\"in_game\":" + std::string(Bool(after.in_game)) +
+                           ",\"loading\":" + (read_loading ? Bool(loading) : "null");
+        if (after.in_game) seen += ",\"date\":\"" + DateText(after.date_raw) + "\",\"player\":" + Quote(player.tag);
+        return refuse("not_loaded", "the frame after the load does not show the save", called + counts + seen + "}");
+    }
+
+    // What the game hovers at the middle of the window: a window over the map, or null.
+    std::string covered_by = "null";
+    if (h.set_cursor && h.read_hovered && h.read_ui && h.send_input && h.read_window) {
+        const WindowSnapshot w = h.read_window();
+        if (w.found && w.width > 0 && w.height > 0) {
+            const MouseTrack held = g_held;
+            const HoverOutcome hover = HoverCheck(h, 0, UiRect{0, 0, w.width, w.height}, left);
+            if (hover.error.empty() && hover.cover.covered && !hover.cover.covered_by.empty()) {
+                covered_by = Quote(hover.cover.covered_by);
+            }
+            if (held.known) {
+                h.set_cursor(held.x, held.y);
+                h.send_input({MoveTo(held.x, held.y)});
+                g_held = held;
+            } else if (h.release_cursor) {
+                h.release_cursor();
+                g_held = {};
+            }
+        }
+    }
+    log(kLogWarning, "loaded in " + std::to_string(call->load_ms) + " ms (the running game was discarded without saving)");
+    return answer(true, {}, {},
+                  called + ",\"session\":" + std::to_string(after.load) + ",\"covered_by\":" + covered_by +
+                      counts + ",\"windows_closed\":" + Bool(call->closed) + ",\"waited_ms\":" + std::to_string(h.now_ms() - start));
+}
+
 std::string Ping(const Handlers& h) {
     std::string out = std::string("{\"ok\":true,\"command\":\"ping\",\"pong\":true,\"version\":\"") + TONGS_VERSION +
                       "\",\"pid\":" + std::to_string(h.process_id);
@@ -1724,6 +1963,8 @@ bool Served(const Handlers& h, NotificationKind kind) {
 }  // namespace
 
 bool IsSubscribe(std::string_view line) { return SplitCommand(line).first == "subscribe"; }
+
+const char* LoadedBy(std::uint64_t session) { return session != 0 && session == g_tongs_load.load() ? "tongs" : nullptr; }
 
 std::uint64_t CountClientCall(const Handlers& h, std::string_view command, const StateSnapshot& before) {
     const std::uint64_t calls = g_client_calls.fetch_add(1) + 1;
@@ -1853,7 +2094,7 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
     if (command == "help" && argument.empty()) {
         return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"frames\",\"ui\",\"event\",\"province\",\"country\",\"player\",\"selection\",\"help\",") +
                "\"wait_until\",\"cancel\",\"key\",\"text\",\"move\",\"click\",\"scroll\",\"release\",\"pause\",\"resume\",\"speed\"," +
-               "\"run_until\",\"console\",\"subscribe\",\"unsubscribe\"],\"input\":" + Bool(InputReady(handlers)) + ",\"main_thread\":" +
+               "\"run_until\",\"console\",\"save\",\"subscribe\",\"unsubscribe\"],\"input\":" + Bool(InputReady(handlers)) + ",\"main_thread\":" +
                Bool(handlers.dispatcher != nullptr) + ",\"game_calls\":" + Bool(handlers.game_calls.enabled) +
                ",\"game_calls_tripped\":" + Bool(g_game_calls_tripped.load()) +
                ",\"suspended\":" + Bool(Suspended(handlers)) + "}";
@@ -1870,6 +2111,11 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
         return WorldCommand(handlers, command, argument);
     }
     if (command == "console") return ConsoleCall(handlers, argument, client).Run();
+    if (command == "save") {
+        const auto [verb, rest] = SplitCommand(argument);
+        if (verb != "load") return Refused("save", "bad_command", "usage: save load NAME [timeout=S]");
+        return SaveLoad(handlers, rest, client);
+    }
     if (command == "wait_until") {
         if (!handlers.read_state || !handlers.sleep_ms || !handlers.now_ms) return Error("state reader unavailable");
         return WaitUntil(handlers, argument);

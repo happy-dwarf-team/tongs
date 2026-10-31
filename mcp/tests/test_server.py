@@ -73,7 +73,7 @@ ALL_TOOLS = {
     "tongs_ui_tree", "tongs_ui_find", "tongs_ui_click",
     "tongs_event_list", "tongs_event_choose", "tongs_console", "tongs_raw",
     "tongs_province", "tongs_country", "tongs_player", "tongs_selection",
-    "tongs_province_open", "tongs_province_goto",
+    "tongs_province_open", "tongs_province_goto", "tongs_save_load",
 }  # fmt: skip
 
 INPUT_TOOLS = {
@@ -138,6 +138,8 @@ LINES = [
     ("tongs_province_open", {"province_id": 295}, "province open 295"),
     ("tongs_province_open", {"province_id": 295, "timeout": 30}, "province open 295 timeout=30"),
     ("tongs_province_goto", {"province_id": 1252}, "province goto 1252"),
+    ("tongs_save_load", {"name": "mp_Russia1719_03_17"}, "save load mp_Russia1719_03_17"),
+    ("tongs_save_load", {"name": "Russia test.eu4", "timeout": 300}, 'save load "Russia test.eu4" timeout=300'),
     ("tongs_console", {"line": "echo x"}, "console echo x"),
     ("tongs_raw", {"line": "help"}, "help"),
     ("tongs_raw", {"line": "  ping "}, "ping"),
@@ -167,7 +169,7 @@ async def test_lists_every_tool_with_safety_notes():
 # Tools that act as the player (a key or click can confirm, choose or quit) or remove something.
 DESTRUCTIVE_TOOLS = {
     "tongs_run_until", "tongs_key", "tongs_click_point", "tongs_ui_click", "tongs_event_choose",
-    "tongs_cancel", "tongs_screenshot", "tongs_console", "tongs_raw",
+    "tongs_cancel", "tongs_screenshot", "tongs_console", "tongs_raw", "tongs_save_load",
 }  # fmt: skip
 READ_ONLY_TOOLS = {
     "tongs_state", "tongs_window", "tongs_threads", "tongs_frames",
@@ -253,6 +255,9 @@ async def test_answer_that_is_not_json_is_an_error():
         ("tongs_country", {"tag": "RUSS"}),
         ("tongs_player", {"timeout": 61}),
         ("tongs_province_open", {"province_id": 0}),
+        ("tongs_save_load", {"name": "a/b"}),
+        ("tongs_save_load", {"name": 'a"b'}),
+        ("tongs_save_load", {"name": "x", "timeout": 601}),
         ("tongs_province_goto", {"province_id": 295, "timeout": 0}),
     ],
 )

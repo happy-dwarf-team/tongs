@@ -5,6 +5,7 @@
 #include "navigation.hpp"
 #include "notify_sources.hpp"
 #include "protocol.hpp"
+#include "save_meta.hpp"
 #include "ui_definitions.hpp"
 #include "ui_service.hpp"
 #include "ui_structure.hpp"
@@ -1477,7 +1478,6 @@ static void TestEventCommands() {
     assert(screen.game.events.empty() && screen.chosen.empty());
 
     out = HandleRequest("event choose text^=refuse event=title^=tariffs", h);
-    std::fprintf(stderr, "%s\n", out.c_str());
     assert(Contains(out, "{\"ok\":true,\"command\":\"event choose\",\"choice_date\":\"1719.3.17\",\"event\":{\"number\":1,\"id\":\"flavor_rus.1\"") &&
            Contains(out, "\"option\":{\"number\":2,\"text\":\"Refuse them\",\"option_index\":1,\"option_key\":\"flavor_rus.1.b\"") &&
            Contains(out, "\"closed\":true,\"chosen_ms\":") && Contains(out, "\"closed_frames\":") && Contains(out, "\"in_game\":true"));
@@ -1938,7 +1938,7 @@ static void TestStateChanges() {
     game.session = 0x5E55;
 
     std::vector<std::string> c = StateChanges(menu, game);
-    assert(c.size() == 1 && c[0] == ",\"change\":\"entered_game\",\"speed\":2,\"paused\":true,\"paused_flag\":true");
+    assert(c.size() == 1 && c[0] == ",\"change\":\"entered_game\",\"speed\":2,\"paused\":true,\"paused_flag\":true,\"loaded_by\":null");
     assert(StateChanges(game, game).empty());
     assert(StateChanges(menu, menu).empty());
 
@@ -1965,7 +1965,7 @@ static void TestStateChanges() {
     other.load = 2;
     c = StateChanges(game, other);
     assert(c.size() == 2 && c[0] == ",\"change\":\"left_game\"" &&
-           c[1] == ",\"change\":\"entered_game\",\"speed\":2,\"paused\":true,\"paused_flag\":true,\"session\":2");
+           c[1] == ",\"change\":\"entered_game\",\"speed\":2,\"paused\":true,\"paused_flag\":true,\"session\":2,\"loaded_by\":null");
 }
 
 static void TestEventChanges() {
@@ -3614,11 +3614,203 @@ static void TestNavigationCommands() {
     assert(Contains(HandleRequest("province goto 295", h), "\"error\":\"navigation_tripped\""));
 }
 
+static std::string FromHex(std::string_view hex) {
+    std::string out;
+    for (std::size_t i = 0; i + 1 < hex.size(); i += 2) {
+        out.push_back(static_cast<char>(std::stoi(std::string(hex.substr(i, 2)), nullptr, 16)));
+    }
+    return out;
+}
+
+static const SaveTokens kTokens{0x284D, 0x2A38, 0x3589, 0x2E18, 0x314B};
+
+static void TestSaveMeta() {
+    std::string name;
+    std::string_view rest;
+    assert(ParseSaveName("mp_Russia1719_03_17.eu4 timeout=30", name, rest).empty() && name == "mp_Russia1719_03_17" &&
+           rest == " timeout=30");
+    assert(ParseSaveName("Russia.EU4", name, rest).empty() && name == "Russia");
+    assert(ParseSaveName("\"Russia test\" timeout=5", name, rest).empty() && name == "Russia test" && rest == " timeout=5");
+    assert(ParseSaveName("Br\xC3\xA4nde", name, rest).empty() && name == "Br\xC3\xA4nde");  // U+00E4
+    for (const char* bad : {"", ".eu4", "a/b", "a\\b", "..x", "\"open", "\xE2\x82\xAC", "a\x01"}) {
+        assert(!ParseSaveName(bad, name, rest).empty());
+    }
+
+    // DEFLATE: stored, fixed and dynamic blocks (made by zlib with -15 window bits).
+    std::string out;
+    assert(Inflate(FromHex("010700f8ff73746f72656421"), out, 100) && out == "stored!");
+    out.clear();
+    assert(Inflate(FromHex("4b4c4a4e842185b4cc8ad41400"), out, 100) && out == "abcabcabcabc fixed");
+    out.clear();
+    std::string data;
+    for (int i = 0; i < 20; ++i) data += "hello hello hello, deflate dynamic ";
+    for (int i = 0; i < 256; ++i) data.push_back(static_cast<char>(i));
+    const std::string dynamic = FromHex(
+        "cb48cdc9c957c840903a0a29a969398925a90a29957989b999c9c892a34a46950c1e250c8c4ccc2cac6cec1c9c5cdc3cbc7cfc028242c222a262e2129252d232b272f20a8a4aca2aaa6aea1a9a5ada3aba7afa068646c626a666e6169656d636b676f60e8e4ece2eae6eee1e9e5ede3ebe7efe018141c121a161e1119151d131b171f1098949c9403bd33332b3b27372f3f20b0a8b8a4b4acbca2b2aabaa6b6aebea1b1a9b9a5b5adbda3b3abbba7b7afbfa274c9c3479cad469d367cc9c357bcedc79f3172c5cb478c9d265cb57ac5cb57acdda75eb376cdcb479cbd66ddb77ecdcb57bcfde7dfb0f1c3c74f8c8d163c74f9c3c75faccd973e72f5cbc74f9cad56bd76fdcbc75fbcedd7bf71f3c7cf4f8c9d367cf5fbc7cf5facddb77ef3f7cfcf4f9cbd76fdf7ffcfcf5fbcfdf7fff01");
+    assert(Inflate(dynamic, out, data.size()) && out == data);
+    out.clear();
+    assert(!Inflate(dynamic, out, data.size() - 1));  // past `max`
+    out.clear();
+    assert(!Inflate(dynamic.substr(0, 40), out, data.size()));  // cut short
+
+    // A compressed save: the zip member `meta` in text.
+    SaveMeta m;
+    const std::string zip = FromHex(
+        "504b0304140000000800ccb25f5dc39ee83b0c000000cf0000000900000067616d657374617465730d3529a928e1aa18260000504b0304140000000800ccb25f5d477bd9c382000000a4000000040000006d65746165cd4d0ac2301040e1b5738a3207088656828b2c5c7801a5b80ca39d4a20fd21999616f1ee9ae2cef5f7e09deb4a16818684ad36faa84aa50d249ad93da9638b8be2a9421803ad1c2d5eea2b6e9cd5cd1c931f7afb825deb6312abe1fda729336a551a75507bfc164d7838eee91eb8d9ec14a518dae246316b3705f1ee375c39c107504b01021400140000000800ccb25f5dc39ee83b0c000000cf00000009000000000000000000000080010000000067616d657374617465504b01021400140000000800ccb25f5d477bd9c382000000a40000000400000000000000000000008001330000006d657461504b0506000000000200020069000000d70000000000");
+    assert(ReadSaveMeta(zip, kTokens, m).empty() && m.format == "compressed_text" && m.date_raw == 58'860'240 &&
+           m.player == "RUS" && !m.ironman && m.versions == std::vector<std::string>{"1.37.5.0"});
+    assert(VersionListed(m.versions, {1, 37, 5, 0}) && !VersionListed(m.versions, {1, 37, 4, 0}));
+    assert(!VersionListed({"1.37.5"}, {1, 37, 5, 0}) && !VersionListed({"1.37.5.0.1"}, {1, 37, 5, 0}));
+    assert(!ReadSaveMeta(zip.substr(0, 100), kTokens, m).empty());  // no directory
+
+    // A text save keeps its metadata at the top of the gamestate.
+    assert(ReadSaveMeta("EU4txt\ndate=1444.11.11\nplayer=\"H76\"\nprovinces={\n\t1={\n\t\tdate=1.1.1\n\t}\n}\n", kTokens, m).empty() &&
+           m.format == "text" && m.date_raw == *ParseGameDate("1444.11.11") && m.player == "H76");
+    assert(ReadSaveMeta("EU4txt\nplayer=\"H76\"\n", kTokens, m) == "the metadata has no date");
+    assert(!ReadSaveMeta("EU4txt\ndate=year one\nplayer=\"H76\"\n", kTokens, m).empty());
+    assert(ReadSaveMeta("PNG", kTokens, m).find("not an EU4 save") == 0);
+
+    // Binary metadata (an ironman save): the tokens of the game's reader.
+    const std::string binary = FromHex(
+        "45553462696e4d2801000c00d0228203692c01000f000500782e657534382a01000f00030041524dc92e01000300e22801000c000100000004004b31010003000f000800312e33372e342e300400893501000e0001293301000e0000");
+    assert(ReadSaveMeta(binary, kTokens, m).empty() && m.format == "binary" && m.date_raw == 58'860'240 && m.player == "ARM" &&
+           m.ironman && m.versions == std::vector<std::string>{"1.37.4.0"});
+}
+
+static void TestSaveLoadCommand() {
+    Handlers h;
+    h.now_ms = SteadyMs;
+    h.sleep_ms = SleepMs;
+    StateSnapshot game;
+    game.in_game = true;
+    game.paused = true;
+    game.date_raw = *ParseGameDate("1720.1.1");
+    game.load = 1;
+    game.session = 0x10;
+    h.read_state = [&game] { return game; };
+    std::string out = HandleRequest("save load x", h);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"game_calls_disabled\"") && Contains(out, "\"command\":\"save load\""));
+    assert(Contains(HandleRequest("save list", h), "\"error\":\"bad_command\""));
+    h.game_calls.enabled = true;
+    assert(Contains(HandleRequest("save load a/b", h), "\"error\":\"bad_name\""));
+    assert(Contains(HandleRequest("save load x timeout=601", h), "\"error\":\"bad_command\""));
+    assert(Contains(HandleRequest("save load x", h), "\"error\":\"unavailable\""));
+
+    Dispatcher d(SteadyMs);
+    h.dispatcher = &d;
+    std::string file = FromHex("45553462696e4d2801000c00d0228203692c01000f000500782e657534382a01000f00030041524d");  // 1719.3.17, ARM
+    h.locate_save = [](const std::string& name, std::string& path, bool& exists) {
+        path = "C:\\saves\\" + name + ".eu4";
+        exists = name != "missing";
+        return std::string();
+    };
+    h.read_save = [&file](const std::string&, std::string& bytes) {
+        bytes = file;
+        return std::string();
+    };
+    h.read_version = [](std::array<int, 4>& v) {
+        v = {1, 37, 5, 0};
+        return true;
+    };
+    h.save_tokens = kTokens;
+    int result = 0;
+    int loads = 0;
+    int load_ms = 0;
+    std::string loaded_name;
+    h.call_load = [&](const std::string& name) {
+        ++loads;
+        loaded_name = name;
+        if (load_ms) SleepMs(load_ms);
+        LoadCall c;
+        c.result = result;
+        if (result == 0) {  // the game replaces the session: the save's date, the next session number
+            game.date_raw = 58'860'240;
+            game.load = 2;
+        }
+        return c;
+    };
+    int closes = 0;
+    h.close_windows = [&closes](unsigned long&) {
+        ++closes;
+        return true;
+    };
+    bool loading = false;
+    h.read_loading = [&loading](bool& out) {
+        out = loading;
+        return true;
+    };
+    std::string player = "ARM";
+    h.read_player = [&player](PlayerRaw& p) {
+        p.tag = p.player_tag = player;
+        return WorldFailure{};
+    };
+    h.read_province = [](std::int32_t, ProvinceRaw&) { return WorldFailure{}; };  // the other world reads
+    h.read_country = [](std::string_view, CountryRaw&) { return WorldFailure{}; };
+    h.read_selection = [](SelectionRaw&) { return WorldFailure{}; };
+    std::vector<std::string> logged;
+    h.log = [&logged](int, const std::string& message) { logged.push_back(message); };
+    FakeMainThread main(d);
+
+    assert(Contains(HandleRequest("save load missing", h), "\"error\":\"no_such_save\""));
+    file = "PNG";
+    assert(Contains(HandleRequest("save load x", h), "\"error\":\"unreadable_save\""));
+    file = FromHex("45553462696e4d2801000c00d0228203692c01000f000500782e657534382a01000f00030041524d893501000e0001");
+    assert(Contains(HandleRequest("save load x", h), "\"error\":\"ironman_save\""));
+    file = FromHex("45553462696e4d2801000c00d0228203692c01000f000500782e657534382a01000f00030041524d");
+    game.paused = false;
+    out = HandleRequest("save load x", h);
+    assert(Contains(out, "\"error\":\"not_paused\"") && loads == 0);
+    game.paused = true;
+
+    // The game's return codes: called, one game call each.
+    result = 2;
+    out = HandleRequest("save load x.eu4", h);
+    assert(Contains(out, "\"error\":\"no_such_save\"") && Contains(out, "\"called\":true") && Contains(out, "\"result\":2"));
+    assert(loads == 1 && loaded_name == "x" && closes == 0);
+    result = 3;
+    assert(Contains(HandleRequest("save load x", h), "\"error\":\"rejected\""));
+
+    // A load: the session changes, game_calls_total is 1, the windows are closed.
+    result = 0;
+    out = HandleRequest("save load \"x\"", h);
+    assert(Contains(out, "{\"ok\":true,\"command\":\"save load\",\"save\":\"x\",\"called\":true,\"load_ms\":"));
+    assert(Contains(out, "\"save_date\":\"1719.3.17\",\"player\":\"ARM\",\"compatible\":false,\"save_versions\":[],\"game_version\":\"1.37.5.0\",\"session\":2"));
+    assert(Contains(out, "\"covered_by\":null,\"game_calls_total\":1,\"windows_closed\":true") && closes == 1);
+    assert(std::string(LoadedBy(2) ? LoadedBy(2) : "") == "tongs" && LoadedBy(1) == nullptr);
+    assert(Contains(HandleRequest("state", h), "\"game_calls_total\":1"));
+
+    // The frame after does not show the save: not_loaded, with what it saw.
+    game.date_raw = *ParseGameDate("1720.1.1");
+    result = 0;
+    h.call_load = [&](const std::string&) {
+        game.load = 3;  // a load, but not of this save
+        LoadCall c;
+        c.result = 0;
+        return c;
+    };
+    player = "RUS";
+    out = HandleRequest("save load x", h);
+    std::fprintf(stderr, "%s\n", out.c_str());
+    assert(Contains(out, "\"error\":\"not_loaded\"") && Contains(out, "\"seen\":{\"in_game\":true,\"loading\":false,\"date\":\"1720.1.1\",\"player\":\"RUS\"}"));
+
+    // A load longer than the timeout: the answer comes at the timeout, the effect unknown.
+    h.call_load = [&](const std::string&) {
+        SleepMs(2500);
+        return LoadCall{};
+    };
+    out = HandleRequest("save load x timeout=1", h);
+    assert(Contains(out, "\"error\":\"timeout\"") && Contains(out, "\"started\":true"));
+    SleepMs(2000);  // let the load finish before the fake main thread goes
+
+    assert(!logged.empty());
+}
+
 int main() {
     TestWorldParsing();
     TestWorldAnswers();
     TestWorldCommands();
     TestNavigationRules();
+    TestSaveMeta();
     TestSubscribeParsing();
     TestDateCrosses();
     TestSubscriptionQueue();
@@ -3675,6 +3867,7 @@ int main() {
     TestUiCommand();
     TestConsoleRules();
     TestNavigationCommands();  // trips navigation for the rest of the process
+    TestSaveLoadCommand();
     TestConsoleCommand();  // last: it trips game calls for the rest of the process
     std::puts("ok");
     return 0;

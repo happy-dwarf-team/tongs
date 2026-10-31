@@ -47,6 +47,7 @@ TIMEOUT_MARGIN_S = 30.0  # added to a command's own timeout=
 WAIT_TIMEOUT_S = 3600  # the plugin's default timeout of wait_until / run_until
 LATE_ANSWER_S = 5.0  # how long a call that timed out or was interrupted waits for its answer
 WAITS = ("wait_until", "run_until")
+LOAD_TIMEOUT_S = 120  # the plugin's default timeout of save load
 
 if sys.platform == "win32":
     import ctypes
@@ -134,6 +135,8 @@ def read_timeout(command):
         return int(own.group(1)) + TIMEOUT_MARGIN_S
     if command.split()[:1] and command.split()[0] in WAITS:
         return WAIT_TIMEOUT_S + TIMEOUT_MARGIN_S
+    if command.split()[:2] == ["save", "load"]:
+        return LOAD_TIMEOUT_S + TIMEOUT_MARGIN_S
     return READ_TIMEOUT_S
 
 
@@ -377,6 +380,14 @@ class Tongs:
     def goto_province(self, id, timeout=None):
         """Moves the camera to the province, nothing else."""
         return self.call(line("province goto", int(id), timeout=timeout), check=True)
+
+    # Loading a save (docs/commands.md, "Loading a save"): a game call.
+
+    def load_save(self, name, timeout=None):
+        """Loads `save games/<name>.eu4` in the running game, discarding it without saving. The
+        answer's `session` is the new session: pass it to ready(session=...)."""
+        quoted = f'"{name}"' if any(c in name for c in " \t") else name
+        return self.call(line("save load", quoted, timeout=timeout), check=True)
 
     def ready(self, session=None, in_game=True, speed=None, timeout=None):
         """ready() on this connection; see the module function."""

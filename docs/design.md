@@ -2443,6 +2443,81 @@ afterwards.
 | `small_provinceview` (H7) | not in the widget tree, and the selection object's small view (`+0x18`) is null: the default interface uses the big view only |
 | counts | a `wait_until` on another connection during one `goto` answered `inputs` 0, `client_calls` 1, `game_calls` 0; `client_calls_total` rose by one per call that called the game, refusals included none |
 
+## Loading a save (0.22.0)
+
+Release 0.22 of the [scenario support v1 spec](spec/scenarios-v1.md)
+(section 7): `save load NAME`, a game call. The addresses come from the static
+research on the `research/save-load` branch (tongs#97), the in-game check of
+tongs#106 and this work; they are the "Loading a save" symbols of
+`plugin/symbols.toml` (14 new, checked with `anvil check plugin --exe`).
+
+- **The loader.** `load_save` (`0x5D0580`) is what the in-game Load dialog's
+  accept (`0x1176020`) calls. Tongs builds the request as that accept does,
+  with the offsets from its stack frame (`load_request_session`,
+  `load_request_helper`, `load_request_call`): the name as a `std::string` at
+  `+0`, built with the game's own `string_assign` (`0x95110`) and freed with
+  `string_free`, so the game's heap owns its buffer; an empty subfolder
+  vector at `+0x20`; the session at `+0x38`; the cloud flag at `+0x40` (0);
+  the helper from `load_helper` (`0x8BF160`) at `+0x48`. The loader appends
+  `.eu4` (`save_extension`), so Tongs strips it from the name. It returns
+  after the whole load, on the main thread, inside Tongs' job (a `GameCall`
+  job: it ends its batch). After a 0 Tongs calls `close_ingame_windows`
+  (`0x824810`), as the accept does.
+- **The metadata is Tongs' own read.** The game's metadata reader
+  (`0x5D01B0`) runs inside the load; reading the save before the call with
+  game code would need the game's metadata objects. Tongs reads the file
+  itself on the pipe thread: a zip (80 of the 87 saves of the lab's folder;
+  its directory, then the member `meta`, inflated by Tongs' own DEFLATE
+  decoder) or a plain text or binary save (its first megabyte). Text metadata
+  gives `date`, `player`, `ironman` and `savegame_versions`; binary metadata
+  is the game's token format, with the tokens of `date` (`0x284D`), `player`
+  (`0x2A38`) and the two ironman tokens (`0x2E18`, `0x3589`) taken from the
+  compares in `0x5D01B0` (`meta_date_token`, `meta_player_token`,
+  `meta_ironman_tokens`). No code compares the token of `savegame_versions`
+  (`0x314B`): it is a constant, checked on the lab's binary saves.
+- **`compatible`** is the Load dialog's version check (`0xB29CA0`): the save's
+  `savegame_versions` list the running version, the four integers at
+  `*(0x242BF50)+0x400…0x40C` (`running_version_app`, `running_version`). They
+  hold the parts as first, second, fourth, third: 1, 37, 0, 5 for 1.37.5.0,
+  seen live (with the parts in file order every save would have been
+  incompatible, while the game starts the lab's 1.37.5 saves without its
+  version warning).
+- **The check.** The next outer frame must show a game whose loading flag
+  (`session+0x460`, `session_loading`) is clear, with the save's date and
+  player (the world read of `player`).
+- **Counts and the session.** The load is counted after it returned, in the
+  session it made, so `game_calls_total` is 1 afterwards. Before calling,
+  Tongs notes the session number the load will make; the `entered_game`
+  notification for that session says `loaded_by: "tongs"`.
+- **The timeout.** The job runs on a thread of its own, so the answer can come
+  at `timeout=` while the load still runs (`timeout`, `started: true`); a job
+  that did not start by then is withdrawn by the dispatcher. A load that
+  outlives its answer is still counted as a game call when it returns.
+
+### Live check (2026-10-31)
+
+Lab runs `t114-live2`, `t114-iron1` and `t114-ver1`: EU4 1.37.5 with the
+original `eu4.exe`, Anvil 1.5.2 and `anvil-game`, this branch's Tongs with
+`input` and `game_calls` on (`t114-iron1` also `game_calls_ironman` through
+`ANVIL_TONGS_GAME_CALLS_IRONMAN`), the Russia save of 1719.3.17 started with
+`continue=`, driven by `scripts/tongs.py` from the branch with a `state,activity`
+subscription on a second connection. The saves were unchanged afterwards; the
+ironman save was loaded from a copy, removed afterwards with the `.tmp` the
+game wrote beside it.
+
+| Check | Seen |
+| --- | --- |
+| a direct call with Tongs' name, `NAME` → `NAME.eu4` | `mp_autosave` (a 62 MB text save, 1719.1.1) loaded: `ok`, `load_ms` 8138, `session` 2, the date and player of its metadata |
+| a compressed save | `mp_Russia1719_03_17` and `mp_Russia1719_03_17.EU4` (zip, text `meta`): `ok`, 7.8 s each |
+| a binary `meta` | an ironman copy of `Armenia.eu4` (zip, `EU4bin`): `save_date` 1486.7.2, `player` ARM and `save_versions` 1.37.4.0 read before the call; without `game_calls_ironman` `ironman_save`, nothing called; with it the game, not modded, loaded it (`ok`, 6.1 s), and Anvil then suspended Tongs for the ironman game (`suspended`), as it does for any ironman game |
+| a large late-game save | `lab_late_1821_01_01` (64 MB text, 1821.1.1): `ok`, `load_ms` 8666; the 120 s default holds |
+| the return codes | 0 every time; Tongs' own checks answer `bad_name` (`a/b`) and `no_such_save` (`lab_no_such_save`) before calling, so the loader's 1 and 2 were not reached; 3 needs an ironman save in a modded game, and the game here was not modded: not seen |
+| `compatible` | first read as the version's parts in memory order (1.37.0.5), so every save was "incompatible": the struct keeps first, second, fourth, third; fixed, then `true` for 1.37.5.0 and `false` for 1.37.4.0 |
+| `close_ingame_windows` outside the dialog | a province view open before the load stayed open; the game showed its in-game menu after every load (it was not open before), and `covered_by` named `menu/menu_panel/menu_ai_prefs_button`. The first `ready(speed=3)` after a load failed (no speed change within 10 s) until the menu was closed (`ui click menu/menu_panel/menu_close_button`), then 31 ms |
+| `not_paused` | refused while running, nothing called |
+| `timeout=1` on an 8 s load | `timeout` with `started: true` after 1 s; `ready(session=6)` then found the loaded save |
+| counts and `session` | `game_calls_total` 1 and `client_calls_total` 0 after each load, `session` +1 per load (2 … 6); `entered_game` with `loaded_by: "tongs"` and the new `session`, an `activity` with `what: "game_call"`; the player's load through the UI (0.19's check, `t111-live1`) leaves `game_calls_total` 0 |
+
 ## Releases
 
 Each release is one PR with its live checks done before it merges; the order
