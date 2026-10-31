@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/happy-dwarf-team/tongs/compare/v0.20.0...v0.21.0) (2026-10-31)
+
+
+### Features
+
+* province open and province goto, client calls that navigate ([#120](https://github.com/happy-dwarf-team/tongs/issues/120)) ([5b74e61](https://github.com/happy-dwarf-team/tongs/commit/5b74e61cd001db8326a950b6a742f62c04a3ee13))
+
 ## [0.20.0](https://github.com/happy-dwarf-team/tongs/compare/v0.19.0...v0.20.0) (2026-10-31)
 
 
