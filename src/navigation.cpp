@@ -20,7 +20,9 @@ std::string Number(float value) {
 WorldFailure NavigationRefusal(bool open, const NavigationFacts& f) {
     const std::string province = "province " + std::to_string(f.id);
     if (!open) {
-        if (f.camera_locked) return {"camera_locked", "the camera is locked (debug_lockcamera)"};
+        if (f.camera_locked) {
+            return {"camera_locked", "the camera is locked (debug_lockcamera, or a window that holds it such as the in-game menu)"};
+        }
         return {};
     }
     if (!f.land || f.wasteland) {
@@ -33,14 +35,19 @@ WorldFailure NavigationRefusal(bool open, const NavigationFacts& f) {
     return {};
 }
 
-bool CameraSettled(const CameraRaw& c, float tolerance) {
-    return std::fabs(c.x - c.target_x) <= tolerance && std::fabs(c.z - c.target_z) <= tolerance;
+bool CameraReached(const CameraRaw& c, float x, float z, float tolerance) {
+    float dx = std::fabs(c.x - x);
+    if (c.wrap && c.width > 0) {
+        dx = std::fmod(dx, c.width);
+        dx = std::fmin(dx, c.width - dx);
+    }
+    return dx <= tolerance && std::fabs(c.z - z) <= tolerance;
 }
 
-std::string CameraMembers(const CameraRaw& c, bool settled) {
+std::string CameraMembers(float target_x, float target_z, bool settled, bool locked) {
     std::string out = std::string(",\"camera\":{\"settled\":") + (settled ? "true" : "false");
-    out += ",\"target\":{\"x\":" + Number(c.target_x) + ",\"z\":" + Number(c.target_z) + "}";
-    if (c.locked) out += ",\"locked\":true";
+    out += ",\"target\":{\"x\":" + Number(target_x) + ",\"z\":" + Number(target_z) + "}";
+    if (locked) out += ",\"locked\":true";
     return out + "}";
 }
 

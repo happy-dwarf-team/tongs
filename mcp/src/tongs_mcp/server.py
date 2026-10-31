@@ -698,8 +698,8 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
     @tool(INPUT, CLIENT_CALL_NOTE)
     async def tongs_province_open(province_id: ProvinceId, timeout: WorldTimeout = None) -> CallToolResult:
         """Opens a province's view as the game's own province links do: closes other views, moves the
-        camera to it and selects it. ok only once the next frame shows it: province, view (the view
-        window's path), covered_by (the widget over the view's centre, or null) and camera {settled,
+        camera to it and selects it. ok only once the next frame shows it: province, view (the path of
+        the window that shows it: provinceview, or colonisationpanel without an owner), covered_by (the widget over the view's centre, or null) and camera {settled,
         target}. Refuses before calling: unknown_province, not_selectable (sea, lake, wasteland),
         terra_incognita, selection_blocked, needs_game_calls (opening it would make the player
         discover the owner's capital: a game call, only with game_calls = true). not_shown when the

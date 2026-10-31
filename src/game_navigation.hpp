@@ -18,6 +18,9 @@ struct NavigationLayout {
     std::uint32_t current_z = U32(sym::camera_snap.current_z);
     std::uint32_t target_x = U32(sym::camera_set_target.target_x);
     std::uint32_t target_z = U32(sym::camera_set_target.target_z);
+    std::uint32_t wrap = U32(sym::camera_to_province.wrap);                 // camera: byte, the map wraps
+    std::uint32_t map_rva = U32(sym::camera_to_province.map);               // pointer to the map
+    std::uint32_t map_width = U32(sym::camera_to_province.map_width);       // map: int32
     std::uint32_t selection_session = U32(sym::select_province.session);   // selection: the session
     std::uint32_t tutorial = U32(sym::select_province.tutorial);            // session: the tutorial, or null
     std::uint32_t session_mode = U32(sym::select_province.session_mode);    // session: int32
@@ -41,7 +44,8 @@ struct NavigationLayout {
                   sym::camera_to_province_id.provinces_end == sym::province_count.provinces_end &&
                   sym::camera_to_province_id.province_size == sym::province_is_sea.province_size &&
                   sym::camera_to_province_id.province_array == sym::province_is_sea.province_array);
-    static_assert(sym::camera_snap.target_x == sym::camera_set_target.target_x &&
+    static_assert(sym::camera_to_province.current_x == sym::camera_snap.current_x &&
+                  sym::camera_snap.target_x == sym::camera_set_target.target_x &&
                   sym::camera_snap.target_z == sym::camera_set_target.target_z);
     static_assert(sym::province_view_discover.ti_flags == sym::terra_incognita_check.ti_flags &&
                   sym::province_view_discover.ti_bit == sym::terra_incognita_check.ti_bit);

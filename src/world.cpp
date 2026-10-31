@@ -143,20 +143,26 @@ std::string PlayerMembers(const PlayerRaw& p) {
            ",\"observed_tag\":" + TagOrNull(p.observed_tag) + ",\"observer\":" + Bool(p.observer);
 }
 
+int ViewRoot(const SelectionRaw& s, const UiTree& tree) {
+    int window = -1, colonisation = -1;
+    for (std::size_t i = 0; i < tree.widgets.size(); ++i) {
+        const std::uintptr_t a = tree.widgets[i].address;
+        if (a == 0) continue;
+        if (a == s.view_widget) window = static_cast<int>(i);
+        if (a == s.colonisation_widget) colonisation = static_cast<int>(i);
+    }
+    const UiView all(tree, true, true);
+    if (window != -1 && all.Visible(window)) return window;
+    if (colonisation != -1 && all.Visible(colonisation)) return colonisation;
+    return window;
+}
+
 std::string SelectionMembers(const SelectionRaw& s, const UiTree& tree) {
     const auto id = [](std::int32_t province) { return province > 0 ? std::to_string(province) : std::string("null"); };
-    bool visible = false;
-    std::string path = "null";
-    if (s.view_widget != 0) {
-        const UiView all(tree, true, true);
-        for (std::size_t i = 0; i < tree.widgets.size(); ++i) {
-            if (tree.widgets[i].address != s.view_widget) continue;
-            visible = all.Visible(static_cast<int>(i));
-            // The path a `ui find` without `all` resolves.
-            if (visible) path = Quote(UiView(tree, false, true).PathOf(static_cast<int>(i)));
-            break;
-        }
-    }
+    const int root = ViewRoot(s, tree);
+    const bool visible = root != -1 && UiView(tree, true, true).Visible(root);
+    // The path a `ui find` without `all` resolves.
+    const std::string path = visible ? Quote(UiView(tree, false, true).PathOf(root)) : std::string("null");
     return ",\"last_selected\":" + id(s.last_selected) + ",\"view\":{\"province\":" + id(s.view_province) +
            ",\"visible\":" + Bool(visible) + ",\"path\":" + path + "}";
 }

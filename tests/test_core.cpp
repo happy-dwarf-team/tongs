@@ -3327,6 +3327,17 @@ static void TestWorldAnswers() {
            ",\"last_selected\":295,\"view\":{\"province\":295,\"visible\":true,\"path\":\"provinceview\"}");
     t.widgets[0].shown = false;  // closed: the selection keeps both provinces (#107)
     assert(SelectionMembers(s, t) == ",\"last_selected\":295,\"view\":{\"province\":295,\"visible\":false,\"path\":null}");
+    // A province without an owner: the game shows the colonisation panel instead of the view.
+    UiWidget panel = view;
+    panel.name = "colonisationpanel";
+    panel.address = 0x6000;
+    t.widgets.push_back(panel);
+    t.roots = {0, 1};
+    s.colonisation_widget = 0x6000;
+    assert(ViewRoot(s, t) == 1 &&
+           SelectionMembers(s, t) == ",\"last_selected\":295,\"view\":{\"province\":295,\"visible\":true,\"path\":\"colonisationpanel\"}");
+    t.widgets[0].shown = true;  // both up: the view's window first
+    assert(ViewRoot(s, t) == 0);
 }
 
 static void TestWorldCommands() {
@@ -3438,12 +3449,17 @@ static void TestNavigationRules() {
     CameraRaw c;
     c.x = 1000.4f;
     c.z = 2000.f;
-    c.target_x = 1000.f;
-    c.target_z = 2000.5f;
-    assert(CameraSettled(c) && !CameraSettled(c, 0.1f));
-    assert(CameraMembers(c, true) == ",\"camera\":{\"settled\":true,\"target\":{\"x\":1000,\"z\":2000.5}}");
-    c.locked = true;
-    assert(CameraMembers(c, false) == ",\"camera\":{\"settled\":false,\"target\":{\"x\":1000,\"z\":2000.5},\"locked\":true}");
+    assert(CameraReached(c, 1000.f, 2000.5f) && !CameraReached(c, 1000.f, 2000.5f, 0.1f));
+    assert(!CameraReached(c, 1010.f, 2000.f));
+    // Around the wrap of a 5632-wide map: 5631.5 is next to 0.2.
+    c.x = 0.2f;
+    assert(!CameraReached(c, 5631.5f, 2000.f));
+    c.wrap = true;
+    c.width = 5632.f;
+    assert(CameraReached(c, 5631.5f, 2000.f) && CameraReached(c, -0.5f, 2000.f));
+    assert(CameraMembers(1000.f, 2000.5f, true, false) == ",\"camera\":{\"settled\":true,\"target\":{\"x\":1000,\"z\":2000.5}}");
+    assert(CameraMembers(1000.f, 2000.5f, false, true) ==
+           ",\"camera\":{\"settled\":false,\"target\":{\"x\":1000,\"z\":2000.5},\"locked\":true}");
 }
 
 static void TestNavigationCommands() {
@@ -3532,6 +3548,24 @@ static void TestNavigationCommands() {
     assert(Contains(out, "{\"ok\":true,\"command\":\"province open\",\"province\":295,\"view\":\"provinceview\",\"covered_by\":null,\"camera\":{\"settled\":true"));
     assert(Contains(out, "\"client_calls_total\":2") && calls == 2 && last_open);
 
+    // The game moves the target on (the pointer at the screen edge): the call's target is waited for.
+    h.read_camera = [&](CameraRaw& out) {
+        out = camera;
+        out.target_x += static_cast<float>(10 * camera_reads++);  // the first read is the call's
+        out.x = out.target_x;
+        return WorldFailure{};
+    };
+    out = HandleRequest("province goto 1252 timeout=1", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"camera\":{\"settled\":false,\"target\":{\"x\":100,\"z\":200}}"));
+    h.read_camera = [&](CameraRaw& out) {
+        if (++camera_reads >= 2) {
+            camera.x = camera.target_x;
+            camera.z = camera.target_z;
+        }
+        out = camera;
+        return WorldFailure{};
+    };
+
     // Refusals call nothing and count nothing; they go to the log.
     assert(Contains(HandleRequest("province open 4942", h), "\"error\":\"unknown_province\""));
     facts.land = false;
@@ -3545,12 +3579,12 @@ static void TestNavigationCommands() {
     assert(Contains(out, "\"ok\":true") && Contains(out, "\"settled\":false") && Contains(out, "\"locked\":true"));
     camera.locked = false;
     facts.camera_locked = false;
-    assert(calls == 3 && logged.size() == 3);
+    assert(calls == 4 && logged.size() == 3);
 
     // The discover case: a game call, refused without game_calls.
     facts.discover = true;
     out = HandleRequest("province open 151", h);
-    assert(Contains(out, "\"error\":\"needs_game_calls\"") && calls == 3);
+    assert(Contains(out, "\"error\":\"needs_game_calls\"") && calls == 4);
     assert(Contains(HandleRequest("province goto 151", h), "\"ok\":true"));  // the camera alone posts nothing
     h.game_calls.enabled = true;
     out = HandleRequest("province open 151", h);

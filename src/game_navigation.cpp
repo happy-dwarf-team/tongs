@@ -158,15 +158,19 @@ bool CallNavigation(std::uintptr_t base, const NavigationLayout& l, bool open, c
 WorldFailure ReadCamera(std::uintptr_t base, const NavigationLayout& nl, CameraRaw& out) {
     out = {};
     const WorldLayout& l = nl.world;
-    std::uintptr_t root = 0, session = 0, camera = 0;
-    std::uint8_t lock = 0;
+    std::uintptr_t root = 0, session = 0, camera = 0, map = 0;
+    std::uint8_t lock = 0, wrap = 0;
+    std::int32_t width = 0;
     if (!Read(base + l.root_rva, root) || root == 0 || !Read(root + l.session, session) || session == 0 ||
         !Read(session + nl.camera, camera) || camera == 0 || !Read(camera + nl.lock, lock) ||
-        !Read(camera + nl.current_x, out.x) || !Read(camera + nl.current_z, out.z) ||
-        !Read(camera + nl.target_x, out.target_x) || !Read(camera + nl.target_z, out.target_z)) {
+        !Read(camera + nl.wrap, wrap) || !Read(camera + nl.current_x, out.x) || !Read(camera + nl.current_z, out.z) ||
+        !Read(camera + nl.target_x, out.target_x) || !Read(camera + nl.target_z, out.target_z) ||
+        !Read(base + nl.map_rva, map) || map == 0 || !Read(map + nl.map_width, width)) {
         return Failed("the camera is not readable");
     }
     out.locked = lock != 0;
+    out.wrap = wrap != 0;
+    out.width = static_cast<float>(width);
     return {};
 }
 

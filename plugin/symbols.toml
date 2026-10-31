@@ -1180,6 +1180,15 @@ values.view = { at = 3, size = 1 }
 values.window = { at = 21, size = 4 }
 note = "province selection 0x139C830: the province view is a controller; its window (the provinceview widget's full object) is at +0xA0"
 
+[symbol.province_view_colonisation]
+rva = 0x13482F1
+bytes = "48 8B 8F F0 02 00 00 48 8B 81 58 05 00 00 48 85 C0 74 09 80 B8 F5 00 00 00 00"
+memory = "code"
+values.panel = { at = 3, size = 4 }
+values.window = { at = 10, size = 4 }
+values.shown = { at = 21, size = 4 }
+note = "province view 0x1347A50: the colonisation panel (view+0x2F0, built for colonisationpanel); while its window (+0x558, a full window object) is shown, the view does not show its own"
+
 [symbol.province_view_province]
 rva = 0x1347A89
 bytes = "48 39 91 58 09 00 00 0F 84 3E 01 00 00"
@@ -1214,6 +1223,7 @@ rva = 0x80FE20
 bytes = """
 48 83 EC 38 83 7A 20 00 0F 8E A9 00 00 00 48 8B 42 28 4C 8B 89 00 12 00 00 8B 50 7C
 8B C2 C1 E8 10 41 80 B9 78 07 00 00 00 44 0F BF D8 44 0F BF C2 74 4C
+48 8B 05 7E 00 B3 01 F3 41 0F 10 89 7C 06 00 00 66 41 0F 6E C0 0F 5B C0 44 8B 50 28
 """
 memory = "code"
 values.province_id = { at = 6, size = 1 }
@@ -1221,7 +1231,10 @@ values.map_part = { at = 17, size = 1 }
 values.camera = { at = 21, size = 4 }
 values.map_position = { at = 27, size = 1 }
 values.wrap = { at = 36, size = 4 }
-note = "session slot 0x280: the camera (session+0x1200) targets the province's map position (int16 x, y at map part +0x7C), height kept"
+values.map = { at = 54, rip_relative = 58 }
+values.current_x = { at = 63, size = 4 }
+values.map_width = { at = 78, size = 1 }
+note = "session slot 0x280: the camera (session+0x1200) targets the province's map position (int16 x, y at map part +0x7C), height kept; with the wrap flag +0x778 the x nearest the current one, the map (0x233FED8) being +0x28 wide"
 
 [symbol.camera_set_target]
 rva = 0x109D140

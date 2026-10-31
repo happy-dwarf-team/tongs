@@ -26,9 +26,12 @@ struct NavigationFacts {
     std::uintptr_t selection = 0;
 };
 
-// The camera: where it is and where the game sends it (map coordinates).
+// The camera: where it is and where it is heading (map coordinates). The game
+// moves the target itself too: the pointer at the screen edge scrolls it.
 struct CameraRaw {
     bool locked = false;
+    bool wrap = false;  // the map wraps around horizontally
+    float width = 0;    // the map's width, for the wrap
     float x = 0, z = 0;
     float target_x = 0, target_z = 0;
 };
@@ -41,9 +44,11 @@ constexpr float kCameraTolerance = 1.0f;
 // The discover case is the caller's: it needs the game-call settings.
 WorldFailure NavigationRefusal(bool open, const NavigationFacts& facts);
 
-bool CameraSettled(const CameraRaw& camera, float tolerance = kCameraTolerance);
+// Whether the camera's current position is within `tolerance` of (x, z), the
+// target the call set; on a wrapping map x is compared around the wrap.
+bool CameraReached(const CameraRaw& camera, float x, float z, float tolerance = kCameraTolerance);
 
 // `,"camera":{"settled":…,"target":{"x":…,"z":…}}`, with `"locked":true` when it is.
-std::string CameraMembers(const CameraRaw& camera, bool settled);
+std::string CameraMembers(float target_x, float target_z, bool settled, bool locked);
 
 }  // namespace tongs

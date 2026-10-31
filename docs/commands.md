@@ -159,7 +159,7 @@ included, carries the fields of `state` read on the same frame, and
 | `province ID` | `id`, `name`, `owner`, `controller` (a tag, or `null` for none), `cores` (tags), `base_tax`, `base_production`, `base_manpower` and `development` (their sum), `land`, `wasteland` |
 | `country TAG` | `tag`, `exists` (it owns a province), `province_count`, `provinces` (their IDs, in the game's order), `capital` (an ID, or `null` when none), `observer` |
 | `player` | `tag` (the country the game treats as the player's), `player_tag` and `observed_tag` (as the game stores them; `observed_tag` is `null` when none), `observer` |
-| `selection` | `last_selected` (a province ID, or `null`) and `view`: `province` (the one the province view shows, or `null`), `visible`, `path` (the view's widget path while it is visible, else `null`) |
+| `selection` | `last_selected` (a province ID, or `null`) and `view`: `province` (the one the province view shows, or `null`), `visible`, `path` (the widget path of the window that shows it while it is visible, else `null`: `provinceview`, or `colonisationpanel` for a province without an owner) |
 
 - **IDs and tags.** A province ID is a decimal number without sign or
   leading zeros, valid when `1 ≤ id < count`, with `count` the length of the
@@ -219,19 +219,25 @@ multiplayer they follow input: Anvil's allow lists apply.
   it closes the open views, moves the camera to the province and selects
   it, which shows it in the province view. It answers `ok` only when the
   next outer frame shows it: the selection holds the province, the province
-  view shows it and the view's window is visible. The answer carries
-  `province`, `view` (the widget path of that window, `provinceview` on the
-  default interface) and `covered_by` (the widget the game hovers at the
+  view shows it and the window that shows it is visible. The answer carries
+  `province`, `view` (the widget path of that window: `provinceview` on the
+  default interface, `colonisationpanel` for a province without an owner) and `covered_by` (the widget the game hovers at the
   view's centre when it is not part of the view, such as an event window, or
-  `null`; Tongs moves the pointer there to ask, as `ui click` does, and
-  hands it back). Being covered is not a refusal. When the frame after the
+  `null`; Tongs moves the pointer there to ask, as `ui click` does, then
+  puts it back where the last mouse command left it, or hands it back to
+  the real mouse). Being covered is not a refusal. When the frame after the
   call does not show it, the answer is `not_shown` with what it saw
   (`selected`, `view_province`, `visible`), and the call still counts.
 - **The camera** (both): the command waits until the camera's position
   reaches its target, then answers `camera: {"settled": true, "target":
   {"x": …, "z": …}}` (map coordinates). At the timeout it answers `ok` with
-  `settled: false`. With the camera locked (`debug_lockcamera`), `goto`
-  refuses `camera_locked`; `open` still opens and answers `"locked": true`.
+  `settled: false`. The camera glides there in about a second, but the game
+  moves its target on as the player does: a pointer at the edge of the
+  screen scrolls the map, and then the camera never settles on the province
+  (`settled: false`). `target` is always the target the call set. With the
+  camera locked (`debug_lockcamera`, or while the in-game menu is open),
+  `goto` refuses `camera_locked`; `open` still opens and answers
+  `"locked": true`.
 - **`timeout=S`**: default 10 s, up to 60, for the whole command; `main
   thread busy` when no outer frame comes in time (nothing was called).
 - **Opening a view can change the game.** The game's province view makes the
@@ -252,11 +258,13 @@ multiplayer they follow input: Anvil's allow lists apply.
   | `not_selectable` | `open` | a sea, a lake or a wasteland |
   | `terra_incognita` | `open` | the player has not discovered it (an observer passes) |
   | `selection_blocked` | `open` | the game selects nothing now (a province-picking mode, the tutorial) |
-  | `camera_locked` | `goto` | `debug_lockcamera` is on |
+  | `camera_locked` | `goto` | the camera is locked: `debug_lockcamera`, or a window that holds it (the in-game menu does) |
   | `needs_game_calls` | `open` | the discover case above without `game_calls = true` |
 
-  An uncolonised province is opened like any other; read its owner with
-  `province ID`. A fault in the game's code answers `faulted` and turns
+  For a province without an owner the game shows its colonisation panel
+  instead of the province view: `open` answers `ok` with
+  `view: "colonisationpanel"`, and `selection` reports that panel too. Read
+  the owner with `province ID`. A fault in the game's code answers `faulted` and turns
   navigation off until the game exits (`navigation_tripped`).
 
 ```powershell

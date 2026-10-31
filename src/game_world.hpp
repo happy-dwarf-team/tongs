@@ -61,6 +61,8 @@ struct WorldLayout {
     std::uint32_t view = U32(sym::selection_view.view);            // selection: the province view
     std::uint32_t view_province = U32(sym::province_view_province.shown);  // view: the province it shows
     std::uint32_t view_window = U32(sym::view_window.window);              // view: its window's full object
+    std::uint32_t view_colonisation = U32(sym::province_view_colonisation.panel);     // view: the colonisation panel's holder
+    std::uint32_t colonisation_window = U32(sym::province_view_colonisation.window);  // holder: the panel's full object
     std::uint32_t window_part = U32(sym::eu3dialog_vtable.window_part);    // full window object -> widget pointer
 
     static_assert(sym::province_count.root == sym::root_and_date.root && sym::province_is_sea.root == sym::root_and_date.root &&
@@ -76,7 +78,8 @@ struct WorldLayout {
     static_assert(sym::country_exists.owned_count == sym::country_provinces.owned_count &&
                   sym::country_exists.observer_kind == sym::player_country.observer_kind);
     static_assert(sym::selected_province.province_id == sym::province_base_tax.province_id &&
-                  sym::view_window.view == sym::selection_view.view);
+                  sym::view_window.view == sym::selection_view.view &&
+                  sym::province_view_colonisation.shown == sym::render_pick.shown + sym::eu3dialog_vtable.window_part);
     static_assert(sym::tag_buckets.bucket_mask + 1 == kTagBuckets);
 };
 

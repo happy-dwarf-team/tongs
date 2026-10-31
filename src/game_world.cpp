@@ -165,7 +165,7 @@ WorldFailure ReadSelection(std::uintptr_t base, const WorldLayout& l, SelectionR
         return Failed("the session is not readable");
     }
     if (holder == 0) return {};
-    std::uintptr_t selected = 0, view = 0, shown = 0, window = 0;
+    std::uintptr_t selected = 0, view = 0, shown = 0, window = 0, panel = 0, colonisation = 0;
     if (!Read(holder + l.selected, selected) || !Read(holder + l.view, view)) return Failed("the selection is not readable");
     if (selected != 0 && !Read(selected + l.province_id, out.last_selected)) {
         return Failed("the selected province is not readable");
@@ -178,6 +178,10 @@ WorldFailure ReadSelection(std::uintptr_t base, const WorldLayout& l, SelectionR
             return Failed("the province the view shows is not readable");
         }
         if (window != 0) out.view_widget = window + l.window_part;
+        if (Read(view + l.view_colonisation, panel) && panel != 0 && Read(panel + l.colonisation_window, colonisation) &&
+            colonisation != 0) {
+            out.colonisation_widget = colonisation + l.window_part;
+        }
     }
     return {};
 }

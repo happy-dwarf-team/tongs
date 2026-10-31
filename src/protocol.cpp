@@ -527,6 +527,10 @@ struct MouseTrack {
     int y = 0;
 };
 MouseTrack g_mouse;
+// Where Tongs holds the virtual cursor (game_cursor.hpp) since the last mouse
+// command, until `release`; `province open` puts it back after its hover check.
+// Guarded by g_input_mutex.
+MouseTrack g_held;
 
 InputEvent MoveTo(int x, int y) {
     InputEvent e;
@@ -556,7 +560,10 @@ std::string CheckPoint(const Handlers& h, int x, int y) {
 
 // Puts the GUI pointer at (x, y) and describes the point for the answer.
 std::string PointAt(const Handlers& h, int x, int y) {
-    if (h.set_cursor) h.set_cursor(x, y);
+    if (h.set_cursor) {
+        h.set_cursor(x, y);
+        g_held = {true, x, y};
+    }
     return ",\"x\":" + std::to_string(x) + ",\"y\":" + std::to_string(y) + ",\"cursor\":\"" +
            (h.set_cursor ? "virtual" : "events only") + "\"";
 }
@@ -794,6 +801,7 @@ HoverOutcome HoverCheck(const Handlers& h, std::uintptr_t target, const UiRect& 
     const int x = rect.x + rect.w / 2;
     const int y = rect.y + rect.h / 2;
     h.set_cursor(x, y);
+    g_held = {true, x, y};
     UiCoverCheck& cover = out.cover;
     for (int attempt = 1;; ++attempt) {
         out.attempts = attempt;
@@ -1536,6 +1544,8 @@ std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
     bool promoted = false;
     bool faulted = false;
     unsigned long fault_code = 0;
+    CameraRaw set;  // the camera right after the call: the target it set
+    WorldFailure camera_failure;
     Dispatcher::Outcome o = h.dispatcher->Run(
         Dispatcher::Kind::GameCall,
         [&] {
@@ -1566,7 +1576,11 @@ std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
             }
             if (refusal.failed()) return std::string();
             faulted = !h.call_navigation(open, facts, fault_code);
-            if (faulted) g_navigation_tripped.store(true);
+            if (faulted) {
+                g_navigation_tripped.store(true);
+            } else {
+                camera_failure = h.read_camera(set);
+            }
             return std::string();
         },
         timeout_ms);
@@ -1614,10 +1628,7 @@ std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
         if (!o.ran) return refuse(o.error, "the calls were made; no outer frame came to check them", counts);
         if (failure.failed()) return refuse(failure.error, failure.detail, counts);
         if (!read_error.empty()) return refuse("read_failed", read_error, counts);
-        int widget = -1;
-        for (std::size_t i = 0; i < tree.widgets.size() && seen.view_widget != 0; ++i) {
-            if (tree.widgets[i].address == seen.view_widget) widget = static_cast<int>(i);
-        }
+        const int widget = ViewRoot(seen, tree);
         const bool visible = widget != -1 && UiView(tree, true, true).Visible(widget);
         if (seen.last_selected != request.id || seen.view_province != request.id || !visible) {
             const auto id = [](std::int32_t p) { return p > 0 ? std::to_string(p) : std::string("null"); };
@@ -1626,15 +1637,16 @@ std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
                               id(seen.view_province) + ",\"visible\":" + Bool(visible));
         }
         view_path = Quote(UiView(tree, false, true).PathOf(widget));
-        view_widget = seen.view_widget;
+        view_widget = tree.widgets[widget].address;
         view_rect = tree.widgets[widget].rect;
     }
 
-    // The camera: until it reaches its target, or the timeout (still ok).
-    CameraRaw camera;
-    bool seen_camera = false;
+    // The camera: until it reaches the target the call set, or the timeout (still ok).
+    // The target the game holds can move on (the pointer at the screen edge scrolls it),
+    // so the one read on the frame of the call is the one waited for and answered.
+    if (camera_failure.failed()) return refuse(camera_failure.error, camera_failure.detail, counts);
     bool settled = false;
-    for (;;) {
+    while (!set.locked && !settled) {
         WorldFailure failure;
         CameraRaw now;
         o = h.dispatcher->Run(
@@ -1646,14 +1658,8 @@ std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
             left());
         if (!o.ran) break;
         if (failure.failed()) return refuse(failure.error, failure.detail, counts);
-        camera = now;
-        seen_camera = true;
-        if (camera.locked) break;
-        if (CameraSettled(camera)) {
-            settled = true;
-            break;
-        }
-        if (h.now_ms() >= deadline) break;
+        settled = CameraReached(now, set.target_x, set.target_z);
+        if (settled || h.now_ms() >= deadline) break;
         h.sleep_ms(h.poll_interval_ms);
     }
 
@@ -1661,16 +1667,25 @@ std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
     std::string covered_by = "null";
     if (open && h.set_cursor && h.read_hovered && h.send_input &&
         CheckPoint(h, view_rect.x + view_rect.w / 2, view_rect.y + view_rect.h / 2).empty()) {
+        const MouseTrack held = g_held;
         const HoverOutcome hover = HoverCheck(h, view_widget, view_rect, left());
         if (hover.error.empty() && hover.cover.covered && !hover.cover.covered_by.empty()) {
             covered_by = Quote(hover.cover.covered_by);
         }
-        if (h.release_cursor) h.release_cursor();
+        // The pointer goes back where it was: to a client's mouse command, or to the real mouse.
+        if (held.known) {
+            h.set_cursor(held.x, held.y);
+            h.send_input({MoveTo(held.x, held.y)});
+            g_held = held;
+        } else if (h.release_cursor) {
+            h.release_cursor();
+            g_held = {};
+        }
     }
 
     std::string out = "{\"ok\":true,\"command\":" + Quote(command) + province;
     if (open) out += ",\"view\":" + view_path + ",\"covered_by\":" + covered_by;
-    out += seen_camera ? CameraMembers(camera, settled) : std::string(",\"camera\":null");
+    out += CameraMembers(set.target_x, set.target_z, settled, set.locked);
     out += counts + ",\"waited_ms\":" + std::to_string(h.now_ms() - start);
     return out + state_tail() + "}";
 }
@@ -1867,6 +1882,10 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
         // Handing the pointer back changes nothing in the game, so it works while suspended too.
         if (!InputReady(handlers)) return Error(kInputDisabled);
         if (handlers.release_cursor) handlers.release_cursor();
+        {
+            std::lock_guard lock(g_input_mutex);
+            g_held = {};
+        }
         return "{\"ok\":true,\"command\":\"release\"}";
     }
     if (command == "text" || command == "move" || command == "click" || command == "scroll") {
