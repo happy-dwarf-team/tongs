@@ -1172,6 +1172,14 @@ memory = "code"
 values.view = { at = 3, size = 1 }
 note = "province selection 0x139C830: shows the province in the province view at selection+0x10 (0x1347A50)"
 
+[symbol.view_window]
+rva = 0x139CA7F
+bytes = "48 8B 4B 10 48 8B 01 FF 50 40 84 C0 74 0B 48 8B 43 10 48 8B A8 A0 00 00 00"
+memory = "code"
+values.view = { at = 3, size = 1 }
+values.window = { at = 21, size = 4 }
+note = "province selection 0x139C830: the province view is a controller; its window (the provinceview widget's full object) is at +0xA0"
+
 [symbol.province_view_province]
 rva = 0x1347A89
 bytes = "48 39 91 58 09 00 00 0F 84 3E 01 00 00"

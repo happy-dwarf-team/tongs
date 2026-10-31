@@ -56,7 +56,7 @@ struct PlayerRaw {
 struct SelectionRaw {
     std::int32_t last_selected = 0;    // the province the selection holds; 0: none
     std::int32_t view_province = 0;    // the province the province view shows; 0: none
-    std::uintptr_t view_widget = 0;    // the view's widget pointer, matched against the widget tree; 0: no view
+    std::uintptr_t view_widget = 0;    // the view window's widget pointer, matched against the widget tree; 0: no view
 };
 
 // `province ID`, `country TAG`, `player`, `selection`, each with an optional `timeout=S`.

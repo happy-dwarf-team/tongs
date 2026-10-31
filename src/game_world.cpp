@@ -165,17 +165,19 @@ WorldFailure ReadSelection(std::uintptr_t base, const WorldLayout& l, SelectionR
         return Failed("the session is not readable");
     }
     if (holder == 0) return {};
-    std::uintptr_t selected = 0, view = 0, shown = 0;
+    std::uintptr_t selected = 0, view = 0, shown = 0, window = 0;
     if (!Read(holder + l.selected, selected) || !Read(holder + l.view, view)) return Failed("the selection is not readable");
     if (selected != 0 && !Read(selected + l.province_id, out.last_selected)) {
         return Failed("the selected province is not readable");
     }
     if (view != 0) {
-        if (!Read(view + l.view_province, shown)) return Failed("the province view is not readable");
+        if (!Read(view + l.view_province, shown) || !Read(view + l.view_window, window)) {
+            return Failed("the province view is not readable");
+        }
         if (shown != 0 && !Read(shown + l.province_id, out.view_province)) {
             return Failed("the province the view shows is not readable");
         }
-        out.view_widget = view + l.window_part;
+        if (window != 0) out.view_widget = window + l.window_part;
     }
     return {};
 }
