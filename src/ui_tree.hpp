@@ -67,6 +67,45 @@ struct UiSelector {
 // Returns an error text, or an empty string on success.
 std::string ParseUiSelector(std::string_view text, UiSelector& out);
 
+// The grammar in short, sent as "hint" with every bad_selector answer and built
+// from the tables below, which the tests run through ParseUiSelector.
+std::string UiSelectorHint();
+
+struct UiSelectorFilterNote {
+    std::string_view filter;   // as it stands after a name
+    std::string_view meaning;  // empty: the filter says it
+};
+
+inline constexpr UiSelectorFilterNote kUiSelectorFilters[] = {
+    {"[2]", "the 2nd match, from 1"},
+    {"[type=button]", ""},  // the hint adds the type names
+    {"[text=Save]", "the whole text, any case; \"...\" for ] inside"},
+    {"[text~=Save]", "contains"},
+    {"[text^=Save]", "starts with"},
+    {"[enabled]", ""},
+    {"[disabled]", ""},
+    {"[checked]", ""},
+    {"[unchecked]", ""},
+};
+
+inline constexpr std::string_view kUiSelectorExamples[] = {
+    "speed_controls/button_speedup",
+    "EventWindow//event_option_button[2]",
+    "//[type=button][enabled]",
+};
+
+// Mistakes agents make (XPath, globs) and the selector they meant.
+struct UiSelectorFix {
+    std::string_view wrong;
+    std::string_view right;
+};
+
+inline constexpr UiSelectorFix kUiSelectorFixes[] = {
+    {"//*[name='text_MIL']", "//text_MIL"},
+    {"//*[@text='Save']", "//[text=Save]"},
+    {"**/*[Ss]ave*", "//*save*"},
+};
+
 // A tree prepared for one command: walk order, effective visibility and the
 // widgets a command may see (hidden ones only with `all`, stale ones only when asked).
 class UiView {

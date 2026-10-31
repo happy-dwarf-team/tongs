@@ -332,6 +332,26 @@ static void TestUiSelectors() {
     assert(Paths(t, "EventWindow", true) == V({"EventWindow[1]", "EventWindow[2]"}));
     assert(Paths(t, "EventWindow[2]", true) == V{"EventWindow[2]"});
 
+    // The hint of bad_selector answers: every filter parses, every example finds
+    // a widget, every mistake fails and its fix parses.
+    for (const auto& note : kUiSelectorFilters) {
+        assert(ParseUiSelector("//x" + std::string(note.filter), sel).empty());
+        assert(ParseUiSelector("//" + std::string(note.filter), sel).empty());
+    }
+    for (const std::string_view example : kUiSelectorExamples) {
+        assert(!Paths(t, std::string(example).c_str()).empty());
+    }
+    for (const auto& fix : kUiSelectorFixes) {
+        assert(!ParseUiSelector(fix.wrong, sel).empty() && ParseUiSelector(fix.right, sel).empty());
+    }
+    assert(ParseUiSelector("//x[type=frame]", sel) ==
+           "unknown type \"frame\" (window, button, icon, text, listbox, checkbox, editbox, other)");
+    const std::string hint = UiSelectorHint();
+    assert(Contains(hint, "[type=button] (window, button, icon, text, listbox, checkbox, editbox, other)") &&
+           Contains(hint, "[text~=Save] (contains)") && Contains(hint, "[unchecked]. Examples:") &&
+           Contains(hint, " speed_controls/button_speedup, EventWindow//") &&
+           Contains(hint, "//*[name='text_MIL'] is //text_MIL") && hint.ends_with("**/*[Ss]ave* is //*save*."));
+
     const UiView view(t, false);
     assert(view.Visible(0) && !view.Visible(5) && !view.Visible(6));  // timeline_controls and its child
     assert(GameTextToUtf8("Krak\xF3w \x80 \x81") == "Krak\xC3\xB3w \xE2\x82\xAC \xC2\x81");
@@ -352,6 +372,14 @@ static void TestUiRequests() {
     assert(ParseUiRequest("tree speed_controls depth=0 timeout=2", r).empty() && r.depth == 0 && r.timeout_ms == 2000);
     assert(Contains(ParseUiRequest("find", r), "\"error\":\"bad_selector\""));
     assert(Contains(ParseUiRequest("find a//", r), "\"error\":\"bad_selector\""));
+    // A bad selector answers the grammar with the parser's detail; other errors do not.
+    const std::string hint = ",\"hint\":\"" + JsonEscape(UiSelectorHint()) + "\"";
+    for (const char* request : {"find //*[name='text_MIL']", "tree **/*[Ss]ave*", "click", "click /a"}) {
+        assert(Contains(ParseUiRequest(request, r), hint.c_str()));
+    }
+    assert(ParseUiRequest("find //*[name='text_MIL']", r) ==
+           ",\"error\":\"bad_selector\",\"detail\":\"unknown filter [name='text_MIL']\"" + hint);
+    assert(!Contains(ParseUiRequest("find a depth=1", r), "\"hint\""));
     assert(Contains(ParseUiRequest("find a depth=1", r), "\"error\":\"bad_command\""));
     assert(Contains(ParseUiRequest("tree limit=0", r), "\"error\":\"bad_command\""));
     assert(Contains(ParseUiRequest("tree a b", r), "\"error\":\"bad_command\""));
@@ -402,7 +430,8 @@ static void TestUiCommand() {
     h.now_ms = SteadyMs;
     assert(Contains(HandleRequest("ui tree", h), "outer frames are not available"));
     std::string out = HandleRequest("ui find a//", h);  // a bad selector never reaches the main thread
-    assert(Contains(out, "\"ok\":false,\"error\":\"bad_selector\"") && Contains(out, "\"command\":\"ui find\""));
+    assert(Contains(out, "\"ok\":false,\"error\":\"bad_selector\"") && Contains(out, "\"command\":\"ui find\"") &&
+           Contains(out, "\"hint\":\"A selector is"));
     assert(Contains(HandleRequest("ui", h), "\"command\":\"ui\""));
 
     Dispatcher d(SteadyMs);

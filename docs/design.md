@@ -639,7 +639,9 @@ with a throwaway prototype on `prototype/ui-selectors`):
   another match is shown once, inside it.
 - Limits go up to 5000, `depth` up to 64; both commands take `timeout=S` like
   `frames`.
-- Errors: `bad_selector` and `bad_command` (with `detail`) before anything
+- Errors: `bad_selector` (with `detail` and the grammar in `hint`, built
+  from the tables in `ui_tree.hpp` that the tests parse) and `bad_command`
+  (with `detail`) before anything
   runs on the main thread, `not_found` when `ui tree SEL` matches nothing,
   and the dispatcher's own (`main thread busy`, `cancelled`).
 

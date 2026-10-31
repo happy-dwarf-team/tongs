@@ -195,9 +195,11 @@ Selector = Annotated[
     str,
     Field(
         min_length=1,
-        description="Widget selector: a path of .gui names such as speed_controls/button_speedup, "
-        "EventWindow//event_option_button or //DateText; * and ? wildcards; filters [2], [type=button], "
-        "[text~=...], [text^=...], [enabled], [disabled], [checked], [unchecked].",
+        description="Widget selector, not XPath: a path of .gui names from a top-level window or from // "
+        "(anywhere), such as speed_controls/button_speedup, EventWindow//event_option_button or //DateText; "
+        "names ignore case and take * and ?; filters after a name or alone: [2], [type=button], [text=...], "
+        "[text~=...] (contains), [text^=...] (starts with), [enabled], [disabled], [checked], [unchecked]. "
+        "//*[name='x'] is //x. A bad_selector answer has a hint with the grammar.",
     ),
 ]
 

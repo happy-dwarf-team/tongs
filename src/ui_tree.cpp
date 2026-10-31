@@ -18,6 +18,12 @@ std::string LowerCopy(std::string_view s) {
     return out;
 }
 
+std::string TypeList() {
+    std::string out;
+    for (const char* name : kTypeNames) out += (out.empty() ? "" : ", ") + std::string(name);
+    return out;
+}
+
 bool IsSpace(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
 
 std::string_view Trim(std::string_view s) {
@@ -124,8 +130,7 @@ std::string ParseFilter(std::string_view body, UiSelector::Step& step) {
             }
         }
         if (!known) {
-            return "unknown type \"" + std::string(value.substr(0, 20)) +
-                   "\" (window, button, icon, text, listbox, checkbox, editbox, other)";
+            return "unknown type \"" + std::string(value.substr(0, 20)) + "\" (" + TypeList() + ")";
         }
         filter.kind = Kind::Type;
     } else {
@@ -141,6 +146,29 @@ std::string Num(int value) { return std::to_string(value); }
 }  // namespace
 
 const char* UiTypeName(UiType type) { return kTypeNames[static_cast<int>(type)]; }
+
+std::string UiSelectorHint() {
+    std::string out =
+        "A selector is .gui names joined by / (a child) or // (anywhere below), starting at a top-level "
+        "window or with // (anywhere); names ignore case and take * and ?. Filters follow a name, or stand "
+        "alone for any name:";
+    for (const auto& note : kUiSelectorFilters) {
+        out += ' ';
+        out += note.filter;
+        if (note.filter.starts_with("[type=")) {
+            out += " (" + TypeList() + ")";
+        } else if (!note.meaning.empty()) {
+            out += " (" + std::string(note.meaning) + ")";
+        }
+    }
+    out += ". Examples:";
+    for (const std::string_view example : kUiSelectorExamples) out += ' ' + std::string(example) + ',';
+    out.back() = '.';
+    out += " Not XPath or globs:";
+    for (const auto& fix : kUiSelectorFixes) out += ' ' + std::string(fix.wrong) + " is " + std::string(fix.right) + ',';
+    out.back() = '.';
+    return out;
+}
 
 std::string ParseUiSelector(std::string_view text, UiSelector& out) {
     out = {};
@@ -351,7 +379,9 @@ std::string UiView::StepOf(int widget) const {
 std::string ParseUiRequest(std::string_view argument, UiRequest& out) {
     out = {};
     const auto fail = [](const char* code, const std::string& detail) {
-        return std::string(",\"error\":\"") + code + "\",\"detail\":\"" + JsonEscape(detail) + "\"";
+        std::string members = std::string(",\"error\":\"") + code + "\",\"detail\":\"" + JsonEscape(detail) + "\"";
+        if (std::string_view(code) == "bad_selector") members += ",\"hint\":\"" + JsonEscape(UiSelectorHint()) + "\"";
+        return members;
     };
     std::string_view rest = Trim(argument);
     const std::size_t space = rest.find_first_of(" \t");
