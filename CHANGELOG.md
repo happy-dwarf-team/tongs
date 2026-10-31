@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.22.0](https://github.com/happy-dwarf-team/tongs/compare/v0.21.0...v0.22.0) (2026-10-31)
+
+
+### Features
+
+* save load, a game call that loads a save by name ([#122](https://github.com/happy-dwarf-team/tongs/issues/122)) ([126e221](https://github.com/happy-dwarf-team/tongs/commit/126e221002dea9677a1acfc66ac80ffb6bc8d82c))
+* the text with its colour codes of each widget in tongs.ui ([#123](https://github.com/happy-dwarf-team/tongs/issues/123)) ([a742ebe](https://github.com/happy-dwarf-team/tongs/commit/a742ebed989a8d317ca261fd2ac6b9627d210798))
+
 ## [0.21.0](https://github.com/happy-dwarf-team/tongs/compare/v0.20.0...v0.21.0) (2026-10-31)
 
 
