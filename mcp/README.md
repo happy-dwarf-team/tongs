@@ -106,6 +106,7 @@ npx @modelcontextprotocol/inspector uv run --frozen --directory C:\path\to\tongs
 | `tongs_ui_click` | `ui click SEL [timeout=S]` | input |
 | `tongs_event_list` | `event list [timeout=S]` | read on the main thread |
 | `tongs_province`, `tongs_country`, `tongs_player`, `tongs_selection` | `province ID`, `country TAG`, `player`, `selection` (each `[timeout=S]`) | world reads on the main thread; not counted |
+| `tongs_province_open`, `tongs_province_goto` | `province open ID`, `province goto ID` (each `[timeout=S]`) | client calls: need `input = true`, count in `client_calls` |
 | `tongs_event_choose` | `event choose N\|text^="..." [event=...] [timeout=S]` | input |
 | `tongs_console` | `console LINE` | **game call**: changes game state, needs `game_calls = true` |
 | `tongs_raw` | any one line | escape hatch; same config switches apply; no `subscribe` |

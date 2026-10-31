@@ -73,12 +73,14 @@ ALL_TOOLS = {
     "tongs_ui_tree", "tongs_ui_find", "tongs_ui_click",
     "tongs_event_list", "tongs_event_choose", "tongs_console", "tongs_raw",
     "tongs_province", "tongs_country", "tongs_player", "tongs_selection",
+    "tongs_province_open", "tongs_province_goto",
 }  # fmt: skip
 
 INPUT_TOOLS = {
     "tongs_ready", "tongs_run_until", "tongs_pause", "tongs_resume", "tongs_speed", "tongs_key", "tongs_text",
     "tongs_move", "tongs_click_point", "tongs_scroll", "tongs_release", "tongs_ui_click", "tongs_event_choose",
 }  # fmt: skip
+CLIENT_CALL_TOOLS = {"tongs_province_open", "tongs_province_goto"}
 
 LINES = [
     ("tongs_state", {}, "state"),
@@ -133,6 +135,9 @@ LINES = [
     ("tongs_player", {}, "player"),
     ("tongs_selection", {}, "selection"),
     ("tongs_selection", {"timeout": 2}, "selection timeout=2"),
+    ("tongs_province_open", {"province_id": 295}, "province open 295"),
+    ("tongs_province_open", {"province_id": 295, "timeout": 30}, "province open 295 timeout=30"),
+    ("tongs_province_goto", {"province_id": 1252}, "province goto 1252"),
     ("tongs_console", {"line": "echo x"}, "console echo x"),
     ("tongs_raw", {"line": "help"}, "help"),
     ("tongs_raw", {"line": "  ping "}, "ping"),
@@ -146,6 +151,10 @@ async def test_lists_every_tool_with_safety_notes():
     for name in INPUT_TOOLS:
         assert "input = true" in tools[name].description, name
         assert '"inputs"' in tools[name].description, name
+        assert tools[name].annotations.read_only_hint is False
+    for name in CLIENT_CALL_TOOLS:
+        assert "input = true" in tools[name].description, name
+        assert '"client_calls"' in tools[name].description and "marked run" in tools[name].description, name
         assert tools[name].annotations.read_only_hint is False
     console = tools["tongs_console"]
     assert "CHANGES GAME STATE" in console.description
@@ -243,6 +252,8 @@ async def test_answer_that_is_not_json_is_an_error():
         ("tongs_country", {"tag": "RU S"}),
         ("tongs_country", {"tag": "RUSS"}),
         ("tongs_player", {"timeout": 61}),
+        ("tongs_province_open", {"province_id": 0}),
+        ("tongs_province_goto", {"province_id": 295, "timeout": 0}),
     ],
 )
 async def test_refused_without_sending(tool, args):

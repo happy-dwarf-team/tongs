@@ -14,8 +14,8 @@ description = "Opens the local pipe \\\\.\\pipe\\tongs for the current Windows u
 [setting.input]
 type = "bool"
 default = false
-label = "Keyboard and mouse commands"
-description = "Also accepts the keyboard and mouse commands (pause, speed, run_until, key, text, click...): input queued in the game's own SDL input, as a player's would be, and a hook so that the interface sees the mouse pointer."
+label = "Keyboard, mouse and navigation commands"
+description = "Also accepts the keyboard and mouse commands (pause, speed, run_until, key, text, click...): input queued in the game's own SDL input, as a player's would be, and a hook so that the interface sees the mouse pointer; and navigation (province open, province goto), which moves the camera and opens a province's view as the game's own links do."
 
 [setting.game_calls]
 type = "bool"

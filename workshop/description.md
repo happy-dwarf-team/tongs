@@ -30,6 +30,7 @@ Anvil asks again after every update. Until you approve, the version you trusted 
 ## What it doesn't touch
 - No game files: the files the game checks stay the same, so ironman achievements stay available.
 - Reading the game changes nothing. Keyboard, mouse and console commands do change your game, exactly as if you had pressed the keys yourself, and each of them needs its own switch.
+- Navigation moves your camera and opens province views, as the game's own province links do; it is switched on together with keyboard and mouse.
 - In ironman and multiplayer Anvil keeps Tongs asleep unless you allow it there yourself.
 - Unsubscribe and it's gone. Nothing is left in your saves.
 

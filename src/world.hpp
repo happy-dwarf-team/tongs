@@ -59,9 +59,10 @@ struct SelectionRaw {
     std::uintptr_t view_widget = 0;    // the view window's widget pointer, matched against the widget tree; 0: no view
 };
 
-// `province ID`, `country TAG`, `player`, `selection`, each with an optional `timeout=S`.
+// `province ID`, `country TAG`, `player`, `selection`, and the navigation
+// `province open ID` / `province goto ID` (navigation.hpp), each with an optional `timeout=S`.
 struct WorldRequest {
-    enum class Kind { Province, Country, Player, Selection };
+    enum class Kind { Province, Country, Player, Selection, Open, Goto };
     Kind kind = Kind::Province;
     std::int32_t id = 0;
     std::string tag;     // upper case
@@ -73,7 +74,7 @@ constexpr int kTagBuckets = 64;  // the game's tag buckets: tag_buckets.bucket_m
 
 // Parses the words after the command word. A province ID is a decimal number
 // without sign or leading zeros; a tag three characters [A-Za-z0-9]. A word as
-// the second token of `province` is a subcommand, which 0.20 has none of.
+// the second token of `province` is a subcommand: `open` or `goto`.
 WorldFailure ParseWorldRequest(std::string_view command, std::string_view argument, WorldRequest& out);
 
 // The bucket the game files a tag in: its three characters, upper-cased, summed, & mask.

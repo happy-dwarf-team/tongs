@@ -2,6 +2,7 @@
 #include "console.hpp"
 #include "game_date.hpp"
 #include "load_watch.hpp"
+#include "navigation.hpp"
 #include "notify_sources.hpp"
 #include "protocol.hpp"
 #include "ui_definitions.hpp"
@@ -3255,7 +3256,7 @@ static void TestWorldParsing() {
         assert(ParseWorldRequest("province", bad, r).error == "unknown_province");
     }
     assert(!ParseWorldRequest("province", "0", r).failed() && r.id == 0);  // the bound is the reader's
-    assert(ParseWorldRequest("province", "open 295", r).error == "bad_command");  // no subcommand in 0.20
+    assert(ParseWorldRequest("province", "close 295", r).error == "bad_command");
     assert(ParseWorldRequest("province", "", r).error == "bad_command");
     assert(ParseWorldRequest("province", "295 timeout=61", r).error == "bad_command");
     assert(ParseWorldRequest("province", "295 timeout=0", r).error == "bad_command");
@@ -3406,10 +3407,182 @@ static void TestWorldCommands() {
     assert(Contains(HandleRequest("help", h), "\"province\",\"country\",\"player\",\"selection\""));
 }
 
+static void TestNavigationRules() {
+    WorldRequest r;
+    assert(!ParseWorldRequest("province", "open 295", r).failed() && r.kind == WorldRequest::Kind::Open && r.id == 295);
+    assert(!ParseWorldRequest("province", "goto 1252 timeout=5", r).failed() && r.kind == WorldRequest::Kind::Goto &&
+           r.id == 1252 && r.timeout_ms == 5000);
+    assert(ParseWorldRequest("province", "open", r).error == "bad_command");
+    assert(ParseWorldRequest("province", "open x", r).error == "unknown_province");
+    assert(ParseWorldRequest("province", "close 295", r).error == "bad_command");
+
+    NavigationFacts f;
+    f.id = 295;
+    f.land = true;
+    assert(!NavigationRefusal(true, f).failed() && !NavigationRefusal(false, f).failed());
+    f.land = false;  // a sea: goto takes it, open does not
+    assert(NavigationRefusal(true, f).error == "not_selectable" && !NavigationRefusal(false, f).failed());
+    f.land = true;
+    f.wasteland = true;
+    assert(NavigationRefusal(true, f).error == "not_selectable");
+    f.wasteland = false;
+    f.terra_incognita = true;
+    assert(NavigationRefusal(true, f).error == "terra_incognita" && !NavigationRefusal(false, f).failed());
+    f.terra_incognita = false;
+    f.selection_blocked = true;
+    assert(NavigationRefusal(true, f).error == "selection_blocked");
+    f.selection_blocked = false;
+    f.camera_locked = true;  // goto refuses; open still opens
+    assert(NavigationRefusal(false, f).error == "camera_locked" && !NavigationRefusal(true, f).failed());
+
+    CameraRaw c;
+    c.x = 1000.4f;
+    c.z = 2000.f;
+    c.target_x = 1000.f;
+    c.target_z = 2000.5f;
+    assert(CameraSettled(c) && !CameraSettled(c, 0.1f));
+    assert(CameraMembers(c, true) == ",\"camera\":{\"settled\":true,\"target\":{\"x\":1000,\"z\":2000.5}}");
+    c.locked = true;
+    assert(CameraMembers(c, false) == ",\"camera\":{\"settled\":false,\"target\":{\"x\":1000,\"z\":2000.5},\"locked\":true}");
+}
+
+static void TestNavigationCommands() {
+    Handlers h;
+    h.now_ms = SteadyMs;
+    h.sleep_ms = SleepMs;
+    StateSnapshot game;
+    game.in_game = true;
+    game.date_raw = 58'860'240;
+    game.load = 1;
+    game.session = 0x10;
+    h.read_state = [&game] { return game; };
+    std::string out = HandleRequest("province open 295", h);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"input_disabled\"") && Contains(out, "\"command\":\"province open\""));
+    h.send_input = [](const std::vector<InputEvent>&) { return std::string(); };
+    h.suspended = [] { return true; };
+    assert(Contains(HandleRequest("province goto 295", h), "\"error\":\"suspended\""));
+    h.suspended = {};
+    Dispatcher d(SteadyMs);
+    h.dispatcher = &d;
+    assert(Contains(HandleRequest("province goto 295", h), "\"error\":\"unavailable\""));
+
+    // A fake game: provinces 1..4941, a camera that reaches its target one read later.
+    NavigationFacts facts;
+    int calls = 0;
+    bool last_open = false;
+    SelectionRaw selection;
+    CameraRaw camera;
+    int camera_reads = 0;
+    bool fault = false;
+    h.read_navigation = [&facts](std::int32_t id, NavigationFacts& out) -> WorldFailure {
+        if (id < 1 || id >= 4942) return {"unknown_province", "no province " + std::to_string(id) + " (valid IDs 1..4941)"};
+        out = facts;
+        out.id = id;
+        return {};
+    };
+    h.call_navigation = [&](bool open, const NavigationFacts& f, unsigned long& code) {
+        ++calls;
+        last_open = open;
+        if (fault) {
+            code = 0xC0000005;
+            return false;
+        }
+        if (open) selection = {f.id, f.id, 0x5000};
+        camera.target_x = 100.f;
+        camera.target_z = 200.f;
+        camera_reads = 0;
+        return true;
+    };
+    h.read_camera = [&](CameraRaw& out) {
+        if (++camera_reads >= 2) {
+            camera.x = camera.target_x;
+            camera.z = camera.target_z;
+        }
+        out = camera;
+        return WorldFailure{};
+    };
+    h.read_selection = [&selection](SelectionRaw& out) {
+        out = selection;
+        return WorldFailure{};
+    };
+    UiTree view_tree;
+    UiWidget view;
+    view.name = "provinceview";
+    view.type = UiType::Window;
+    view.shown = true;
+    view.address = 0x5000;
+    view.rect = {10, 10, 100, 100};
+    view_tree.widgets.push_back(view);
+    view_tree.roots = {0};
+    h.read_ui = [&view_tree](UiTree& tree) {
+        tree = view_tree;
+        return std::string();
+    };
+    std::vector<std::string> logged;
+    h.log = [&logged](int, const std::string& message) { logged.push_back(message); };
+    FakeMainThread main(d);
+
+    facts.land = true;
+    out = HandleRequest("province goto 1252", h);
+    assert(Contains(out, "{\"ok\":true,\"command\":\"province goto\",\"province\":1252,\"camera\":{\"settled\":true,\"target\":{\"x\":100,\"z\":200}}"));
+    assert(Contains(out, "\"client_calls_total\":1,\"waited_ms\":") && Contains(out, "\"in_game\":true"));
+    assert(calls == 1 && !last_open && logged.empty());  // no log line per call
+
+    out = HandleRequest("province open 295", h);
+    assert(Contains(out, "{\"ok\":true,\"command\":\"province open\",\"province\":295,\"view\":\"provinceview\",\"covered_by\":null,\"camera\":{\"settled\":true"));
+    assert(Contains(out, "\"client_calls_total\":2") && calls == 2 && last_open);
+
+    // Refusals call nothing and count nothing; they go to the log.
+    assert(Contains(HandleRequest("province open 4942", h), "\"error\":\"unknown_province\""));
+    facts.land = false;
+    out = HandleRequest("province open 1252", h);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"not_selectable\"") && Contains(out, "\"province\":1252"));
+    facts.land = true;
+    facts.camera_locked = true;
+    assert(Contains(HandleRequest("province goto 295", h), "\"error\":\"camera_locked\""));
+    camera.locked = true;  // open still opens, and says so
+    out = HandleRequest("province open 295", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"settled\":false") && Contains(out, "\"locked\":true"));
+    camera.locked = false;
+    facts.camera_locked = false;
+    assert(calls == 3 && logged.size() == 3);
+
+    // The discover case: a game call, refused without game_calls.
+    facts.discover = true;
+    out = HandleRequest("province open 151", h);
+    assert(Contains(out, "\"error\":\"needs_game_calls\"") && calls == 3);
+    assert(Contains(HandleRequest("province goto 151", h), "\"ok\":true"));  // the camera alone posts nothing
+    h.game_calls.enabled = true;
+    out = HandleRequest("province open 151", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"game_call\":true,\"game_calls_total\":1") &&
+           !Contains(out, "client_calls_total"));
+    facts.discover = false;
+
+    // A view that does not show the province: not_shown, still counted.
+    h.call_navigation = [&](bool, const NavigationFacts&, unsigned long&) {
+        ++calls;
+        selection = {295, 0, 0x5000};
+        return true;
+    };
+    out = HandleRequest("province open 300", h);
+    assert(Contains(out, "\"error\":\"not_shown\"") && Contains(out, "\"selected\":295,\"view_province\":null,\"visible\":true"));
+    assert(Contains(out, "\"client_calls_total\":"));
+
+    // A fault turns navigation off.
+    h.call_navigation = [&](bool, const NavigationFacts&, unsigned long& code) {
+        code = 0xC0000005;
+        return false;
+    };
+    out = HandleRequest("province goto 295", h);
+    assert(Contains(out, "\"error\":\"faulted\"") && Contains(out, "0xC0000005"));
+    assert(Contains(HandleRequest("province goto 295", h), "\"error\":\"navigation_tripped\""));
+}
+
 int main() {
     TestWorldParsing();
     TestWorldAnswers();
     TestWorldCommands();
+    TestNavigationRules();
     TestSubscribeParsing();
     TestDateCrosses();
     TestSubscriptionQueue();
@@ -3465,6 +3638,7 @@ int main() {
     TestUiRequests();
     TestUiCommand();
     TestConsoleRules();
+    TestNavigationCommands();  // trips navigation for the rest of the process
     TestConsoleCommand();  // last: it trips game calls for the rest of the process
     std::puts("ok");
     return 0;

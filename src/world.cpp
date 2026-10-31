@@ -56,15 +56,26 @@ WorldFailure ParseWorldRequest(std::string_view command, std::string_view argume
     std::size_t options = 0;  // the index of the first option word
     if (command == "province") {
         out.kind = WorldRequest::Kind::Province;
-        if (words.empty()) return Bad("usage: province ID [timeout=S]");
-        const std::string_view id = words[0];
-        if (IsLetter(id[0])) return Bad("province has no subcommand " + Shown(id) + " (usage: province ID [timeout=S])");
+        constexpr const char* kUsage = " (usage: province ID|open ID|goto ID [timeout=S])";
+        if (words.empty()) return Bad(std::string("usage") + kUsage);
+        if (IsLetter(words[0][0])) {
+            if (words[0] == "open") {
+                out.kind = WorldRequest::Kind::Open;
+            } else if (words[0] == "goto") {
+                out.kind = WorldRequest::Kind::Goto;
+            } else {
+                return Bad("province has no subcommand " + Shown(words[0]) + kUsage);
+            }
+            if (words.size() < 2) return Bad("province " + std::string(words[0]) + " takes an ID" + kUsage);
+            ++options;
+        }
+        const std::string_view id = words[options];
         // Decimal only: no sign, no leading zeros, no hex; within int32.
         bool decimal = id.size() <= 9 && IsDigit(id[0]) && !(id[0] == '0' && id.size() > 1);
         for (const char c : id) decimal = decimal && IsDigit(c);
         if (!decimal) return {"unknown_province", "not a province ID: " + Shown(id) + " (a decimal number from 1)"};
         std::from_chars(id.data(), id.data() + id.size(), out.id);
-        options = 1;
+        ++options;
     } else if (command == "country") {
         out.kind = WorldRequest::Kind::Country;
         if (words.empty()) return Bad("usage: country TAG [timeout=S]");

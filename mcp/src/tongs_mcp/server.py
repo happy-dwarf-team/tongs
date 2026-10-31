@@ -118,6 +118,8 @@ JSON answer unchanged; "ok": false answers come back as errors with an "error" f
   was replaced.
 - World reads (tongs_province, tongs_country, tongs_player, tongs_selection) answer the
   game's own values by province ID or tag; they are not counted and never mark a run.
+- tongs_province_open and tongs_province_goto are client calls: they need input = true,
+  change only the camera, the selection and open views, and count in "client_calls".
 - Input tools (pause, resume, speed, key, text, mouse, ui click, event choose, run_until)
   work only with input = true in the plugin config and are counted in "inputs" of any
   wait in progress. tongs_console works only with game_calls = true, changes game
@@ -145,6 +147,10 @@ PLAYER = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent
 CONTROL = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=True, open_world_hint=False)
 GAME_CALL = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=False)
 
+CLIENT_CALL_NOTE = (
+    '\n\nA client call: needs input = true in the plugin config; counts in "client_calls" of every '
+    "wait_until / run_until in progress, so the run is a marked run."
+)
 INPUT_NOTE = (
     '\n\nNeeds input = true in the plugin config; counts in "inputs" of every wait_until / run_until in progress.'
 )
@@ -686,6 +692,26 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         sometimes a load) and view {province, visible, path}. Only view.visible says whether a
         province view is open."""
         return await call(_line("selection", timeout=timeout))
+
+    # --- navigation ---
+
+    @tool(INPUT, CLIENT_CALL_NOTE)
+    async def tongs_province_open(province_id: ProvinceId, timeout: WorldTimeout = None) -> CallToolResult:
+        """Opens a province's view as the game's own province links do: closes other views, moves the
+        camera to it and selects it. ok only once the next frame shows it: province, view (the view
+        window's path), covered_by (the widget over the view's centre, or null) and camera {settled,
+        target}. Refuses before calling: unknown_province, not_selectable (sea, lake, wasteland),
+        terra_incognita, selection_blocked, needs_game_calls (opening it would make the player
+        discover the owner's capital: a game call, only with game_calls = true). not_shown when the
+        frame after the call did not show it."""
+        return await call(_line("province open", province_id, timeout=timeout))
+
+    @tool(INPUT, CLIENT_CALL_NOTE)
+    async def tongs_province_goto(province_id: ProvinceId, timeout: WorldTimeout = None) -> CallToolResult:
+        """Moves the camera to a province (any valid ID, sea and terra incognita included), nothing
+        else; answers camera {settled, target} once it arrives or at the timeout (still ok).
+        camera_locked while debug_lockcamera is on."""
+        return await call(_line("province goto", province_id, timeout=timeout))
 
     # --- events ---
 

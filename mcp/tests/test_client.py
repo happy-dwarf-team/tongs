@@ -340,3 +340,12 @@ def test_world_reads_send_their_lines_and_raise_on_refusals(serve):
             conn.province(4942)
     assert e.value.error == "unknown_province"
     assert server.lines == ["province 295", "country rus timeout=5", "player", "selection timeout=2", "province 4942"]
+
+
+@windows
+def test_navigation_steps_send_their_lines(serve):
+    server = serve(lambda line: {"ok": True, "command": " ".join(line.split()[:2])})
+    with Tongs() as conn:
+        assert conn.open_province(295)["command"] == "province open"
+        assert conn.goto_province("1252", timeout=5)["command"] == "province goto"
+    assert server.lines == ["province open 295", "province goto 1252 timeout=5"]
