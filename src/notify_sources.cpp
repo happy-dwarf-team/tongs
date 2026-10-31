@@ -61,6 +61,8 @@ std::vector<std::string> StateChanges(const StateSnapshot& before, const StateSn
     if (after.in_game && (!before.in_game || new_save)) {
         std::string m = Change("entered_game") + InGameFields(after);
         if (after.load != 0) m += ",\"session\":" + std::to_string(after.load);
+        const char* by = LoadedBy(after.load);
+        m += std::string(",\"loaded_by\":") + (by ? "\"" + std::string(by) + "\"" : "null");
         out.push_back(m);
         return out;
     }

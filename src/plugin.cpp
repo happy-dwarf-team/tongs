@@ -6,6 +6,7 @@
 #include "game_frame.hpp"
 #include "game_input.hpp"
 #include "game_navigation.hpp"
+#include "game_save.hpp"
 #include "game_state.hpp"
 #include "game_symbols.hpp"
 #include "game_threads.hpp"
@@ -144,6 +145,21 @@ struct Tongs : anvil::Plugin {
                 return tongs::ReadSelection(image_base, world, out);
             };
             if (config.game_calls.enabled) {
+                // Loading a save (docs/design.md, "Loading a save (0.22.0)"): a game call.
+                const tongs::SaveLayout save = tongs::SaveLayout::Load();
+                handlers.save_tokens = save.tokens;
+                handlers.locate_save = [](const std::string& name, std::string& path, bool& exists) {
+                    return tongs::LocateSave(name, path, exists);
+                };
+                handlers.read_save = [](const std::string& path, std::string& bytes) { return tongs::ReadSaveHead(path, bytes); };
+                handlers.read_version = [image_base, save](std::array<int, 4>& out) {
+                    return tongs::ReadRunningVersion(image_base, save, out);
+                };
+                handlers.call_load = [image_base, save](const std::string& name) { return tongs::CallLoad(image_base, save, name); };
+                handlers.close_windows = [image_base, save](unsigned long& code) {
+                    return tongs::CloseWindows(image_base, save, code);
+                };
+                handlers.read_loading = [image_base, save](bool& loading) { return tongs::ReadLoading(image_base, save, loading); };
                 const tongs::ConsoleLayout console_layout = tongs::ConsoleLayout::Load();
                 handlers.read_console = [image_base, console_layout](tongs::ConsoleRaw& raw) {
                     return tongs::ReadGameConsole(image_base, console_layout, raw);

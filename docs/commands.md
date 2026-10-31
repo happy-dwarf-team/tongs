@@ -53,6 +53,7 @@ With `game_calls = true` in the settings, also (see [Console](#console)):
 | Command | What it does |
 | --- | --- |
 | `console LINE` | runs one console command line in the game, on its main thread, and answers with the game's text and the state afterwards. **Changes game state** |
+| `save load NAME [timeout=S]` | loads a save from `save games` in the running game, as the Load dialog does (see [Loading a save](#loading-a-save)). **Discards the running game without saving** |
 
 Input commands answer once the game has reacted (or after 10 s) with
 `command`, `presses`, `waited_ms` and the fields of `state`. When the game
@@ -102,12 +103,14 @@ the Esc menu is open, Space does not resume the game.
 
 `session` numbers the games of one game process: 1 for the first game after
 the start (from the main menu or with `continue=`), +1 at every load, by the
-player or a later Tongs command. A client pins it like `pid`: a changed
+player or by `save load`. A client pins it like `pid`: a changed
 `session` means the game state was replaced, even when the date comes back
 the same. Tongs reads the state every 20 ms to see every load. `state`
 answers it and every answer that carries the state repeats it; outside a game
-it is absent. The `state` notification `entered_game` carries it too. A load
-starts `game_calls_total` and `client_calls_total` again and ends a
+it is absent. The `state` notification `entered_game` carries it too, with
+`loaded_by` (`"tongs"` after `save load`, else `null`). A load starts
+`game_calls_total` and `client_calls_total` again (`game_calls_total` is 1
+after `save load`) and ends a
 `wait_until` or `run_until` in progress.
 
 The ready wait replaces a fixed sleep after a start or a load. A client waits,
@@ -404,6 +407,65 @@ is `all` or a list such as `state,date,event`:
   `{"notification":"overflow","dropped":N}` comes before the next one.
 - A subscription holds one of the 8 pipe instances, so use a connection of its
   own for it.
+
+## Loading a save
+
+`save load NAME [timeout=S]` loads a save in the running game, as the in-game
+Load dialog does, without clicking through the dialog. It is a **game call**
+([ADR 0001](adr/0001-game-calls-in-tongs.md)): it needs `game_calls = true`,
+takes the console's refusals in ironman and multiplayer, is logged to the
+Anvil log and counts once in `game_calls` (with an `activity` notification)
+when Tongs called the game's loader. A run with it is a marked run.
+
+- **NAME** is a file at the top level of `save games`: `mp_Russia1719_03_17`
+  or `mp_Russia1719_03_17.eu4` (a trailing `.eu4`, any case, is optional),
+  quoted when it has spaces: `save load "Russia test"`. No display names, no
+  subfolders, no Steam cloud saves. A name that is empty or has `/`, `\`, `..`
+  or characters outside printable ASCII and Latin-1 is `bad_name`.
+- **In game only, paused.** The game must be paused, as it is in the Load
+  dialog (`not_paused` otherwise). A save to start a scenario from is the
+  launcher's `continue=`.
+- **What it discards.** The running game is discarded **without saving and
+  without a warning**, as the Load dialog does; Tongs never saves the game.
+  Open in-game windows are closed as the dialog closes them.
+- **Before calling**, Tongs reads the save's metadata itself (text saves,
+  compressed saves with a text or binary `meta`): its date, player, whether it
+  is an ironman save and the versions it was saved with. An ironman save is
+  refused (`ironman_save`) unless `game_calls_ironman = true`, because the game
+  writes to it afterwards. A save from another version, or with other DLC or
+  mods, is not refused: `compatible` says whether its versions list this one,
+  as the dialog's version warning does.
+- **One answer, after the load and its check.** The game loads the save on
+  its main thread in one go (about 8 s for a 1719 save); no frame runs
+  meanwhile. `ok` comes only when the loader returned 0 and the next outer
+  frame shows a game that is not loading, with the save's date and player.
+  The answer carries `save`, `save_date`, `player`, `compatible`, `load_ms`,
+  `session` (the new one), `covered_by` (the widget the game hovers in the
+  middle of the window when one covers the map, or `null`), `game_calls_total`
+  (1: the session came from a game call) and the fields of `state`. Pause and
+  speed are not changed: the game stays paused, with the save's speed.
+- **`timeout=S`**: default 120 s, up to 600, for the whole command. When no
+  frame comes before it, nothing was called (`main thread busy`). When the load
+  is still running at the timeout, the answer is `timeout` with
+  `started: true`, and its effect is unknown.
+- **Refusals before calling** (nothing called or counted): `bad_name`,
+  `no_such_save`, `unreadable_save` (Tongs could not read the metadata),
+  `ironman_save`, `not_in_game`, `not_paused`, `game_calls_disabled`,
+  `suspended`, `game_calls_tripped`, the console's `ironman` / `multiplayer`
+  refusals for the running game. **After calling** (`called: true`, one game
+  call): `bad_name`, `no_such_save` or `rejected` for the loader's return codes
+  1, 2 and 3 (3: the metadata was rejected, such as an ironman save in a
+  modded game), `not_loaded` (with what the frame showed, `seen`), `faulted`.
+- **Afterwards** the client waits for input with the ready wait for the new
+  `session` (see [Sessions](#sessions-and-the-ready-wait)); the `state`
+  notification `entered_game` says `loaded_by: "tongs"`, and `null` after a
+  load by the player or a start.
+
+```powershell
+.\scripts\tongs.ps1 'save load mp_Russia1719_03_17'
+# {"ok":true,"command":"save load","save":"mp_Russia1719_03_17","called":true,"load_ms":7310,"save_date":"1719.3.17",
+#  "player":"RUS","compatible":true,"session":2,"covered_by":null,"game_calls_total":1,...,"paused":true,...}
+```
 
 ## Console
 

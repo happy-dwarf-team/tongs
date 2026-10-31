@@ -7,6 +7,7 @@
 #include "input.hpp"
 #include "navigation.hpp"
 #include "notifications.hpp"
+#include "save_meta.hpp"
 #include "ui_tree.hpp"
 #include "world.hpp"
 
@@ -132,6 +133,18 @@ struct Handlers {
     std::function<WorldFailure(std::int32_t id, NavigationFacts&)> read_navigation;
     std::function<bool(bool open, const NavigationFacts&, unsigned long& fault_code)> call_navigation;
     std::function<WorldFailure(CameraRaw&)> read_camera;
+    // Loading a save (game_save.cpp), a game call. On the pipe thread: where the
+    // game would find a save (an error text when it cannot tell), its first
+    // bytes, the running version. On the main thread: the loader (it returns
+    // after the whole load), closing the in-game windows, the loading flag.
+    // All null: `save load` answers unavailable.
+    std::function<std::string(const std::string& name, std::string& path, bool& exists)> locate_save;
+    std::function<std::string(const std::string& path, std::string& bytes)> read_save;
+    std::function<bool(std::array<int, 4>&)> read_version;
+    std::function<LoadCall(const std::string& name)> call_load;
+    std::function<bool(unsigned long& fault_code)> close_windows;
+    std::function<bool(bool& loading)> read_loading;
+    SaveTokens save_tokens;
     // Main thread: the open events (game_events.cpp). Returns an error text, or empty.
     std::function<std::string(EventsRaw&)> read_events;
     // Pipe thread, one word: entries in the session's event window list; -1 = unreadable.
@@ -181,6 +194,10 @@ std::string Subscribe(std::string_view line, const Handlers& handlers, std::shar
 std::string SubscribedRequest(std::string_view line, const Handlers& handlers, std::shared_ptr<Subscription>& subscription);
 
 std::string JsonEscape(std::string_view text);
+
+// "tongs" when `save load` made the session `session` (StateSnapshot::load), else null:
+// `loaded_by` of the entered_game notification.
+const char* LoadedBy(std::uint64_t session);
 
 // Counts one client call (ADR 0003) that called the game: `client_calls` of
 // every wait in progress, an `activity` notification with what "client_call",

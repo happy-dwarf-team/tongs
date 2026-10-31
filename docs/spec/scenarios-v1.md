@@ -289,6 +289,7 @@ Decided in #102, with the load function tried in the game in #106.
 - **Pause and speed:** refuses `not_paused` before calling; afterwards changes
   neither and only reports them (the save's speed).
 - **Refusals:** `not_in_game`, `not_paused`, `bad_name`, `no_such_save`,
+  `unreadable_save` (Tongs could not read the metadata; found in 0.22),
   `ironman_save` (unless `game_calls_ironman = true`) before calling; after
   calling, `bad_name` / `no_such_save` / `rejected` for the game's return codes
   1 / 2 / 3 (`called: true`), and `not_loaded`. A save from another version or
