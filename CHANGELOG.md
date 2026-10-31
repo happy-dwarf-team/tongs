@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/happy-dwarf-team/tongs/compare/v0.19.0...v0.20.0) (2026-10-31)
+
+
+### Features
+
+* world reads province, country, player and selection ([#118](https://github.com/happy-dwarf-team/tongs/issues/118)) ([24648aa](https://github.com/happy-dwarf-team/tongs/commit/24648aaed0dfcd7d3a32034153cbf111a897c0b1))
+
 ## [0.19.0](https://github.com/happy-dwarf-team/tongs/compare/v0.18.0...v0.19.0) (2026-10-28)
 
 
