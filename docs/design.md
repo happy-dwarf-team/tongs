@@ -2477,7 +2477,11 @@ tongs#106 and this work; they are the "Loading a save" symbols of
   (`0x314B`): it is a constant, checked on the lab's binary saves.
 - **`compatible`** is the Load dialog's version check (`0xB29CA0`): the save's
   `savegame_versions` list the running version, the four integers at
-  `*(0x242BF50)+0x400…0x40C` (`running_version_app`, `running_version`).
+  `*(0x242BF50)+0x400…0x40C` (`running_version_app`, `running_version`). They
+  hold the parts as first, second, fourth, third: 1, 37, 0, 5 for 1.37.5.0,
+  seen live (with the parts in file order every save would have been
+  incompatible, while the game starts the lab's 1.37.5 saves without its
+  version warning).
 - **The check.** The next outer frame must show a game whose loading flag
   (`session+0x460`, `session_loading`) is clear, with the save's date and
   player (the world read of `player`).
@@ -2487,7 +2491,32 @@ tongs#106 and this work; they are the "Loading a save" symbols of
   notification for that session says `loaded_by: "tongs"`.
 - **The timeout.** The job runs on a thread of its own, so the answer can come
   at `timeout=` while the load still runs (`timeout`, `started: true`); a job
-  that did not start by then is withdrawn by the dispatcher.
+  that did not start by then is withdrawn by the dispatcher. A load that
+  outlives its answer is still counted as a game call when it returns.
+
+### Live check (2026-10-31)
+
+Lab runs `t114-live2`, `t114-iron1` and `t114-ver1`: EU4 1.37.5 with the
+original `eu4.exe`, Anvil 1.5.2 and `anvil-game`, this branch's Tongs with
+`input` and `game_calls` on (`t114-iron1` also `game_calls_ironman` through
+`ANVIL_TONGS_GAME_CALLS_IRONMAN`), the Russia save of 1719.3.17 started with
+`continue=`, driven by `scripts/tongs.py` from the branch with a `state,activity`
+subscription on a second connection. The saves were unchanged afterwards; the
+ironman save was loaded from a copy, removed afterwards with the `.tmp` the
+game wrote beside it.
+
+| Check | Seen |
+| --- | --- |
+| a direct call with Tongs' name, `NAME` → `NAME.eu4` | `mp_autosave` (a 62 MB text save, 1719.1.1) loaded: `ok`, `load_ms` 8138, `session` 2, the date and player of its metadata |
+| a compressed save | `mp_Russia1719_03_17` and `mp_Russia1719_03_17.EU4` (zip, text `meta`): `ok`, 7.8 s each |
+| a binary `meta` | an ironman copy of `Armenia.eu4` (zip, `EU4bin`): `save_date` 1486.7.2, `player` ARM and `save_versions` 1.37.4.0 read before the call; without `game_calls_ironman` `ironman_save`, nothing called; with it the game, not modded, loaded it (`ok`, 6.1 s), and Anvil then suspended Tongs for the ironman game (`suspended`), as it does for any ironman game |
+| a large late-game save | `lab_late_1821_01_01` (64 MB text, 1821.1.1): `ok`, `load_ms` 8666; the 120 s default holds |
+| the return codes | 0 every time; Tongs' own checks answer `bad_name` (`a/b`) and `no_such_save` (`lab_no_such_save`) before calling, so the loader's 1 and 2 were not reached; 3 needs an ironman save in a modded game, and the game here was not modded: not seen |
+| `compatible` | first read as the version's parts in memory order (1.37.0.5), so every save was "incompatible": the struct keeps first, second, fourth, third; fixed, then `true` for 1.37.5.0 and `false` for 1.37.4.0 |
+| `close_ingame_windows` outside the dialog | a province view open before the load stayed open; the game showed its in-game menu after every load (it was not open before), and `covered_by` named `menu/menu_panel/menu_ai_prefs_button`. The first `ready(speed=3)` after a load failed (no speed change within 10 s) until the menu was closed (`ui click menu/menu_panel/menu_close_button`), then 31 ms |
+| `not_paused` | refused while running, nothing called |
+| `timeout=1` on an 8 s load | `timeout` with `started: true` after 1 s; `ready(session=6)` then found the loaded save |
+| counts and `session` | `game_calls_total` 1 and `client_calls_total` 0 after each load, `session` +1 per load (2 … 6); `entered_game` with `loaded_by: "tongs"` and the new `session`, an `activity` with `what: "game_call"`; the player's load through the UI (0.19's check, `t111-live1`) leaves `game_calls_total` 0 |
 
 ## Releases
 

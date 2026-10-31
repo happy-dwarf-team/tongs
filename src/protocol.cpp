@@ -1758,9 +1758,18 @@ std::string SaveLoad(const Handlers& h, std::string_view argument, int client) {
                                       "it needs game_calls_ironman = true");
     }
     std::array<int, 4> running{};
-    const bool compatible = h.read_version && h.read_version(running) && VersionListed(meta.versions, running);
+    const bool version = h.read_version && h.read_version(running);
+    const bool compatible = version && VersionListed(meta.versions, running);
+    std::string game_version = "null";
+    if (version) {
+        game_version = "\"" + std::to_string(running[0]) + "." + std::to_string(running[1]) + "." +
+                       std::to_string(running[2]) + "." + std::to_string(running[3]) + "\"";
+    }
+    std::string save_versions = "[";
+    for (std::size_t i = 0; i < meta.versions.size(); ++i) save_versions += (i ? "," : "") + Quote(meta.versions[i]);
     const std::string meta_members = ",\"save_date\":\"" + DateText(meta.date_raw) + "\",\"player\":" + Quote(meta.player) +
-                                     ",\"compatible\":" + Bool(compatible);
+                                     ",\"compatible\":" + Bool(compatible) + ",\"save_versions\":" + save_versions +
+                                     "],\"game_version\":" + game_version;
 
     std::lock_guard lock(g_input_mutex);  // game calls take turns with input
     const std::uint64_t start = h.now_ms();

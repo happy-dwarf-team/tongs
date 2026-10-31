@@ -71,7 +71,8 @@ bool CloseWindows(std::uintptr_t image_base, const SaveLayout& layout, unsigned 
 // Main thread only: whether the session's loading flag is set; false when unreadable.
 bool ReadLoading(std::uintptr_t image_base, const SaveLayout& layout, bool& loading);
 
-// Any thread: the running version the Load dialog compares saves with.
+// Any thread: the running version the Load dialog compares saves with, as a.b.c.d
+// of savegame_versions.
 bool ReadRunningVersion(std::uintptr_t image_base, const SaveLayout& layout, std::array<int, 4>& out);
 
 }  // namespace tongs

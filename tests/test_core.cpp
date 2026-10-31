@@ -3774,7 +3774,7 @@ static void TestSaveLoadCommand() {
     result = 0;
     out = HandleRequest("save load \"x\"", h);
     assert(Contains(out, "{\"ok\":true,\"command\":\"save load\",\"save\":\"x\",\"called\":true,\"load_ms\":"));
-    assert(Contains(out, "\"save_date\":\"1719.3.17\",\"player\":\"ARM\",\"compatible\":false,\"session\":2"));
+    assert(Contains(out, "\"save_date\":\"1719.3.17\",\"player\":\"ARM\",\"compatible\":false,\"save_versions\":[],\"game_version\":\"1.37.5.0\",\"session\":2"));
     assert(Contains(out, "\"covered_by\":null,\"game_calls_total\":1,\"windows_closed\":true") && closes == 1);
     assert(std::string(LoadedBy(2) ? LoadedBy(2) : "") == "tongs" && LoadedBy(1) == nullptr);
     assert(Contains(HandleRequest("state", h), "\"game_calls_total\":1"));

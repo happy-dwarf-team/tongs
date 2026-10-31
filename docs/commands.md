@@ -427,7 +427,12 @@ when Tongs called the game's loader. A run with it is a marked run.
   launcher's `continue=`.
 - **What it discards.** The running game is discarded **without saving and
   without a warning**, as the Load dialog does; Tongs never saves the game.
-  Open in-game windows are closed as the dialog closes them.
+  Tongs then closes the in-game windows as the dialog does, which leaves what
+  the dialog leaves: the game shows its in-game menu after the load (as after a
+  load from that menu), and `covered_by` names it. While it is open the speed
+  keys do nothing: close it with `ui click menu/menu_panel/menu_close_button`
+  before `speed` (see [Sessions](#sessions-and-the-ready-wait)). A province
+  view that was open stays open.
 - **Before calling**, Tongs reads the save's metadata itself (text saves,
   compressed saves with a text or binary `meta`): its date, player, whether it
   is an ironman save and the versions it was saved with. An ironman save is
@@ -442,7 +447,8 @@ when Tongs called the game's loader. A run with it is a marked run.
   The answer carries `save`, `save_date`, `player`, `compatible`, `load_ms`,
   `session` (the new one), `covered_by` (the widget the game hovers in the
   middle of the window when one covers the map, or `null`), `game_calls_total`
-  (1: the session came from a game call) and the fields of `state`. Pause and
+  (1: the session came from a game call), `save_versions` and `game_version`
+  (what `compatible` compared) and the fields of `state`. Pause and
   speed are not changed: the game stays paused, with the save's speed.
 - **`timeout=S`**: default 120 s, up to 600, for the whole command. When no
   frame comes before it, nothing was called (`main thread busy`). When the load
@@ -463,8 +469,9 @@ when Tongs called the game's loader. A run with it is a marked run.
 
 ```powershell
 .\scripts\tongs.ps1 'save load mp_Russia1719_03_17'
-# {"ok":true,"command":"save load","save":"mp_Russia1719_03_17","called":true,"load_ms":7310,"save_date":"1719.3.17",
-#  "player":"RUS","compatible":true,"session":2,"covered_by":null,"game_calls_total":1,...,"paused":true,...}
+# {"ok":true,"command":"save load","save":"mp_Russia1719_03_17","called":true,"load_ms":7817,"save_date":"1719.3.17",
+#  "player":"RUS","compatible":true,"save_versions":["1.37.5.0"],"game_version":"1.37.5.0","session":2,
+#  "covered_by":"menu/menu_panel/menu_ai_prefs_button","game_calls_total":1,...,"paused":true,...}
 ```
 
 ## Console

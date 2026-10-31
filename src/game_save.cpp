@@ -165,8 +165,10 @@ bool ReadLoading(std::uintptr_t base, const SaveLayout& l, bool& loading) {
 bool ReadRunningVersion(std::uintptr_t base, const SaveLayout& l, std::array<int, 4>& out) {
     std::uintptr_t app = 0;
     if (!Read(base + l.app_rva, app) || app == 0) return false;
+    // The struct keeps the parts as first, second, fourth, third: 1, 37, 0, 5 for 1.37.5.0 (live).
+    static constexpr std::size_t kPart[4] = {0, 1, 3, 2};
     for (std::size_t i = 0; i < 4; ++i) {
-        if (!Read(app + l.version[i], out[i])) return false;
+        if (!Read(app + l.version[kPart[i]], out[i])) return false;
     }
     return true;
 }
