@@ -379,9 +379,9 @@ std::string UiView::StepOf(int widget) const {
 std::string ParseUiRequest(std::string_view argument, UiRequest& out) {
     out = {};
     const auto fail = [](const char* code, const std::string& detail) {
-        std::string out = std::string(",\"error\":\"") + code + "\",\"detail\":\"" + JsonEscape(detail) + "\"";
-        if (std::string_view(code) == "bad_selector") out += ",\"hint\":\"" + JsonEscape(UiSelectorHint()) + "\"";
-        return out;
+        std::string members = std::string(",\"error\":\"") + code + "\",\"detail\":\"" + JsonEscape(detail) + "\"";
+        if (std::string_view(code) == "bad_selector") members += ",\"hint\":\"" + JsonEscape(UiSelectorHint()) + "\"";
+        return members;
     };
     std::string_view rest = Trim(argument);
     const std::size_t space = rest.find_first_of(" \t");
