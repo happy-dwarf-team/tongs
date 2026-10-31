@@ -527,6 +527,10 @@ struct MouseTrack {
     int y = 0;
 };
 MouseTrack g_mouse;
+// Where Tongs holds the virtual cursor (game_cursor.hpp) since the last mouse
+// command, until `release`; `province open` puts it back after its hover check.
+// Guarded by g_input_mutex.
+MouseTrack g_held;
 
 InputEvent MoveTo(int x, int y) {
     InputEvent e;
@@ -556,7 +560,10 @@ std::string CheckPoint(const Handlers& h, int x, int y) {
 
 // Puts the GUI pointer at (x, y) and describes the point for the answer.
 std::string PointAt(const Handlers& h, int x, int y) {
-    if (h.set_cursor) h.set_cursor(x, y);
+    if (h.set_cursor) {
+        h.set_cursor(x, y);
+        g_held = {true, x, y};
+    }
     return ",\"x\":" + std::to_string(x) + ",\"y\":" + std::to_string(y) + ",\"cursor\":\"" +
            (h.set_cursor ? "virtual" : "events only") + "\"";
 }
@@ -779,34 +786,41 @@ struct ClickOutcome {
     StateSnapshot state;
 };
 
-// Moves the GUI pointer to the centre of the widget, checks on the main thread
-// that the game hovers the widget (or one inside it) there, then presses and
-// releases the left button. With `settle`, the state is read a moment after the
-// click; event choices watch the event instead. The caller holds the input lock.
-ClickOutcome ClickWidget(const Handlers& h, std::uintptr_t target, const UiRect& rect, int timeout_ms, bool settle) {
-    ClickOutcome c;
+struct HoverOutcome {
+    std::string error;  // why the check could not be made
+    UiCoverCheck cover;
+    std::uint64_t frame = 0;  // the frame of the hover check
+    int attempts = 1;
+};
+
+// Moves the GUI pointer to the centre of `rect` and checks on the main thread,
+// on a frame after the move, whether the game hovers `target` (or a widget
+// inside it) there. The caller holds the input lock.
+HoverOutcome HoverCheck(const Handlers& h, std::uintptr_t target, const UiRect& rect, int timeout_ms) {
+    HoverOutcome out;
     const int x = rect.x + rect.w / 2;
     const int y = rect.y + rect.h / 2;
-    c.members = ",\"point\":{\"x\":" + std::to_string(x) + ",\"y\":" + std::to_string(y) + "}";
-    const auto fail = [&c, &h](std::string error) -> ClickOutcome {
-        c.error = std::move(error);
-        c.state = h.read_state();
-        return c;
-    };
-    if (std::string error = CheckPoint(h, x, y); !error.empty()) return fail(error);
     h.set_cursor(x, y);
-    UiCoverCheck cover;
+    g_held = {true, x, y};
+    UiCoverCheck& cover = out.cover;
     for (int attempt = 1;; ++attempt) {
+        out.attempts = attempt;
         if (attempt > 1) {
             // A move to where the pointer already is may not make the game pick again
             // (the misses came on repeated clicks on a scroll bar button); step one pixel aside first.
             const int aside = x + 1 < rect.x + rect.w ? x + 1 : x - 1;
             h.set_cursor(aside, y);
-            if (std::string error = h.send_input({MoveTo(aside, y)}); !error.empty()) return fail(error);
+            if (std::string error = h.send_input({MoveTo(aside, y)}); !error.empty()) {
+                out.error = error;
+                return out;
+            }
             h.sleep_ms(kClickMoveSettleMs);
             h.set_cursor(x, y);
         }
-        if (std::string error = h.send_input({MoveTo(x, y)}); !error.empty()) return fail(error);
+        if (std::string error = h.send_input({MoveTo(x, y)}); !error.empty()) {
+            out.error = error;
+            return out;
+        }
         h.sleep_ms(kClickMoveSettleMs);
         // The game picks the widget under the pointer once per frame. A job may run
         // after a frame that began before the move; one queued after it returned cannot.
@@ -824,17 +838,38 @@ ClickOutcome ClickWidget(const Handlers& h, std::uintptr_t target, const UiRect&
                 },
                 timeout_ms);
         }
-        if (!o.ran) return fail(o.error);
-        if (!read_error.empty()) return fail(read_error);
-        c.frame = o.frame;
+        if (!o.ran || !read_error.empty()) {
+            out.error = o.ran ? read_error : o.error;
+            return out;
+        }
+        out.frame = o.frame;
         cover = CheckCover(tree, target, hovered);
         // Live, the game sometimes had no hovered widget at all for the first move
         // after a click on a scroll bar button; the same move again found the target.
-        if (!cover.covered || hovered != 0 || attempt == kHoverAttempts) {
-            if (attempt > 1) c.members += ",\"hover_attempts\":" + std::to_string(attempt);
-            break;
-        }
+        if (!cover.covered || hovered != 0 || attempt == kHoverAttempts) return out;
     }
+}
+
+// Moves the GUI pointer to the centre of the widget, checks on the main thread
+// that the game hovers the widget (or one inside it) there, then presses and
+// releases the left button. With `settle`, the state is read a moment after the
+// click; event choices watch the event instead. The caller holds the input lock.
+ClickOutcome ClickWidget(const Handlers& h, std::uintptr_t target, const UiRect& rect, int timeout_ms, bool settle) {
+    ClickOutcome c;
+    const int x = rect.x + rect.w / 2;
+    const int y = rect.y + rect.h / 2;
+    c.members = ",\"point\":{\"x\":" + std::to_string(x) + ",\"y\":" + std::to_string(y) + "}";
+    const auto fail = [&c, &h](std::string error) -> ClickOutcome {
+        c.error = std::move(error);
+        c.state = h.read_state();
+        return c;
+    };
+    if (std::string error = CheckPoint(h, x, y); !error.empty()) return fail(error);
+    const HoverOutcome hover = HoverCheck(h, target, rect, timeout_ms);
+    if (!hover.error.empty()) return fail(hover.error);
+    c.frame = hover.frame;
+    if (hover.attempts > 1) c.members += ",\"hover_attempts\":" + std::to_string(hover.attempts);
+    const UiCoverCheck& cover = hover.cover;
     if (cover.covered) {
         c.members += ",\"covered_by\":" + (cover.covered_by.empty() ? std::string("null") : Quote(cover.covered_by));
         return fail("covered");
@@ -1241,9 +1276,14 @@ std::string UiCommand(const Handlers& h, std::string_view argument) {
 // province ID / country TAG / player / selection [timeout=S]: world reads, on the
 // main thread after an outer frame, with the state of that frame. Not counted:
 // they need only `enabled`, and run while suspended and during a run_until.
+std::string NavigationCommand(const Handlers& h, const WorldRequest& request);
+
 std::string WorldCommand(const Handlers& h, std::string_view command, std::string_view argument) {
     WorldRequest request;
     WorldFailure failure = ParseWorldRequest(command, argument, request);
+    if (!failure.failed() && (request.kind == WorldRequest::Kind::Open || request.kind == WorldRequest::Kind::Goto)) {
+        return NavigationCommand(h, request);
+    }
     const bool readers = h.read_province && h.read_country && h.read_player && h.read_selection;
     if (!failure.failed() && (!h.dispatcher || !h.read_state || !h.now_ms || !readers ||
                               (request.kind == WorldRequest::Kind::Selection && !h.read_ui))) {
@@ -1463,6 +1503,193 @@ private:
     bool called_ = false;
 };
 
+// Set when the game's code faulted in a navigation call; refuses every later one until the game exits.
+std::atomic<bool> g_navigation_tripped{false};
+
+// province open ID / province goto ID [timeout=S]: client calls (ADR 0003). One
+// main-thread job checks and calls (it ends its batch), later jobs check what
+// the next outer frames show and follow the camera, all within `timeout=`.
+std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
+    const bool open = request.kind == WorldRequest::Kind::Open;
+    const std::string command = open ? "province open" : "province goto";
+    const std::string province = ",\"province\":" + std::to_string(request.id);
+    const auto state_tail = [&h] { return h.read_state ? "," + StateFields(h.read_state()) : std::string(); };
+    const auto refuse = [&](const std::string& error, const std::string& detail, const std::string& extra = {}) {
+        return "{\"ok\":false,\"error\":" + Quote(error) + ",\"detail\":" + Quote(detail) + ",\"command\":" +
+               Quote(command) + province + extra + state_tail() + "}";
+    };
+    const auto log = [&h, &command, &request](int level, const std::string& what) {
+        if (h.log) h.log(level, command + " " + std::to_string(request.id) + " (pipe " + std::to_string(t_client) + "): " + what);
+    };
+    if (!InputReady(h)) return refuse("input_disabled", kInputDisabled);
+    if (Suspended(h)) return refuse("suspended", kSuspended);
+    if (!h.dispatcher || !h.read_navigation || !h.call_navigation || !h.read_camera || !h.read_selection || !h.read_ui) {
+        return refuse("unavailable", h.dispatcher ? "navigation is not set up" : kNoDispatch);
+    }
+    if (g_navigation_tripped.load()) {
+        return refuse("navigation_tripped", "navigation is off until the game exits after a call faulted");
+    }
+    std::lock_guard lock(g_input_mutex);  // client calls take turns with input
+    const std::uint64_t start = h.now_ms();
+    const int timeout_ms = request.timeout_ms > 0 ? request.timeout_ms : h.dispatch_timeout_ms;
+    const std::uint64_t deadline = start + static_cast<std::uint64_t>(timeout_ms);
+    const auto left = [&h, deadline] {
+        const std::uint64_t now = h.now_ms();
+        return now < deadline ? static_cast<int>(deadline - now) : 1;
+    };
+
+    NavigationFacts facts;
+    WorldFailure refusal;
+    StateSnapshot before;
+    bool promoted = false;
+    bool faulted = false;
+    unsigned long fault_code = 0;
+    CameraRaw set;  // the camera right after the call: the target it set
+    WorldFailure camera_failure;
+    Dispatcher::Outcome o = h.dispatcher->Run(
+        Dispatcher::Kind::GameCall,
+        [&] {
+            before = h.read_state();
+            if (!before.in_game) {
+                refusal = {"not_in_game", before.reason ? before.reason : "no game loaded"};
+                return std::string();
+            }
+            refusal = h.read_navigation(request.id, facts);
+            if (!refusal.failed()) refusal = NavigationRefusal(open, facts);
+            if (!refusal.failed() && open && facts.discover) {
+                // Opening this view posts a command: a game call (ADR 0003, promotion).
+                promoted = true;
+                if (!h.game_calls.enabled) {
+                    refusal = {"needs_game_calls",
+                               "opening this province's view would make the player discover its owner's capital, a "
+                               "change of game state; it needs game_calls = true"};
+                } else if (g_game_calls_tripped.load()) {
+                    refusal = {"game_calls_tripped", "game calls are off until the game exits after a game call faulted"};
+                } else if (h.read_console) {
+                    ConsoleRaw raw;
+                    if (std::string error = h.read_console(raw); !error.empty()) {
+                        refusal = {"console_unavailable", error};
+                    } else if (ConsoleRefusal r = CheckConsoleMode(h.game_calls, raw); r.refused()) {
+                        refusal = {r.error, r.detail};
+                    }
+                }
+            }
+            if (refusal.failed()) return std::string();
+            faulted = !h.call_navigation(open, facts, fault_code);
+            if (faulted) {
+                g_navigation_tripped.store(true);
+            } else {
+                camera_failure = h.read_camera(set);
+            }
+            return std::string();
+        },
+        timeout_ms);
+    if (!o.ran) return refuse(o.error, "no outer frame came within the timeout; nothing was called");
+    if (refusal.failed()) {
+        log(promoted ? kLogWarning : kLogInfo, "refused: " + refusal.error + " (" + refusal.detail + ")");
+        return refuse(refusal.error, refusal.detail);
+    }
+    // Counted once: a client call, or a game call when it posts a command.
+    std::string counts;
+    if (promoted) {
+        const std::uint64_t calls = g_game_calls.fetch_add(1) + 1;
+        const std::uint64_t total = AddTotalCall(g_game_total, before);
+        PublishActivity(h, ",\"what\":\"game_call\",\"command\":" + Quote(command) + ",\"game_calls\":" + std::to_string(calls));
+        log(kLogWarning, "made as a game call: the player discovers the owner's capital");
+        counts = ",\"game_call\":true,\"game_calls_total\":" + std::to_string(total);
+    } else {
+        counts = ",\"client_calls_total\":" + std::to_string(CountClientCall(h, command, before));
+    }
+    if (faulted) {
+        char code[16];
+        std::snprintf(code, sizeof code, "0x%08lX", fault_code);
+        const std::string detail = std::string("exception ") + code + " in the game's code; navigation is off until the game exits";
+        log(kLogError, "faulted (" + detail + ")");
+        return refuse("faulted", detail, counts);
+    }
+
+    // open: the next outer frame selects the province, shows it in the view and shows the view.
+    std::string view_path = "null";
+    std::uintptr_t view_widget = 0;
+    UiRect view_rect;
+    if (open) {
+        SelectionRaw seen;
+        UiTree tree;
+        WorldFailure failure;
+        std::string read_error;
+        o = h.dispatcher->Run(
+            Dispatcher::Kind::Read,
+            [&] {
+                failure = h.read_selection(seen);
+                if (!failure.failed()) read_error = h.read_ui(tree);
+                return std::string();
+            },
+            left());
+        if (!o.ran) return refuse(o.error, "the calls were made; no outer frame came to check them", counts);
+        if (failure.failed()) return refuse(failure.error, failure.detail, counts);
+        if (!read_error.empty()) return refuse("read_failed", read_error, counts);
+        const int widget = ViewRoot(seen, tree);
+        const bool visible = widget != -1 && UiView(tree, true, true).Visible(widget);
+        if (seen.last_selected != request.id || seen.view_province != request.id || !visible) {
+            const auto id = [](std::int32_t p) { return p > 0 ? std::to_string(p) : std::string("null"); };
+            return refuse("not_shown", "the next frame did not show the province in a visible province view",
+                          counts + ",\"selected\":" + id(seen.last_selected) + ",\"view_province\":" +
+                              id(seen.view_province) + ",\"visible\":" + Bool(visible));
+        }
+        view_path = Quote(UiView(tree, false, true).PathOf(widget));
+        view_widget = tree.widgets[widget].address;
+        view_rect = tree.widgets[widget].rect;
+    }
+
+    // The camera: until it reaches the target the call set, or the timeout (still ok).
+    // The target the game holds can move on (the pointer at the screen edge scrolls it),
+    // so the one read on the frame of the call is the one waited for and answered.
+    if (camera_failure.failed()) return refuse(camera_failure.error, camera_failure.detail, counts);
+    bool settled = false;
+    while (!set.locked && !settled) {
+        WorldFailure failure;
+        CameraRaw now;
+        o = h.dispatcher->Run(
+            Dispatcher::Kind::Read,
+            [&] {
+                failure = h.read_camera(now);
+                return std::string();
+            },
+            left());
+        if (!o.ran) break;
+        if (failure.failed()) return refuse(failure.error, failure.detail, counts);
+        settled = CameraReached(now, set.target_x, set.target_z);
+        if (settled || h.now_ms() >= deadline) break;
+        h.sleep_ms(h.poll_interval_ms);
+    }
+
+    // open: what the game hovers at the view's centre, as ui click's cover check.
+    std::string covered_by = "null";
+    if (open && h.set_cursor && h.read_hovered && h.send_input &&
+        CheckPoint(h, view_rect.x + view_rect.w / 2, view_rect.y + view_rect.h / 2).empty()) {
+        const MouseTrack held = g_held;
+        const HoverOutcome hover = HoverCheck(h, view_widget, view_rect, left());
+        if (hover.error.empty() && hover.cover.covered && !hover.cover.covered_by.empty()) {
+            covered_by = Quote(hover.cover.covered_by);
+        }
+        // The pointer goes back where it was: to a client's mouse command, or to the real mouse.
+        if (held.known) {
+            h.set_cursor(held.x, held.y);
+            h.send_input({MoveTo(held.x, held.y)});
+            g_held = held;
+        } else if (h.release_cursor) {
+            h.release_cursor();
+            g_held = {};
+        }
+    }
+
+    std::string out = "{\"ok\":true,\"command\":" + Quote(command) + province;
+    if (open) out += ",\"view\":" + view_path + ",\"covered_by\":" + covered_by;
+    out += CameraMembers(set.target_x, set.target_z, settled, set.locked);
+    out += counts + ",\"waited_ms\":" + std::to_string(h.now_ms() - start);
+    return out + state_tail() + "}";
+}
+
 std::string Ping(const Handlers& h) {
     std::string out = std::string("{\"ok\":true,\"command\":\"ping\",\"pong\":true,\"version\":\"") + TONGS_VERSION +
                       "\",\"pid\":" + std::to_string(h.process_id);
@@ -1655,6 +1882,10 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
         // Handing the pointer back changes nothing in the game, so it works while suspended too.
         if (!InputReady(handlers)) return Error(kInputDisabled);
         if (handlers.release_cursor) handlers.release_cursor();
+        {
+            std::lock_guard lock(g_input_mutex);
+            g_held = {};
+        }
         return "{\"ok\":true,\"command\":\"release\"}";
     }
     if (command == "text" || command == "move" || command == "click" || command == "scroll") {

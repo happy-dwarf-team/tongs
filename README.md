@@ -36,7 +36,7 @@ outside the forge.
 
 1. Install Tongs (see [Install / uninstall](#install--uninstall)) and turn it
    on in `anvil/data/tongs/settings.toml`: `enabled = true`, and
-   `input = true` for the keyboard and mouse commands (see
+   `input = true` for the keyboard, mouse and navigation commands (see
    [Settings](#settings)).
 2. Start the game, load a save and send commands with one of the
    [clients](#clients):
@@ -61,6 +61,7 @@ command, its answer and its options are in
 | World reads | `province`, `country`, `player`, `selection` | `enabled` |
 | Waiting and notifications | `wait_until`, `cancel`, `subscribe`, `unsubscribe` | `enabled` |
 | Keyboard and mouse | `pause`, `resume`, `speed`, `run_until`, `key`, `text`, `move`, `click`, `scroll`, `release`, `ui click`, `event choose` | `input` |
+| Navigation (client calls) | `province open`, `province goto` | `input` |
 | Game calls | `console` (**changes game state**) | `game_calls` |
 
 Answers that carry the state name the game process (`pid`,
@@ -87,6 +88,7 @@ touched run.
       result = game.run_until("1720.1.1", on_progress=lambda p: print(p.date))
       print(result["days_per_second"], result["inputs"], result["client_calls"], result["game_calls"])
       print(game.province(295)["owner"], game.country("RUS")["province_count"])  # world reads
+      game.open_province(295)  # the province view, as the game's own links open it
 
   with tongs.Tongs() as watch:  # notifications on a connection of their own
       watch.subscribe("state,event,activity")
@@ -101,7 +103,8 @@ touched run.
   came (`answered_late`) or not (`unknown`). With `expect_pid` /
   `expect_start_ms`, an answer from another game process raises
   `ProcessMismatch`. The typed steps (`state`, `wait_until`, `run_until`,
-  `ready`, and the world reads `province`, `country`, `player`, `selection`)
+  `ready`, the world reads `province`, `country`, `player`, `selection`, and
+  the navigation `open_province`, `goto_province`)
   return the plugin's answer unchanged and raise on `"ok": false`.
   From the command line, `python tongs.py "subscribe all" --seconds 30`
   prints the stream (`subscribe` comes last), and
@@ -126,8 +129,8 @@ service only reads, and Tongs registers it on every load, also with
 ## Safety
 
 - Off by default. The pipe opens only with `enabled = true` in
-  `anvil/data/tongs/settings.toml`, accepts keyboard and mouse input only with
-  `input = true` as well, and runs console commands only with
+  `anvil/data/tongs/settings.toml`, accepts keyboard and mouse input and
+  navigation (camera and province views) only with `input = true` as well, and runs console commands only with
   `game_calls = true` (see "Settings").
 - Local clients of the Windows user running the game only (pipe DACL, remote
   clients rejected). No network listener.
@@ -185,7 +188,7 @@ defaults, all off. Your values go into `anvil/data/tongs/settings.toml`, one
 
 ```toml
 enabled = true      # open the pipe
-input = true        # keyboard and mouse commands
+input = true        # keyboard, mouse and navigation commands
 game_calls = true   # console commands (they change game state)
 console_allow = "leak"          # danger commands game calls may run, separated by commas
 game_calls_ironman = false      # game calls in ironman (Anvil must also allow Tongs there)

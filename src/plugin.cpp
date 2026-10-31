@@ -5,6 +5,7 @@
 #include "game_files.hpp"
 #include "game_frame.hpp"
 #include "game_input.hpp"
+#include "game_navigation.hpp"
 #include "game_state.hpp"
 #include "game_symbols.hpp"
 #include "game_threads.hpp"
@@ -154,6 +155,20 @@ struct Tongs : anvil::Plugin {
             }
         } else {
             host.warn("cannot subscribe to {} ({}); main-thread commands disabled", ANVIL_GAME_EVENT_FRAME, error);
+        }
+        if (config.input && handlers.dispatcher) {
+            // Navigation (docs/design.md, "Navigation (0.21.0)"): client calls behind input.
+            const tongs::NavigationLayout navigation = tongs::NavigationLayout::Load();
+            handlers.read_navigation = [image_base, navigation](std::int32_t id, tongs::NavigationFacts& out) {
+                return tongs::ReadNavigationFacts(image_base, navigation, id, out);
+            };
+            handlers.call_navigation = [image_base, navigation](bool open, const tongs::NavigationFacts& facts,
+                                                                unsigned long& fault_code) {
+                return tongs::CallNavigation(image_base, navigation, open, facts, fault_code);
+            };
+            handlers.read_camera = [image_base, navigation](tongs::CameraRaw& out) {
+                return tongs::ReadCamera(image_base, navigation, out);
+            };
         }
         if (config.input) {
             handlers.send_input = [image_base](const std::vector<tongs::InputEvent>& events) {

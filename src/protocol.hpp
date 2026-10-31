@@ -5,6 +5,7 @@
 #include "events.hpp"
 #include "frame_stats.hpp"
 #include "input.hpp"
+#include "navigation.hpp"
 #include "notifications.hpp"
 #include "ui_tree.hpp"
 #include "world.hpp"
@@ -86,7 +87,7 @@ struct ScreenshotResult {
 // JSON object on one line. Commands: ping, state, window, threads, screenshot,
 // frames, ui, event, province, country, player, selection, help, wait_until, cancel,
 // subscribe (see below), and with input enabled key, text, move, click, scroll,
-// release, pause, resume, speed, run_until, ui click, event choose,
+// release, pause, resume, speed, run_until, ui click, event choose, province open/goto,
 // and with game calls enabled console. Input commands and game calls answer with
 // the state read after the action; they take turns across clients.
 struct Handlers {
@@ -124,6 +125,13 @@ struct Handlers {
     std::function<WorldFailure(std::string_view tag, CountryRaw&)> read_country;
     std::function<WorldFailure(PlayerRaw&)> read_player;
     std::function<WorldFailure(SelectionRaw&)> read_selection;
+    // Main thread: navigation (game_navigation.cpp), client calls behind `input`.
+    // read_navigation reads what the call checks first; call_navigation closes the
+    // views, moves the camera and (open) selects, and returns false when the
+    // game's code faulted; read_camera reads the camera. All null: unavailable.
+    std::function<WorldFailure(std::int32_t id, NavigationFacts&)> read_navigation;
+    std::function<bool(bool open, const NavigationFacts&, unsigned long& fault_code)> call_navigation;
+    std::function<WorldFailure(CameraRaw&)> read_camera;
     // Main thread: the open events (game_events.cpp). Returns an error text, or empty.
     std::function<std::string(EventsRaw&)> read_events;
     // Pipe thread, one word: entries in the session's event window list; -1 = unreadable.
@@ -177,7 +185,7 @@ std::string JsonEscape(std::string_view text);
 // Counts one client call (ADR 0003) that called the game: `client_calls` of
 // every wait in progress, an `activity` notification with what "client_call",
 // and client_calls_total of the save `before` was read in, which it returns.
-// For the commands that make client calls; none does before 0.21.
+// For the commands that make client calls: province open and province goto.
 std::uint64_t CountClientCall(const Handlers& handlers, std::string_view command, const StateSnapshot& before);
 
 }  // namespace tongs

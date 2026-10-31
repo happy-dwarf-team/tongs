@@ -45,6 +45,8 @@ With `input = true` in the settings, also:
 | `release` | hands the pointer back to the real mouse |
 | `ui click SEL [timeout=S]` | clicks the centre of the one widget the selector matches (see [Widgets](#widgets)) |
 | `event choose N\|text^="..." [event=N\|event=title^="..."] [timeout=S]` | clicks an option of an open event (see [Events](#events)) |
+| `province open ID [timeout=S]` | opens the province's view and moves the camera to it, as the game's links do (see [Navigation](#navigation)) |
+| `province goto ID [timeout=S]` | moves the camera to the province |
 
 With `game_calls = true` in the settings, also (see [Console](#console)):
 
@@ -66,7 +68,8 @@ while waiting, e.g. an event that pauses the game; with `paused_date`, the
 date of the last pause), `first_change_ms`, `inputs` (input commands any
 client sent during the wait; `run_until` does not count its own presses
 before and after it), `client_calls` (client calls any client made during the
-wait, [ADR 0003](adr/0003-client-calls.md); no command makes one yet) and
+wait, [ADR 0003](adr/0003-client-calls.md): `province open` and `province
+goto`, see [Navigation](#navigation)) and
 `game_calls` (console commands any client ran during the wait), so a
 measurement can reject a run with any of them above 0, and treat a missing one
 (an older Tongs) as unknown;
@@ -156,7 +159,7 @@ included, carries the fields of `state` read on the same frame, and
 | `province ID` | `id`, `name`, `owner`, `controller` (a tag, or `null` for none), `cores` (tags), `base_tax`, `base_production`, `base_manpower` and `development` (their sum), `land`, `wasteland` |
 | `country TAG` | `tag`, `exists` (it owns a province), `province_count`, `provinces` (their IDs, in the game's order), `capital` (an ID, or `null` when none), `observer` |
 | `player` | `tag` (the country the game treats as the player's), `player_tag` and `observed_tag` (as the game stores them; `observed_tag` is `null` when none), `observer` |
-| `selection` | `last_selected` (a province ID, or `null`) and `view`: `province` (the one the province view shows, or `null`), `visible`, `path` (the view's widget path while it is visible, else `null`) |
+| `selection` | `last_selected` (a province ID, or `null`) and `view`: `province` (the one the province view shows, or `null`), `visible`, `path` (the widget path of the window that shows it while it is visible, else `null`: `provinceview`, or `colonisationpanel` for a province without an owner) |
 
 - **IDs and tags.** A province ID is a decimal number without sign or
   leading zeros, valid when `1 ≤ id < count`, with `count` the length of the
@@ -181,7 +184,7 @@ included, carries the fields of `state` read on the same frame, and
   `player_tag`. In the game only `observe` (the spectator `O00`) was seen;
   the observed-tag path was never seen written.
 - **Errors** (`error`, with a `detail` for people): `bad_command` (a bad
-  option, or a word after `province`: navigation comes in 0.21),
+  option, or a word after `province` other than `open` and `goto`),
   `unknown_province`, `unknown_country`, `not_in_game`, `main thread busy`
   (no frame within `timeout=`, for example while a save loads),
   `read_failed` (a read of game memory faulted or a guard failed: an entry's
@@ -194,6 +197,80 @@ included, carries the fields of `state` read on the same frame, and
 #  "base_tax":4,"base_production":7,"base_manpower":4,"development":15,"land":true,"wasteland":false,"in_game":true,...}
 .\scripts\tongs.ps1 'country SWE'
 # {"ok":true,"command":"country","tag":"SWE","exists":false,"province_count":0,"provinces":[],"capital":1,"observer":false,...}
+```
+
+## Navigation
+
+`province open ID` and `province goto ID` move the camera and open a
+province's view as the game's own province links do, instead of finding the
+province on a screenshot and clicking a pixel. They are **client calls**
+([ADR 0003](adr/0003-client-calls.md)): game code run on the main thread
+after an outer frame that changes only the camera, the selection and open
+views. They need `input = true`, take turns with input commands, and each one
+that called the game counts once in `client_calls` (and
+`client_calls_total`, and an `activity` notification with
+`what: "client_call"`), so a run with one is a marked run. In ironman and
+multiplayer they follow input: Anvil's allow lists apply.
+
+- **`province goto ID`** moves the camera over the province, nothing else:
+  no selection, no view, no map highlight. It takes any valid ID, seas,
+  wastelands and terra incognita included.
+- **`province open ID`** does what the religion view's province link does:
+  it closes the open views, moves the camera to the province and selects
+  it, which shows it in the province view. It answers `ok` only when the
+  next outer frame shows it: the selection holds the province, the province
+  view shows it and the window that shows it is visible. The answer carries
+  `province`, `view` (the widget path of that window: `provinceview` on the
+  default interface, `colonisationpanel` for a province without an owner) and `covered_by` (the widget the game hovers at the
+  view's centre when it is not part of the view, such as an event window, or
+  `null`; Tongs moves the pointer there to ask, as `ui click` does, then
+  puts it back where the last mouse command left it, or hands it back to
+  the real mouse). Being covered is not a refusal. When the frame after the
+  call does not show it, the answer is `not_shown` with what it saw
+  (`selected`, `view_province`, `visible`), and the call still counts.
+- **The camera** (both): the command waits until the camera's position
+  reaches its target, then answers `camera: {"settled": true, "target":
+  {"x": …, "z": …}}` (map coordinates). At the timeout it answers `ok` with
+  `settled: false`. The camera glides there in about a second, but the game
+  moves its target on as the player does: a pointer at the edge of the
+  screen scrolls the map, and then the camera never settles on the province
+  (`settled: false`). `target` is always the target the call set. With the
+  camera locked (`debug_lockcamera`, or while the in-game menu is open),
+  `goto` refuses `camera_locked`; `open` still opens and answers
+  `"locked": true`.
+- **`timeout=S`**: default 10 s, up to 60, for the whole command; `main
+  thread busy` when no outer frame comes in time (nothing was called).
+- **Opening a view can change the game.** The game's province view makes the
+  player discover the capital of a foreign owner whose capital the player
+  has not discovered. Tongs checks that case before calling: without
+  `game_calls = true` it refuses `needs_game_calls`; with it, the call counts
+  as one game call only (in `game_calls`, not `client_calls`), takes the
+  console's ironman and multiplayer refusals, and the answer carries
+  `"game_call": true`.
+- **Refusals before calling** (nothing called, nothing counted; they go to
+  the Anvil log):
+
+  | Error | Commands | When |
+  | --- | --- | --- |
+  | `not_in_game` | both | no game loaded |
+  | `input_disabled`, `suspended` | both | `input = false`; Anvil keeps Tongs suspended |
+  | `unknown_province` | both | the ID is outside `1 ≤ id < count` |
+  | `not_selectable` | `open` | a sea, a lake or a wasteland |
+  | `terra_incognita` | `open` | the player has not discovered it (an observer passes) |
+  | `selection_blocked` | `open` | the game selects nothing now (a province-picking mode, the tutorial) |
+  | `camera_locked` | `goto` | the camera is locked: `debug_lockcamera`, or a window that holds it (the in-game menu does) |
+  | `needs_game_calls` | `open` | the discover case above without `game_calls = true` |
+
+  For a province without an owner the game shows its colonisation panel
+  instead of the province view: `open` answers `ok` with
+  `view: "colonisationpanel"`, and `selection` reports that panel too. Read
+  the owner with `province ID`. A fault in the game's code answers `faulted` and turns
+  navigation off until the game exits (`navigation_tripped`).
+
+```powershell
+.\scripts\tongs.ps1 'province open 295'
+# {"ok":true,"command":"province open","province":295,"view":"provinceview","covered_by":null,
+#  "camera":{"settled":true,"target":{"x":…,"z":…}},"client_calls_total":1,"waited_ms":…,"in_game":true,...}
 ```
 
 ## Widgets

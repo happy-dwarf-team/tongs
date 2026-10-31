@@ -2340,6 +2340,101 @@ unchanged afterwards.
 | `selection` after a map click (Mukhtuya, 1054) and after closing the view | `last_selected` and `view.province` 1054 both times (#107's trap); `view.visible` was `false` while `ui find provinceview` said visible: the view object is a controller, its window is at `+0xA0` (fixed with `view_window`) |
 | `selection` with the fix (run `t112-sel2`): a map click (40), a second click (1078), then Esc | `view.visible: true`, `path: "provinceview"` and the clicked province each time; after Esc `visible: false` and `path: null`, `last_selected` and `view.province` still 1078 |
 
+## Navigation (0.21.0)
+
+Release 0.21 of the [scenario support v1 spec](spec/scenarios-v1.md)
+(section 6): `province open ID` and `province goto ID`, the first client calls
+([ADR 0003](adr/0003-client-calls.md)). The addresses come from the static
+research on the `research/province-navigation` branch (tongs#96) and the
+contract of tongs#101; they are the "Navigation" symbols of
+`plugin/symbols.toml` (14 new, checked with `anvil check plugin --exe`).
+
+- **One job checks and calls.** A dispatcher `GameCall` job (it ends its
+  batch, so the next job sees the effect a frame later) reads the state, then
+  everything the call depends on, on the same frame: the world read's bound
+  and guard, the land and wasteland bits, the player's tag (the observer
+  rule of `player`), the session's selection object (`session+0x1220`), the
+  session mode (`+0x2C`, nothing is selected in `0x25`), the tutorial guard
+  (`tutorial_blocks`, `0x140D100`, which only reads), the camera
+  (`session+0x1200`) and its lock byte (`+0x758`). Refusals call nothing.
+- **Terra incognita** is the province links' own test (`0xFF63B8`): a
+  province with bit `0x10` of `+0x959` whose discovered-by bitset
+  (`*(+0x5E0)`, one bit per country index) lacks the player, unless the player
+  has no tag or is the observer. The game's lower layers do not test it, so
+  Tongs must.
+- **`goto`** calls `camera_to_province_id` (`0x80FD30`, session vtable slot
+  `0x278`, `session_camera_slot` checks the slot) with the session and the
+  ID. It sets the camera's target only (height kept); the camera moves there
+  over the next frames.
+- **`open`** makes the religion view's province link (`0xFF6350`): when
+  `views_open` (`0x8208A0`) says a view is shown, `close_views` (`0x8205E0`),
+  then the camera as `goto`, then `select_province` (`0x139C830`) with the
+  selection object and the province, which shows it in the province view.
+  The next job checks the next outer frame: the selection holds the province,
+  the view (`selection+0x10`) shows it (`+0x958`) and its window
+  (`view_window`) is visible in the widget tree.
+- **The discover case.** `0x1347A50` posts a command that makes the player
+  discover a capital (`province_view_discover_command`, type `0x2C8E`) when
+  the province has an owner (valid byte `+0x46F`) other than the player, its
+  `+0x3F8` is below 1 or bit `0x10` of `+0x958` is set
+  (`province_view_layout`), and the owner's capital province
+  (`country+0x14B0`) is undiscovered by the player by the same test as
+  terra incognita (`province_view_discover`). Tongs evaluates the same
+  conditions first and promotes the call (ADR 0003). It does not check
+  whether the view already shows the province, in which case the game
+  would not post: the promotion errs on the side of a game call.
+- **The camera.** `camera_snap` names the current position
+  (`+0x67C`/`+0x684`) and `camera_set_target` the target (`+0x694`/`+0x69C`),
+  read in read jobs after the call.
+- **The window that shows it.** The province view shows an owned province in
+  its own window (`view_window`, `+0xA0`). For a province without an owner
+  the game shows the colonisation panel instead: its controller is at
+  `view+0x2F0` (built with the name `colonisationpanel`), its window at
+  `+0x558` (`province_view_colonisation`), and while that window is shown
+  the view keeps its own hidden. `open`'s check and `selection` take the
+  visible one of the two.
+- **The camera's target moves on.** The call sets the target on its own
+  frame; the game then moves the target as for a player (a pointer at the
+  screen edge scrolls it), and the current position follows it. So the
+  commands keep the target read right after the call, wait until the current
+  position is within `kCameraTolerance` of it (on a wrapping map, x around
+  the wrap: `camera_to_province` holds the map's width, `[0x233FED8]+0x28`),
+  and answer that target.
+- **`covered_by`** is `ui click`'s hover check at the view window's centre:
+  the virtual pointer and a mouse motion event there, then the hovered widget
+  on a later frame. The pointer then goes back where the last mouse command
+  left it, or to the real mouse. The move is part of the client call and not
+  counted as input.
+- **Faults.** The calls run under SEH; a fault answers `faulted` and refuses
+  every later navigation call until the game exits (`navigation_tripped`),
+  as game calls do after a fault.
+
+### Live check (2026-10-31)
+
+Lab runs `t113-live1` … `t113-live3` and `t113-cam1` … `t113-cam6`: EU4 1.37.5
+with the original `eu4.exe`, Anvil 1.5.2 and `anvil-game`, this branch's
+Tongs with `input` and `game_calls` on, the Russia save of 1719.3.17 started
+with `continue=`, driven by `scripts/tongs.py` from the branch after
+`ready(session=1)`; a read-only external sampler (`PROCESS_VM_READ`) read the
+camera and the selection object every 20–50 ms; the save was unchanged
+afterwards.
+
+| Check | Seen |
+| --- | --- |
+| glide or snap (H1) | a glide: the target is set on the call's frame (151: x 3243, z 1319, its map position 3243/1349 with z moved back by 30, height kept), the current position follows with a time constant of about 0.12–0.15 s (386 map units behind after 0.2 s, 66 after 0.4 s) |
+| the target moving on | in every run the game also moved the target by about 500 units/s westward (or northward up to the map's edge, 2018), with the virtual pointer parked in the middle of the window too: the real pointer stood at the screen edge. The first build waited for the moving target and answered it (x ≈ 318 at the map's edge); the target is now the call's own, and with the drift `settled` stays `false` at the timeout, as the contract says. `kCameraTolerance` 1 map unit: with a time constant of 0.15 s a jump of 3000 units comes within it in about 1.2 s |
+| the wrap | the current x jumped from −250 to 5232 on the way (the map wraps at 5632); `settled` compares x around the wrap |
+| `goto` | 151, 295, a sea (1252), terra incognita (3190) all moved the camera; 4942 `unknown_province` |
+| `open` 295, 1754 | `ok`, `view: "provinceview"`, `covered_by: null`; `selection` then 295 with the view visible |
+| `open` from a closed view (Esc) | `ok`, the view shown again |
+| `open` 1252 (sea), 1173 (wasteland), 3190 | `not_selectable`, `not_selectable`, `terra_incognita`; nothing called or counted |
+| uncolonised provinces (H, #101) | the game shows `colonisationpanel`, not `provinceview` (1161, 1249, 4109, 1162): the first build answered `not_shown` (`selected` and `view_province` 1161, `visible: false`); with the colonisation panel it answers `ok` with `view: "colonisationpanel"`, and `selection` reports it too |
+| the Esc menu open | the camera's lock byte is 1 while it is: `goto` refuses `camera_locked`, `open` opens behind it with `covered_by: "menu/menu"` and `camera.locked: true` |
+| `debug_lockcamera` | "Command available only for developers." outside debug mode; not checked |
+| the discover case (H4) | no province qualified in this save (the external reader evaluated the conditions for every discovered land province: 0); not seen |
+| `small_provinceview` (H7) | not in the widget tree, and the selection object's small view (`+0x18`) is null: the default interface uses the big view only |
+| counts | a `wait_until` on another connection during one `goto` answered `inputs` 0, `client_calls` 1, `game_calls` 0; `client_calls_total` rose by one per call that called the game, refusals included none |
+
 ## Releases
 
 Each release is one PR with its live checks done before it merges; the order

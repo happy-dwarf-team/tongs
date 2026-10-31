@@ -248,6 +248,11 @@ Decided in #101. Both commands are client calls behind `input`.
   | `camera_locked` | `goto` | `debug_lockcamera` is on |
   | `needs_game_calls` | `open` | the discover case without `game_calls = true` |
 
+  Like input commands, both also refuse `suspended` while Anvil keeps Tongs
+  suspended. A fault in the game's code during the call answers `faulted`
+  and turns navigation off until the game exits (`navigation_tripped`), as a
+  faulted game call does (found in 0.21).
+
 - **The discover case:** a foreign province whose owner's capital the player
   has not discovered makes the view post a discover command. With
   `game_calls = true` the call counts as one game call only and the answer
@@ -255,7 +260,9 @@ Decided in #101. Both commands are client calls behind `input`.
 - **Counting:** each `open` or `goto` that called the game is one client call,
   `not_shown` included.
 - An uncolonised province is accepted by `open` with the same promise; the
-  client reads its owner with `province ID`.
+  client reads its owner with `province ID`. The root that shows it is the
+  colonisation panel (`colonisationpanel` in vanilla), and `selection`
+  reports that root too (found in 0.21).
 
 ## 7. Loading a save
 

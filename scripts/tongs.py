@@ -368,6 +368,16 @@ class Tongs:
         """The last selected province and the province view: only view.visible says it is open."""
         return self.call(line("selection", timeout=timeout), check=True)
 
+    # Navigation (docs/commands.md, "Navigation"): client calls, behind input.
+
+    def open_province(self, id, timeout=None):
+        """Opens the province's view (and moves the camera to it), as the game's links do."""
+        return self.call(line("province open", int(id), timeout=timeout), check=True)
+
+    def goto_province(self, id, timeout=None):
+        """Moves the camera to the province, nothing else."""
+        return self.call(line("province goto", int(id), timeout=timeout), check=True)
+
     def ready(self, session=None, in_game=True, speed=None, timeout=None):
         """ready() on this connection; see the module function."""
         return wait_ready(
