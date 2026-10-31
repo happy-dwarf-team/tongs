@@ -2268,6 +2268,50 @@ check box, so `ui click` on `save_game` refuses `covered`; a plain `click` on
 the row beside the title selects it. The same `[n]` path named another row
 in `ui find ... all` than without `all`.
 
+## World reads (0.20.0)
+
+Release 0.20 of the [scenario support v1 spec](spec/scenarios-v1.md)
+(section 5): `province ID`, `country TAG`, `player` and `selection`. The
+addresses come from the static research on the `research/world-objects`
+branch (tongs#95) and its check in a running game (tongs#107); they are the
+"World reads" symbols of `plugin/symbols.toml`, checked with
+`anvil check plugin --exe` (143 symbols, 16 new).
+
+- **Where it runs.** A dispatcher read job, like `ui find`: after an outer
+  frame, so between two game days (an off-thread reader sees days half
+  applied, #107). The job reads the state first and answers `not_in_game`
+  without touching the world when the session is not the game's. Not
+  counted, no `input`, not refused while suspended.
+- **Re-derived on every read.** Each read starts from the root
+  (`0x233FE78`): the province vector `root+0x1C90..0x1C98` gives the count
+  (4942, the dummy entry 0 included, so a valid ID is `1 ≤ id < count`), the
+  array `root+0x1CA8` the entry (`id × 0x2E10`). Nothing is cached, so a
+  load or `reload_provincemap` cannot leave a stale pointer behind.
+- **Guards.** Every read is its own SEH-guarded copy (`game_memory`); an
+  entry whose `+0x20` is not the ID asked for, a country whose own tag
+  (`+0x20`) is not the tag looked up, a core vector that is not a whole
+  number of tags or longer than 1024, a bucket above 4096 tags or a province
+  count outside `0..count` answer `read_failed` and cost only that answer.
+- **Tags** are 8 bytes: three characters, the country index (int16) at
+  byte 4, a kind byte at 6 (7: the observer) and a valid byte at 7; the
+  byte positions come from the player's two tags in `player_country`
+  (`0x1E66 − 0x1E60`, `0x1E6F − 0x1E68`). A tag with valid byte 0 (`---`)
+  is answered as `null`.
+- **Tag lookup** walks the game's own 64 buckets (`0x286120`, not called):
+  the three upper-cased characters summed and `& 0x3F` (`tag_buckets`, which
+  also holds the bucket stride `0x18` in its `lea` pair), 8-byte tags at
+  `db+0x148+n×0x18` with the count at `+0x154`, compared over three
+  characters ignoring case. The country is then `(*(db+0x118))[index]`.
+- **Selection.** `*(session+0x1220)` is the selection object: the province at
+  `+0x00`, the province view at `+0x10` (`selection_view`), which shows its
+  province at `+0x958`. `view.visible` and `view.path` come from the widget
+  tree read in the same job: the widget whose pointer is the view plus the
+  window part (`0x30`, as for event windows).
+- **`unavailable`.** Anvil verifies every symbol before it loads the plugin
+  and skips the whole plugin on a mismatch, so the world-read symbols cannot
+  fail on their own; `unavailable` answers when main-thread commands are not
+  available (no `anvil-game` frames). The spec was changed to say so.
+
 ## Releases
 
 Each release is one PR with its live checks done before it merges; the order

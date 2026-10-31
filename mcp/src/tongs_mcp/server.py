@@ -116,6 +116,8 @@ JSON answer unchanged; "ok": false answers come back as errors with an "error" f
   game was restarted and earlier answers describe another process. `session` is 1 for
   the first game of the process and +1 at every load: when it changes, the game state
   was replaced.
+- World reads (tongs_province, tongs_country, tongs_player, tongs_selection) answer the
+  game's own values by province ID or tag; they are not counted and never mark a run.
 - Input tools (pause, resume, speed, key, text, mouse, ui click, event choose, run_until)
   work only with input = true in the plugin config and are counted in "inputs" of any
   wait in progress. tongs_console works only with game_calls = true, changes game
@@ -172,6 +174,12 @@ Progress = Annotated[
     ),
 ]
 
+
+WorldTimeout = Annotated[
+    int | None, Field(ge=1, le=60, description="Seconds to wait for a main-loop frame (plugin default 10).")
+]
+ProvinceId = Annotated[int, Field(ge=1, description="Province ID, e.g. 295 (Moskva in vanilla).")]
+Tag = Annotated[str, Field(pattern=r"^[A-Za-z0-9]{3}$", description="Country tag, e.g. RUS or TUR.")]
 
 X = Annotated[int, Field(ge=0, description="Client x in pixels (see tongs_window, ui click_point).")]
 
@@ -648,6 +656,36 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         not_visible, stale (only stale widgets match), disabled, covered (with covered_by)."""
         _check(selector)
         return await call(_line("ui click", selector, timeout=timeout))
+
+    # --- world reads ---
+
+    @tool(READ)
+    async def tongs_province(province_id: ProvinceId, timeout: WorldTimeout = None) -> CallToolResult:
+        """One province by ID, read on the main thread: id, name, owner, controller (null for none),
+        cores, base_tax / base_production / base_manpower and development (without the capital
+        bonus), land (false for seas and lakes) and wasteland. `name` follows the owner's culture:
+        never match on it. unknown_province outside 1 <= id < the game's province count."""
+        return await call(_line("province", province_id, timeout=timeout))
+
+    @tool(READ)
+    async def tongs_country(tag: Tag, timeout: WorldTimeout = None) -> CallToolResult:
+        """One country by tag (case-insensitive), read on the main thread: tag, exists (owns a
+        province), province_count, provinces (IDs), capital (null when none) and observer. A dead
+        country answers ok with exists: false; a tag the game does not know is unknown_country."""
+        return await call(_line("country", tag, timeout=timeout))
+
+    @tool(READ)
+    async def tongs_player(timeout: WorldTimeout = None) -> CallToolResult:
+        """The player's country: tag (the one the game treats as the player's, observe mode
+        included), player_tag and observed_tag as stored, and observer."""
+        return await call(_line("player", timeout=timeout))
+
+    @tool(READ)
+    async def tongs_selection(timeout: WorldTimeout = None) -> CallToolResult:
+        """The province selection: last_selected (survives closing the view, selecting an army and
+        sometimes a load) and view {province, visible, path}. Only view.visible says whether a
+        province view is open."""
+        return await call(_line("selection", timeout=timeout))
 
     # --- events ---
 

@@ -18,6 +18,7 @@ from tongs_mcp.tongs import (
     ProcessMismatch,
     ReadyError,
     Tongs,
+    TongsError,
     follow_dates,
     read_timeout,
     wait_ready,
@@ -317,3 +318,25 @@ def test_ready_timeout_names_the_pipe_and_frames():
 def test_ready_default_timeouts():
     assert tongs.ready_timeout(1) == 180 and tongs.ready_timeout(None) == 180
     assert tongs.ready_timeout(2) == 30 and tongs.ready_timeout(in_game=False) == 60
+
+
+# --- world reads ---
+
+
+@windows
+def test_world_reads_send_their_lines_and_raise_on_refusals(serve):
+    def handler(line):
+        if line == "province 4942":
+            return {"ok": False, "error": "unknown_province", "detail": "no province 4942 (valid IDs 1..4941)"}
+        return {"ok": True, "command": line.split()[0], "line": line}
+
+    server = serve(handler)
+    with Tongs() as conn:
+        assert conn.province(295)["line"] == "province 295"
+        assert conn.country("rus", timeout=5)["line"] == "country rus timeout=5"
+        assert conn.player()["command"] == "player"
+        assert conn.selection(timeout=2)["line"] == "selection timeout=2"
+        with pytest.raises(TongsError) as e:
+            conn.province(4942)
+    assert e.value.error == "unknown_province"
+    assert server.lines == ["province 295", "country rus timeout=5", "player", "selection timeout=2", "province 4942"]

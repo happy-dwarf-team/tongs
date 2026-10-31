@@ -1238,6 +1238,75 @@ std::string UiCommand(const Handlers& h, std::string_view argument) {
     return out + "}";
 }
 
+// province ID / country TAG / player / selection [timeout=S]: world reads, on the
+// main thread after an outer frame, with the state of that frame. Not counted:
+// they need only `enabled`, and run while suspended and during a run_until.
+std::string WorldCommand(const Handlers& h, std::string_view command, std::string_view argument) {
+    WorldRequest request;
+    WorldFailure failure = ParseWorldRequest(command, argument, request);
+    const bool readers = h.read_province && h.read_country && h.read_player && h.read_selection;
+    if (!failure.failed() && (!h.dispatcher || !h.read_state || !h.now_ms || !readers ||
+                              (request.kind == WorldRequest::Kind::Selection && !h.read_ui))) {
+        failure = {"unavailable", h.dispatcher ? "world reads are not set up" : kNoDispatch};
+    }
+    const auto refuse = [&](const WorldFailure& f, const std::string& tail) {
+        return "{\"ok\":false,\"error\":" + Quote(f.error) + ",\"detail\":" + Quote(f.detail) + ",\"command\":" +
+               Quote(command) + tail + "}";
+    };
+    const auto state_tail = [&h] { return h.read_state ? "," + StateFields(h.read_state()) : std::string(); };
+    if (failure.failed()) return refuse(failure, state_tail());
+    std::string members;
+    StateSnapshot state;
+    const Dispatcher::Outcome outcome = h.dispatcher->Run(
+        Dispatcher::Kind::Read,
+        [&] {
+            state = h.read_state();
+            if (!state.in_game) {
+                failure = {"not_in_game", state.reason ? state.reason : "no game loaded"};
+                return std::string();
+            }
+            switch (request.kind) {
+                case WorldRequest::Kind::Province: {
+                    ProvinceRaw p;
+                    failure = h.read_province(request.id, p);
+                    if (!failure.failed()) members = ProvinceMembers(p);
+                    break;
+                }
+                case WorldRequest::Kind::Country: {
+                    CountryRaw c;
+                    failure = h.read_country(request.tag, c);
+                    if (!failure.failed()) members = CountryMembers(c);
+                    break;
+                }
+                case WorldRequest::Kind::Player: {
+                    PlayerRaw p;
+                    failure = h.read_player(p);
+                    if (!failure.failed()) members = PlayerMembers(p);
+                    break;
+                }
+                case WorldRequest::Kind::Selection: {
+                    SelectionRaw s;
+                    failure = h.read_selection(s);
+                    UiTree tree;
+                    if (!failure.failed()) {
+                        if (std::string error = h.read_ui(tree); !error.empty()) failure = {"read_failed", error};
+                    }
+                    if (!failure.failed()) members = SelectionMembers(s, tree);
+                    break;
+                }
+            }
+            return std::string();
+        },
+        request.timeout_ms > 0 ? request.timeout_ms : h.dispatch_timeout_ms);
+    if (!outcome.ran) {
+        return "{\"ok\":false,\"error\":" + Quote(outcome.error) + ",\"command\":" + Quote(command) +
+               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + state_tail() + "}";
+    }
+    const std::string tail = "," + StateFields(state) + DispatchTimes(outcome);
+    if (failure.failed()) return refuse(failure, tail);
+    return "{\"ok\":true,\"command\":" + Quote(command) + members + tail + "}";
+}
+
 constexpr int kLogInfo = 1;
 constexpr int kLogWarning = 2;
 constexpr int kLogError = 3;
@@ -1555,7 +1624,7 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
         return "{\"ok\":true," + WindowFields(handlers.read_window()) + "}";
     }
     if (command == "help" && argument.empty()) {
-        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"frames\",\"ui\",\"event\",\"help\",") +
+        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"frames\",\"ui\",\"event\",\"province\",\"country\",\"player\",\"selection\",\"help\",") +
                "\"wait_until\",\"cancel\",\"key\",\"text\",\"move\",\"click\",\"scroll\",\"release\",\"pause\",\"resume\",\"speed\"," +
                "\"run_until\",\"console\",\"subscribe\",\"unsubscribe\"],\"input\":" + Bool(InputReady(handlers)) + ",\"main_thread\":" +
                Bool(handlers.dispatcher != nullptr) + ",\"game_calls\":" + Bool(handlers.game_calls.enabled) +
@@ -1570,6 +1639,9 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
     if (command == "frames") return FramesCommand(handlers, argument);
     if (command == "ui") return UiCommand(handlers, argument);
     if (command == "event") return EventCommand(handlers, argument);
+    if (command == "province" || command == "country" || command == "player" || command == "selection") {
+        return WorldCommand(handlers, command, argument);
+    }
     if (command == "console") return ConsoleCall(handlers, argument, client).Run();
     if (command == "wait_until") {
         if (!handlers.read_state || !handlers.sleep_ms || !handlers.now_ms) return Error("state reader unavailable");

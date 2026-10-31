@@ -20,6 +20,10 @@ connection can instead carry notifications (see [Notifications](#notifications))
 | `ui find SEL [all] [stale] [limit=N]` | widgets that match the selector `SEL` (see [Widgets](#widgets)): `count`, `truncated` and up to 50 `matches` (`limit=` up to 5000), each with `path`, `type`, `visible`, `rect` and `click_point` in client pixels, and `text` / `enabled` / `stale` where they apply. Read on the main thread, like `frames` |
 | `ui tree [SEL] [depth=N] [limit=N] [all]` | the widget tree from the top-level windows, or from the matches of `SEL`, as nested `widgets` (up to 200, `limit=` up to 5000); `depth=N` gives deeper levels only as `children_count` |
 | `event list [timeout=S]` | the open events, topmost first (see [Events](#events)), read on the main thread |
+| `province ID [timeout=S]` | one province by ID: name, owner, controller, cores, development, land and wasteland (see [World reads](#world-reads)) |
+| `country TAG [timeout=S]` | one country by tag: whether it exists, its provinces and its capital |
+| `player [timeout=S]` | the player's country |
+| `selection [timeout=S]` | the last selected province and whether a province view shows one |
 | `wait_until DATE [timeout=S] [max_pause=S]` | waits (without touching the game) until the date reaches `DATE` (`1720.1.1` or `1720.1.1.12`); answers with the timing below |
 | `cancel` | ends every `wait_until` / `run_until` in progress and withdraws main-thread jobs still waiting for a frame (`withdrawn`) |
 | `subscribe KINDS [date=day\|month\|year]` | turns the connection into a stream of notifications (see [Notifications](#notifications)); `unsubscribe` ends it |
@@ -134,6 +138,63 @@ and the speed keys do nothing while it is: close it first
 at windows.
 The Python client and the MCP server implement it as `ready()` and
 `tongs_ready` (see [Clients](../README.md#clients)).
+
+## World reads
+
+`province ID`, `country TAG`, `player` and `selection` read the game's world
+on the main thread, after an outer frame and between two game days, like
+`ui find`. They need only `enabled`, are not counted (no `inputs`,
+`client_calls` or `game_calls`, so they never mark a run), and also run
+during another connection's `run_until`, in ironman and multiplayer, and
+while Anvil has suspended Tongs. Each takes `timeout=S` (default 10 s, up to
+60) for the wait for a frame and answers one object. Every answer, refusals
+included, carries the fields of `state` read on the same frame, and
+`queued_ms`, `run_ms` and `frame` once the read ran.
+
+| Command | Answer |
+| --- | --- |
+| `province ID` | `id`, `name`, `owner`, `controller` (a tag, or `null` for none), `cores` (tags), `base_tax`, `base_production`, `base_manpower` and `development` (their sum), `land`, `wasteland` |
+| `country TAG` | `tag`, `exists` (it owns a province), `province_count`, `provinces` (their IDs, in the game's order), `capital` (an ID, or `null` when none), `observer` |
+| `player` | `tag` (the country the game treats as the player's), `player_tag` and `observed_tag` (as the game stores them; `observed_tag` is `null` when none), `observer` |
+| `selection` | `last_selected` (a province ID, or `null`) and `view`: `province` (the one the province view shows, or `null`), `visible`, `path` (the view's widget path while it is visible, else `null`) |
+
+- **IDs and tags.** A province ID is a decimal number without sign or
+  leading zeros, valid when `1 ≤ id < count`, with `count` the length of the
+  game's province vector read on each call (4942 in vanilla: IDs 1–4941;
+  entry 0 is a dummy). A tag is three letters or digits, case-insensitive,
+  looked up as the game does; answers give it as the game stores it (upper
+  case). Special tags (`REB`, `O00`, `D00`, …) are accepted when the game
+  knows them. Names are never accepted as input.
+- **Values as the game stores them.** The development parts are without the
+  capital bonus. `land` is `false` for seas and lakes. A dead country
+  answers `ok` with `exists: false` and `province_count: 0`.
+- **`name` is for people.** It is the name the game displays, and that
+  follows the owner's culture (Stockholm under Russian rule is `Tukholma`,
+  Constantinople `Tsargrad`). Match provinces by ID, never by name.
+- **`last_selected` is not "selected now".** It survives closing the
+  province view and selecting an army or a fleet, and after a save load it
+  may still point at the province selected before the load (while
+  `view.province` is `null`). Only `view.visible` answers "is a province view
+  open".
+- **The observer.** `player.tag` follows the game's rule: the observed tag
+  when the player is the observer and an observed tag is set, else
+  `player_tag`. In the game only `observe` (the spectator `O00`) was seen;
+  the observed-tag path was never seen written.
+- **Errors** (`error`, with a `detail` for people): `bad_command` (a bad
+  option, or a word after `province`: navigation comes in 0.21),
+  `unknown_province`, `unknown_country`, `not_in_game`, `main thread busy`
+  (no frame within `timeout=`, for example while a save loads),
+  `read_failed` (a read of game memory faulted or a guard failed: an entry's
+  own ID, a country's own tag; later reads keep working) and `unavailable`
+  (main-thread commands are not available).
+
+```powershell
+.\scripts\tongs.ps1 'province 1754'
+# {"ok":true,"command":"province","id":1754,"name":"Murom","owner":"RUS","controller":"RUS","cores":["RUS"],
+#  "base_tax":4,"base_production":7,"base_manpower":4,"development":15,"land":true,"wasteland":false,"in_game":true,...}
+.\scripts\tongs.ps1 'country SWE'
+# {"ok":true,"command":"country","tag":"SWE","exists":false,"province_count":0,"provinces":[],"capital":1,"observer":false,...}
+```
 
 ## Widgets
 
