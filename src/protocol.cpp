@@ -1770,6 +1770,8 @@ std::string SaveLoad(const Handlers& h, std::string_view argument, int client) {
         std::mutex mutex;
         std::condition_variable done_cv;
         bool done = false;
+        bool called = false;     // the loader was called
+        bool abandoned = false;  // the answer went out at the timeout: the thread counts the call
         Dispatcher::Outcome outcome;
         std::string refusal, refusal_detail;
         StateSnapshot before;
@@ -1804,6 +1806,7 @@ std::string SaveLoad(const Handlers& h, std::string_view argument, int client) {
                 }
                 if (g_game_calls_tripped.load()) return refused("game_calls_tripped", "game calls are off until the game exits");
                 g_tongs_load.store(before.load + 1);
+                call->called = true;
                 const std::uint64_t t0 = hh.now_ms();
                 call->load = hh.call_load(name);
                 call->load_ms = hh.now_ms() - t0;
@@ -1819,6 +1822,11 @@ std::string SaveLoad(const Handlers& h, std::string_view argument, int client) {
         std::lock_guard g(call->mutex);
         call->outcome = o;
         call->done = true;
+        if (call->abandoned && call->called) {
+            // Nobody waits for this load any more; it is still one game call.
+            g_game_calls.fetch_add(1);
+            AddTotalCall(g_game_total, hh.read_state());
+        }
         call->done_cv.notify_all();
     }).detach();
     {
@@ -1827,6 +1835,7 @@ std::string SaveLoad(const Handlers& h, std::string_view argument, int client) {
         call->done_cv.wait_for(g, std::chrono::milliseconds(deadline > now ? deadline - now : 0), [&call] { return call->done; });
         if (!call->done) {
             // The job started (a queued one is withdrawn at its own limit): the load is still running.
+            call->abandoned = true;
             log(kLogWarning, "timeout while the game loads; its effect is unknown");
             return answer(false, "timeout", "the load did not finish within " + std::to_string(timeout_s) + " s; its effect is unknown",
                           ",\"started\":true" + meta_members);
