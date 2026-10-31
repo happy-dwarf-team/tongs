@@ -1189,6 +1189,14 @@ holds the contract; the release zip carries it in `tongs/include/tongs/`
   651; `iconType =` on 2134 and `{` on 2135 of Proper 2K's `menubar.gui` gave
   2135), and after `reload` of a copy three lines longer the line moved by
   three (`speed_controls.gui` 86, then 89).
+- **markup**: the widget's text as the game holds it, in UTF-8 with its
+  colour codes kept (`§` as U+00A7 and the code's character: `§G0.45§!`),
+  where `text` drops them. The game colours values this way (a province's
+  tax green, its unrest red); Etch's live snapshot needs the codes to draw
+  the colours. Read with `text` from the same string, NULL when `text` is.
+  Appended to `TongsUiWidget` within version 1: check it with
+  `TONGS_UI_WIDGET_HAS(widget, markup)`. The pipe's answers keep `text`
+  without codes.
 - **Unit tests** (`tests/test_core.cpp`, `TestUiService*`) run the adapter
   over the hand-built trees of the `ui` tests: the same paths and rectangles
   as `ui find`, ancestors, `[n]` and positional steps, hidden and stale

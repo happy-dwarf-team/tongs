@@ -105,6 +105,7 @@ public:
             (w.type == UiType::Text || w.type == UiType::Editbox || !text.empty())) {
             w.has_text = true;
             w.text = GameTextToUtf8(text);
+            w.markup = GameTextToUtf8(text, true);
         }
         std::int32_t state = 0;
         if (e.kind->state && tongs::Read(e.pointer + l_.button_state, state)) {

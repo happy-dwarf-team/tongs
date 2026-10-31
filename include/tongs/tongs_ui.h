@@ -107,6 +107,8 @@ typedef struct TongsUiWidget {
                                   * widget and when the definition is not live */
     uint32_t definition_line;    /* the 1-based line of the `{` that opens the widget's block in that file (the
                                   * line guibounds shows); 0 under the same rule as definition_file */
+    const char *markup;          /* the text as the game holds it, UTF-8 with its colour codes kept: § (U+00A7)
+                                  * and the code's character, as in "§G0.45§!"; NULL when `text` is NULL */
 } TongsUiWidget;
 
 /* Nonzero when `widget` (a const TongsUiWidget*) carries `field`. */

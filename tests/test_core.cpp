@@ -336,6 +336,8 @@ static void TestUiSelectors() {
     assert(GameTextToUtf8("Krak\xF3w \x80 \x81") == "Krak\xC3\xB3w \xE2\x82\xAC \xC2\x81");
     // Colour codes are not displayed; the ducat sign is.
     assert(GameTextToUtf8("\xA7GM\xFCnster\xA7! \xA4") == "M\xC3\xBCnster \xC2\xA4" && GameTextToUtf8("x\xA7") == "x");
+    // tongs.ui's markup keeps the colour codes, § as U+00A7.
+    assert(GameTextToUtf8("\xA7G0.45\xA7!", true) == "\xC2\xA7G0.45\xC2\xA7!");
 }
 
 static void TestUiRequests() {
