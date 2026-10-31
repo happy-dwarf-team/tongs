@@ -1008,6 +1008,185 @@ memory = "code"
 signature = "bool (void* session)"
 note = "multiplayer check through session vtable slot 0x318"
 
+# --- World reads (docs/design.md, "World reads (0.20.0)") ---
+# Provinces are one array indexed by ID; root+0x1C90 is a vector of pointers to
+# every entry, entry 0 (a dummy) included, so a valid ID is 1 <= id < its length.
+
+[symbol.province_count]
+rva = 0xE8674D
+bytes = "48 8B 05 24 97 4B 01 48 8B 88 98 1C 00 00 48 2B 88 90 1C 00 00 48 C1 F9 03"
+memory = "code"
+values.root = { at = 3, rip_relative = 7 }
+values.provinces_end = { at = 10, size = 4 }
+values.provinces = { at = 17, size = 4 }
+values.pointer_shift = { at = 24, size = 1 }
+note = "debug_name: (root+0x1C98 - root+0x1C90) >> 3 provinces, the dummy entry 0 included"
+
+[symbol.province_is_sea]
+rva = 0xC467BD
+bytes = "48 69 D0 10 2E 00 00 48 8B 05 AD 96 6F 01 48 8B 88 A8 1C 00 00 48 8B 44 0A 28 0F B6 88 28 02 00 00 C0 E9 03 F6 D1 80 E1 01"
+memory = "code"
+values.province_size = { at = 3, size = 4 }
+values.root = { at = 10, rip_relative = 14 }
+values.province_array = { at = 17, size = 4 }
+values.static_part = { at = 25, size = 1 }
+values.land_flags = { at = 29, size = 4 }
+values.land_bit = { at = 35, size = 1 }
+note = "is_sea trigger: province = root+0x1CA8 + id*0x2E10; sea or lake when bit 3 of static(+0x28)+0x228 is clear"
+
+[symbol.province_is_wasteland]
+rva = 0xC400BD
+bytes = "48 69 D0 10 2E 00 00 48 8B 05 AD FD 6F 01 48 8B 88 A8 1C 00 00 48 8B 44 0A 28 0F B6 88 29 02 00 00 C0 E9 03 80 E1 01"
+memory = "code"
+values.province_size = { at = 3, size = 4 }
+values.root = { at = 10, rip_relative = 14 }
+values.province_array = { at = 17, size = 4 }
+values.static_part = { at = 25, size = 1 }
+values.wasteland_flags = { at = 29, size = 4 }
+values.wasteland_bit = { at = 35, size = 1 }
+note = "is_wasteland trigger: bit 3 of static+0x229"
+
+[symbol.province_base_tax]
+rva = 0x6DE7A0
+bytes = """
+4C 8B CA 49 8B 88 68 04 00 00 48 8B 05 1F F1 C5 01 48 C1 E9 20 48 0F BF C9
+48 8B 80 18 01 00 00 48 8B 14 C8 48 8B 8A 78 9A 00 00 48 85 C9 74 26
+41 8B 40 20 39 82 B8 14 00 00 75 1A B8 D3 4D 62 10 F7 69 1C C1 FA 06 8B C2
+C1 E8 1F 03 D0 69 C2 E8 03 00 00 EB 02 33 C0 41 8B 90 E4 03 00 00
+"""
+memory = "code"
+values.owner = { at = 6, size = 4 }
+values.countries_db = { at = 13, rip_relative = 17 }
+values.country_index_shift = { at = 20, size = 1 }
+values.countries = { at = 28, size = 4 }
+values.province_id = { at = 51, size = 1 }
+values.capital = { at = 54, size = 4 }
+values.base_tax = { at = 91, size = 4 }
+note = "script value base_tax: owner tag +0x468, country = (db+0x118)[tag >> 32], capital +0x14B8, base tax +0x3E4 (x 1000)"
+
+[symbol.province_base_production]
+rva = 0x6DE86C
+bytes = "B8 D3 4D 62 10 F7 69 20 C1 FA 06 8B C2 C1 E8 1F 03 D0 69 C2 E8 03 00 00 EB 02 33 C0 41 8B 90 E8 03 00 00"
+memory = "code"
+values.base_production = { at = 31, size = 4 }
+note = "script value base_production: +0x3E8"
+
+[symbol.province_base_manpower]
+rva = 0x6DE8FC
+bytes = "B8 D3 4D 62 10 F7 69 24 C1 FA 06 8B C2 C1 E8 1F 03 D0 69 C2 E8 03 00 00 EB 02 33 C0 41 8B 90 E0 03 00 00"
+memory = "code"
+values.base_manpower = { at = 31, size = 4 }
+note = "script value base_manpower: +0x3E0"
+
+[symbol.province_controller]
+rva = 0xA01AC6
+bytes = "48 8B 85 B8 01 00 00 48 89 86 70 04 00 00"
+memory = "code"
+values.controller = { at = 10, size = 4 }
+note = "controller setter 0xA015C0 stores the new controller tag"
+
+[symbol.province_cores]
+rva = 0xA0579E
+bytes = "48 8D B1 90 04 00 00 48 8B 46 08 4C 8B 16 4C 3B D0 74 28 48 C1 EA 20"
+memory = "code"
+values.cores = { at = 3, size = 4 }
+values.cores_end = { at = 10, size = 1 }
+note = "core adder 0xA05770: std::vector of 8-byte tags at +0x490 (begin, end)"
+
+[symbol.province_name]
+rva = 0xE31A26
+bytes = "48 8B 8F 60 05 00 00 45 33 C0 48 8B 51 28 48 8B C8 48 83 C2 10"
+memory = "code"
+values.static_part = { at = 13, size = 1 }
+values.name = { at = 20, size = 1 }
+note = "province view label province_name: the displayed name, a std::string at static(+0x28)+0x10"
+
+[symbol.player_country]
+rva = 0x874133
+bytes = """
+80 B8 66 1E 00 00 07 C6 05 97 E2 74 01 00 75 1B 80 B8 6F 1E 00 00 00 74 12
+48 8B 88 68 1E 00 00 EB 10 48 8B 05 1C BD AC 01 EB D5 48 8B 88 60 1E 00 00
+48 8B 05 64 97 AC 01 48 C1 E9 20 48 0F BF D1 48 8B 88 18 01 00 00 48 8B 04 D1
+"""
+memory = "code"
+values.player_kind = { at = 2, size = 4 }
+values.observer_kind = { at = 6, size = 1 }
+values.observed_valid = { at = 18, size = 4 }
+values.observed = { at = 28, size = 4 }
+values.player = { at = 46, size = 4 }
+values.countries_db = { at = 53, rip_relative = 57 }
+values.countries = { at = 68, size = 4 }
+note = "pre-command hook: player = root+0x1E68 if the kind byte of root+0x1E60 (+6) is 7 and the valid byte of root+0x1E68 (+7) is set, else root+0x1E60"
+
+[symbol.tag_buckets]
+rva = 0x2861A4
+bytes = """
+25 3F 00 00 80 7D 07 FF C8 83 C8 C0 FF C0 48 98 33 ED 48 89 5C 24 50
+48 8D 0C 40 4D 8D 3C CA 4D 63 B7 54 01 00 00 4D 85 F6 7E 45 8B DD 49 8B 87 48 01 00 00
+41 B8 03 00 00 00 48 8B 0C D8
+"""
+memory = "code"
+values.bucket_mask = { at = 1, size = 1 }
+values.bucket_count = { at = 34, size = 4 }
+values.buckets = { at = 48, size = 4 }
+values.compared = { at = 54, size = 4 }
+note = "tag lookup 0x286120: the upper-cased first three characters summed, & 0x3F; bucket = db + 0x18*n (lea rcx,[rax+rax*2]; lea r15,[r10+rcx*8]), 8-byte tags at +0x148, count +0x154, compared by _strnicmp over 3 characters"
+
+[symbol.country_exists]
+rva = 0x75B78A
+bytes = "48 8B 15 3F 21 BE 01 49 8B 46 20 48 C1 E8 20 48 0F BF C8 48 8B 82 18 01 00 00 48 8B 14 C8 83 BA 44 13 00 00 00 75 0A 80 7A 26 07"
+memory = "code"
+values.countries_db = { at = 3, rip_relative = 7 }
+values.countries = { at = 22, size = 4 }
+values.owned_count = { at = 32, size = 4 }
+values.kind = { at = 41, size = 1 }
+values.observer_kind = { at = 42, size = 1 }
+note = "AI loop: a country with no provinces (+0x1344 == 0) is skipped unless the kind byte of its own tag (+0x20, kind at +0x26) is 7"
+
+[symbol.country_provinces]
+rva = 0x779429
+bytes = "48 8B B1 38 13 00 00 48 63 81 44 13 00 00 4C 8D 24 86"
+memory = "code"
+values.owned = { at = 3, size = 4 }
+values.owned_count = { at = 10, size = 4 }
+note = "tag switch: the country's province IDs (int32) at +0x1338, count +0x1344 (0 = no provinces)"
+
+[symbol.selection_holder]
+rva = 0xE31D05
+bytes = "48 8B 86 50 05 00 00 48 8B 96 60 05 00 00 48 8B 88 20 12 00 00 E8 11 AB 56 00"
+memory = "code"
+values.holder = { at = 17, size = 4 }
+note = "province view: select(*(session+0x1220), province); the selection object keeps the selected province at +0"
+
+[symbol.selected_province]
+rva = 0x139C860
+bytes = "41 83 79 2C 25 48 89 74 24 38 8B F5 49 0F 45 F2 48 89 33 49 8B 89 A0 5B 00 00 E8 41 82 0D 00 48 85 F6 0F 84 8F 02 00 00 39 6E 20"
+memory = "code"
+values.province_id = { at = 42, size = 1 }
+note = "province selection 0x139C830: selection+0 = the province (mov [rbx],rsi) unless session+0x2C == 0x25"
+
+[symbol.selection_view]
+rva = 0x139CA67
+bytes = "48 8B 4B 10 41 B0 01 48 8B D6 E8 DA AF FA FF"
+memory = "code"
+values.view = { at = 3, size = 1 }
+note = "province selection 0x139C830: shows the province in the province view at selection+0x10 (0x1347A50)"
+
+[symbol.view_window]
+rva = 0x139CA7F
+bytes = "48 8B 4B 10 48 8B 01 FF 50 40 84 C0 74 0B 48 8B 43 10 48 8B A8 A0 00 00 00"
+memory = "code"
+values.view = { at = 3, size = 1 }
+values.window = { at = 21, size = 4 }
+note = "province selection 0x139C830: the province view is a controller; its window (the provinceview widget's full object) is at +0xA0"
+
+[symbol.province_view_province]
+rva = 0x1347A89
+bytes = "48 39 91 58 09 00 00 0F 84 3E 01 00 00"
+memory = "code"
+values.shown = { at = 3, size = 4 }
+note = "province view 0x1347A50: the displayed province at +0x958"
+
 # --- Files (docs/design.md, "Notifications") ---
 
 [symbol.physfs_get_write_dir]

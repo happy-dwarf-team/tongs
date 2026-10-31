@@ -14,7 +14,7 @@ As a module:
     import tongs
     tongs.ready(session=1, expect_pid=pid, expect_start_ms=start_ms)  # waits for the pipe too
     with tongs.Tongs(expect_pid=pid, expect_start_ms=start_ms) as game:
-        print(game.call("state")["date"])
+        print(game.call("state")["date"], game.province(295)["owner"])
         result = game.run_until("1720.1.1", speed=5, on_progress=lambda p: print(p.date))
 
     with tongs.Tongs() as watch:  # a connection of its own
@@ -349,6 +349,24 @@ class Tongs:
         finally:
             stop.set()
             feed.join(2.0)
+
+    # World reads (docs/commands.md, "World reads"): on the main thread, not counted.
+
+    def province(self, id, timeout=None):
+        """One province by ID: name, owner, controller, cores, development, land, wasteland."""
+        return self.call(line("province", int(id), timeout=timeout), check=True)
+
+    def country(self, tag, timeout=None):
+        """One country by tag: exists, province_count, provinces, capital, observer."""
+        return self.call(line("country", tag, timeout=timeout), check=True)
+
+    def player(self, timeout=None):
+        """The player's country: tag (observe mode included), player_tag, observed_tag, observer."""
+        return self.call(line("player", timeout=timeout), check=True)
+
+    def selection(self, timeout=None):
+        """The last selected province and the province view: only view.visible says it is open."""
+        return self.call(line("selection", timeout=timeout), check=True)
 
     def ready(self, session=None, in_game=True, speed=None, timeout=None):
         """ready() on this connection; see the module function."""

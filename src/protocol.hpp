@@ -7,6 +7,7 @@
 #include "input.hpp"
 #include "notifications.hpp"
 #include "ui_tree.hpp"
+#include "world.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -83,8 +84,9 @@ struct ScreenshotResult {
 
 // Protocol: UTF-8 lines. A request is one command line; the answer is one
 // JSON object on one line. Commands: ping, state, window, threads, screenshot,
-// frames, ui, event, help, wait_until, cancel, subscribe (see below), and with input enabled key, text, move,
-// click, scroll, release, pause, resume, speed, run_until, ui click, event choose,
+// frames, ui, event, province, country, player, selection, help, wait_until, cancel,
+// subscribe (see below), and with input enabled key, text, move, click, scroll,
+// release, pause, resume, speed, run_until, ui click, event choose,
 // and with game calls enabled console. Input commands and game calls answer with
 // the state read after the action; they take turns across clients.
 struct Handlers {
@@ -115,6 +117,13 @@ struct Handlers {
     std::function<std::string(UiTree&)> read_ui;
     // Main thread: the widget under the GUI pointer (mgr+0x130, 0 = none).
     std::function<std::uintptr_t()> read_hovered;
+    // Main thread: the world reads (game_world.cpp), called after the state on the
+    // same frame said in game. Each fills its raw struct or answers a WorldFailure.
+    // All four null: the world reads answer `unavailable`.
+    std::function<WorldFailure(std::int32_t id, ProvinceRaw&)> read_province;
+    std::function<WorldFailure(std::string_view tag, CountryRaw&)> read_country;
+    std::function<WorldFailure(PlayerRaw&)> read_player;
+    std::function<WorldFailure(SelectionRaw&)> read_selection;
     // Main thread: the open events (game_events.cpp). Returns an error text, or empty.
     std::function<std::string(EventsRaw&)> read_events;
     // Pipe thread, one word: entries in the session's event window list; -1 = unreadable.

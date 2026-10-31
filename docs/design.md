@@ -2268,6 +2268,78 @@ check box, so `ui click` on `save_game` refuses `covered`; a plain `click` on
 the row beside the title selects it. The same `[n]` path named another row
 in `ui find ... all` than without `all`.
 
+## World reads (0.20.0)
+
+Release 0.20 of the [scenario support v1 spec](spec/scenarios-v1.md)
+(section 5): `province ID`, `country TAG`, `player` and `selection`. The
+addresses come from the static research on the `research/world-objects`
+branch (tongs#95) and its check in a running game (tongs#107); they are the
+"World reads" symbols of `plugin/symbols.toml`, checked with
+`anvil check plugin --exe` (144 symbols, 17 new).
+
+- **Where it runs.** A dispatcher read job, like `ui find`: after an outer
+  frame, so between two game days (an off-thread reader sees days half
+  applied, #107). The job reads the state first and answers `not_in_game`
+  without touching the world when the session is not the game's. Not
+  counted, no `input`, not refused while suspended.
+- **Re-derived on every read.** Each read starts from the root
+  (`0x233FE78`): the province vector `root+0x1C90..0x1C98` gives the count
+  (4942, the dummy entry 0 included, so a valid ID is `1 ≤ id < count`), the
+  array `root+0x1CA8` the entry (`id × 0x2E10`). Nothing is cached, so a
+  load or `reload_provincemap` cannot leave a stale pointer behind.
+- **Guards.** Every read is its own SEH-guarded copy (`game_memory`); an
+  entry whose `+0x20` is not the ID asked for, a country whose own tag
+  (`+0x20`) is not the tag looked up, a core vector that is not a whole
+  number of tags or longer than 1024, a bucket above 4096 tags or a province
+  count outside `0..count` answer `read_failed` and cost only that answer.
+- **Tags** are 8 bytes: three characters, the country index (int16) at
+  byte 4, a kind byte at 6 (7: the observer) and a valid byte at 7; the
+  byte positions come from the player's two tags in `player_country`
+  (`0x1E66 − 0x1E60`, `0x1E6F − 0x1E68`). A tag with valid byte 0 (`---`)
+  is answered as `null`.
+- **Tag lookup** walks the game's own 64 buckets (`0x286120`, not called):
+  the three upper-cased characters summed and `& 0x3F` (`tag_buckets`, which
+  also holds the bucket stride `0x18` in its `lea` pair), 8-byte tags at
+  `db+0x148+n×0x18` with the count at `+0x154`, compared over three
+  characters ignoring case. The country is then `(*(db+0x118))[index]`.
+- **Selection.** `*(session+0x1220)` is the selection object: the province at
+  `+0x00`, the province view at `+0x10` (`selection_view`), which shows its
+  province at `+0x958`. The view is a controller, not a widget: its window
+  is at `+0xA0` (`view_window`). `view.visible` and `view.path` come from the
+  widget tree read in the same job: the widget whose pointer is that window
+  plus the window part (`0x30`, as for event windows).
+- **`unavailable`.** Anvil verifies every symbol before it loads the plugin
+  and skips the whole plugin on a mismatch, so the world-read symbols cannot
+  fail on their own; `unavailable` answers when main-thread commands are not
+  available (no `anvil-game` frames). The spec was changed to say so.
+
+### Live check (2026-10-31)
+
+Lab run `t112-live1`: EU4 1.37.5 with the original `eu4.exe`, Anvil 1.5.2 and
+`anvil-game`, this branch's Tongs with `input` and `game_calls` on, the
+Russia save of 1719.3.17 started with `continue=`, driven by
+`scripts/tongs.py` from the branch after `ready(session=1)`; the save was
+unchanged afterwards.
+
+| Read | Seen |
+| --- | --- |
+| `province 295` | `Moskva`, owner and controller `RUS`, cores `[RUS]`, 15 / 8 / 9 |
+| `province 1754` | `Murom`, `RUS`, 4 / 7 / 4, development 15 (#107's view) |
+| `province 1`, `151` | `Tukholma` (cores `SWE`, `RUS`), `Tsargrad`: names follow the owner's culture |
+| `province 2313` | `Antakya`, `TUR`, cores `SYR`, `TUR`, `RUS` |
+| `province 4941`, `1252`, `1173` | `Lake Cahuilla` and `Gulf of Bothnia` with `land: false` and no owner; `Namibia` with `wasteland: true` |
+| `province 4942`, `0`, `5000` | `unknown_province`, "valid IDs 1..4941" |
+| every ID 1–4941 | no failure in 63.8 s (one read per frame, paused); 793 not land, 122 wastelands; the owners give `RUS` 1423 provinces and `TUR` 32, the same lists as `country RUS` / `TUR` |
+| `country RUS`, `rus` | `RUS`, 1423 provinces, capital 33 |
+| `country TUR` | 32 provinces, capital 384 |
+| `country SWE`, `BYZ`, `TIM`, `REB` | `exists: false`; capitals 7, 151, 450 and `null` |
+| `country XXX`, `R-S` | `unknown_country` |
+| `player` | `RUS`, `observed_tag: null`; after `console observe` `O00` with `observer: true` (and `country O00` `observer: true`), after `console tag RUS` back to `RUS` |
+| 12 `province 2313` during another connection's `run_until 1719.5.1 speed=5` | all `ok` and unpaused, dates 1719.3.29 to 1719.4.30, the controller `TUR` then `RUS` (the siege of #107); the run answered `inputs`, `client_calls` and `game_calls` 0 |
+| `selection` at the start | `last_selected` and `view.province` `null` |
+| `selection` after a map click (Mukhtuya, 1054) and after closing the view | `last_selected` and `view.province` 1054 both times (#107's trap); `view.visible` was `false` while `ui find provinceview` said visible: the view object is a controller, its window is at `+0xA0` (fixed with `view_window`) |
+| `selection` with the fix (run `t112-sel2`): a map click (40), a second click (1078), then Esc | `view.visible: true`, `path: "provinceview"` and the clicked province each time; after Esc `visible: false` and `path: null`, `last_selected` and `view.province` still 1078 |
+
 ## Releases
 
 Each release is one PR with its live checks done before it merges; the order

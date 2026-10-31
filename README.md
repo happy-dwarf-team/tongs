@@ -58,6 +58,7 @@ command, its answer and its options are in
 | --- | --- | --- |
 | Game state | `ping`, `state`, `window`, `threads`, `frames`, `screenshot`, `help` | `enabled` |
 | Interface and events | `ui find`, `ui tree`, `event list` | `enabled` |
+| World reads | `province`, `country`, `player`, `selection` | `enabled` |
 | Waiting and notifications | `wait_until`, `cancel`, `subscribe`, `unsubscribe` | `enabled` |
 | Keyboard and mouse | `pause`, `resume`, `speed`, `run_until`, `key`, `text`, `move`, `click`, `scroll`, `release`, `ui click`, `event choose` | `input` |
 | Game calls | `console` (**changes game state**) | `game_calls` |
@@ -85,6 +86,7 @@ touched run.
   with tongs.Tongs(expect_pid=pid, expect_start_ms=start_ms) as game:
       result = game.run_until("1720.1.1", on_progress=lambda p: print(p.date))
       print(result["days_per_second"], result["inputs"], result["client_calls"], result["game_calls"])
+      print(game.province(295)["owner"], game.country("RUS")["province_count"])  # world reads
 
   with tongs.Tongs() as watch:  # notifications on a connection of their own
       watch.subscribe("state,event,activity")
@@ -99,7 +101,8 @@ touched run.
   came (`answered_late`) or not (`unknown`). With `expect_pid` /
   `expect_start_ms`, an answer from another game process raises
   `ProcessMismatch`. The typed steps (`state`, `wait_until`, `run_until`,
-  `ready`) return the plugin's answer unchanged and raise on `"ok": false`.
+  `ready`, and the world reads `province`, `country`, `player`, `selection`)
+  return the plugin's answer unchanged and raise on `"ok": false`.
   From the command line, `python tongs.py "subscribe all" --seconds 30`
   prints the stream (`subscribe` comes last), and
   `python tongs.py --ready --session 1 --speed 5` waits for a started game.

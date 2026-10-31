@@ -11,6 +11,7 @@
 #include "game_ui.hpp"
 #include "game_ui_service.hpp"
 #include "game_window.hpp"
+#include "game_world.hpp"
 #include "load_watch.hpp"
 #include "notify_sources.hpp"
 #include "pipe_server.hpp"
@@ -126,6 +127,20 @@ struct Tongs : anvil::Plugin {
             };
             handlers.count_event_windows = [image_base, event_layout] {
                 return tongs::CountEventWindows(image_base, event_layout);
+            };
+            // World reads (docs/design.md, "World reads (0.20.0)"): reads like ui, whatever the settings.
+            const tongs::WorldLayout world;
+            handlers.read_province = [image_base, world](std::int32_t id, tongs::ProvinceRaw& out) {
+                return tongs::ReadProvince(image_base, world, id, out);
+            };
+            handlers.read_country = [image_base, world](std::string_view tag, tongs::CountryRaw& out) {
+                return tongs::ReadCountry(image_base, world, tag, out);
+            };
+            handlers.read_player = [image_base, world](tongs::PlayerRaw& out) {
+                return tongs::ReadPlayer(image_base, world, out);
+            };
+            handlers.read_selection = [image_base, world](tongs::SelectionRaw& out) {
+                return tongs::ReadSelection(image_base, world, out);
             };
             if (config.game_calls.enabled) {
                 const tongs::ConsoleLayout console_layout = tongs::ConsoleLayout::Load();

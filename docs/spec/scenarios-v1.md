@@ -199,8 +199,10 @@ subcommand (section 6).
 - **Errors:** `not_in_game`, `unknown_province`, `unknown_country`,
   `main thread busy` (no outer frame within `timeout=`, default 10 s, up to
   60), `read_failed` (a guarded read faulted or a guard such as `+0x20 = id`
-  failed; later reads keep working), `unavailable` (the world-read symbols
-  failed their check at start; the rest of Tongs works).
+  failed; later reads keep working), `unavailable` (main-thread commands are
+  not available). Anvil checks every symbol before it loads the plugin and
+  skips the whole plugin on any mismatch, so world-read symbols cannot fail
+  alone (found in 0.20).
 - **When they run:** under `enabled` alone, not counted, never marking a run;
   also during another connection's `run_until`, in ironman and multiplayer,
   and while Anvil has suspended Tongs.
@@ -359,7 +361,8 @@ fails, only the docs and the default `speed` change).
   (section 5).
 - The world-read symbols move from `docs/research/world-objects.md` into
   `plugin/symbols.toml` with the bound `1 ≤ id < count`, and the lock is
-  rewritten; a failed check makes only the world reads answer `unavailable`.
+  rewritten. (A failed check skips the whole plugin, as for every symbol, not
+  only the world reads: section 5.)
 - `docs/commands.md` states the traps of `name` and `last_selected`.
 
 **Checked in the game:** the values #107 saw (295 Moskva owned by `RUS`,

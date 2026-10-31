@@ -72,6 +72,7 @@ ALL_TOOLS = {
     "tongs_move", "tongs_click_point", "tongs_scroll", "tongs_release",
     "tongs_ui_tree", "tongs_ui_find", "tongs_ui_click",
     "tongs_event_list", "tongs_event_choose", "tongs_console", "tongs_raw",
+    "tongs_province", "tongs_country", "tongs_player", "tongs_selection",
 }  # fmt: skip
 
 INPUT_TOOLS = {
@@ -125,6 +126,13 @@ LINES = [
         'event choose text~="the tsar" event=title="A New"',
     ),
     ("tongs_event_choose", {"option": 1, "event": 2, "timeout": 9}, "event choose 1 event=2 timeout=9"),
+    ("tongs_province", {"province_id": 295}, "province 295"),
+    ("tongs_province", {"province_id": 4941, "timeout": 60}, "province 4941 timeout=60"),
+    ("tongs_country", {"tag": "rus"}, "country rus"),
+    ("tongs_country", {"tag": "TUR", "timeout": 5}, "country TUR timeout=5"),
+    ("tongs_player", {}, "player"),
+    ("tongs_selection", {}, "selection"),
+    ("tongs_selection", {"timeout": 2}, "selection timeout=2"),
     ("tongs_console", {"line": "echo x"}, "console echo x"),
     ("tongs_raw", {"line": "help"}, "help"),
     ("tongs_raw", {"line": "  ping "}, "ping"),
@@ -155,6 +163,7 @@ DESTRUCTIVE_TOOLS = {
 READ_ONLY_TOOLS = {
     "tongs_state", "tongs_window", "tongs_threads", "tongs_frames",
     "tongs_ui_find", "tongs_ui_tree", "tongs_event_list",
+    "tongs_province", "tongs_country", "tongs_player", "tongs_selection",
 }  # fmt: skip
 
 
@@ -230,6 +239,10 @@ async def test_answer_that_is_not_json_is_an_error():
         ("tongs_screenshot", {"name": "../x"}),
         ("tongs_ready", {"speed": 0}),
         ("tongs_ready", {"session": 0}),
+        ("tongs_province", {"province_id": 0}),
+        ("tongs_country", {"tag": "RU S"}),
+        ("tongs_country", {"tag": "RUSS"}),
+        ("tongs_player", {"timeout": 61}),
     ],
 )
 async def test_refused_without_sending(tool, args):

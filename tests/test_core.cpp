@@ -8,6 +8,7 @@
 #include "ui_service.hpp"
 #include "ui_structure.hpp"
 #include "ui_tree.hpp"
+#include "world.hpp"
 
 #include <atomic>
 #include <cassert>
@@ -3246,7 +3247,169 @@ static void TestUiServiceDefinitionFile() {
     assert(ParseUiRequest("find //icon", r).empty() && !Contains(UiAnswer(t, r, found), "topbar.gui"));
 }
 
+static void TestWorldParsing() {
+    WorldRequest r;
+    assert(!ParseWorldRequest("province", "295", r).failed() && r.kind == WorldRequest::Kind::Province && r.id == 295);
+    assert(!ParseWorldRequest("province", "4941 timeout=60", r).failed() && r.id == 4941 && r.timeout_ms == 60000);
+    for (const char* bad : {"0295", "-1", "+1", "0x10", "1e3", "12a", "9999999999"}) {
+        assert(ParseWorldRequest("province", bad, r).error == "unknown_province");
+    }
+    assert(!ParseWorldRequest("province", "0", r).failed() && r.id == 0);  // the bound is the reader's
+    assert(ParseWorldRequest("province", "open 295", r).error == "bad_command");  // no subcommand in 0.20
+    assert(ParseWorldRequest("province", "", r).error == "bad_command");
+    assert(ParseWorldRequest("province", "295 timeout=61", r).error == "bad_command");
+    assert(ParseWorldRequest("province", "295 timeout=0", r).error == "bad_command");
+    assert(!ParseWorldRequest("country", "rUs", r).failed() && r.kind == WorldRequest::Kind::Country && r.tag == "RUS");
+    assert(!ParseWorldRequest("country", "D00", r).failed() && r.tag == "D00");
+    for (const char* bad : {"RU", "RUSS", "R-S", "---"}) assert(ParseWorldRequest("country", bad, r).error == "unknown_country");
+    assert(ParseWorldRequest("country", "", r).error == "bad_command");
+    assert(!ParseWorldRequest("player", "", r).failed() && r.kind == WorldRequest::Kind::Player);
+    assert(!ParseWorldRequest("selection", "timeout=5", r).failed() && r.kind == WorldRequest::Kind::Selection &&
+           r.timeout_ms == 5000);
+    assert(ParseWorldRequest("player", "RUS", r).error == "bad_command");
+
+    // The game's hash: the upper-cased characters summed, & 0x3F.
+    assert(TagBucket("RUS", 0x3F) == (('R' + 'U' + 'S') & 0x3F) && TagBucket("rus", 0x3F) == TagBucket("RUS", 0x3F));
+    assert(Thousandths(4000) == "4" && Thousandths(4500) == "4.5" && Thousandths(1234) == "1.234" &&
+           Thousandths(0) == "0" && Thousandths(-250) == "-0.25" && Thousandths(15000) == "15");
+}
+
+static void TestWorldAnswers() {
+    ProvinceRaw p;
+    p.id = 1754;
+    p.name = "Murom";
+    p.owner = p.controller = "RUS";
+    p.cores = {"RUS"};
+    p.base_tax = 4000;
+    p.base_production = 7000;
+    p.base_manpower = 4000;
+    p.land = true;
+    std::string out = ProvinceMembers(p);
+    assert(Contains(out, ",\"id\":1754,\"name\":\"Murom\",\"owner\":\"RUS\",\"controller\":\"RUS\",\"cores\":[\"RUS\"]"));
+    assert(Contains(out, "\"base_tax\":4,\"base_production\":7,\"base_manpower\":4,\"development\":15,\"land\":true,\"wasteland\":false"));
+    p = {};
+    out = ProvinceMembers(p);
+    assert(Contains(out, "\"owner\":null,\"controller\":null,\"cores\":[]") && Contains(out, "\"land\":false"));
+
+    CountryRaw c;
+    c.tag = "SWE";
+    c.capital = 1;
+    c.capital_valid = true;
+    out = CountryMembers(c);
+    assert(out == ",\"tag\":\"SWE\",\"exists\":false,\"province_count\":0,\"provinces\":[],\"capital\":1,\"observer\":false");
+    c.tag = "TUR";
+    c.province_count = 2;
+    c.provinces = {384, 2313};
+    c.capital_valid = false;
+    assert(Contains(CountryMembers(c), "\"exists\":true,\"province_count\":2,\"provinces\":[384,2313],\"capital\":null"));
+
+    PlayerRaw pl;
+    pl.tag = pl.player_tag = "O00";
+    pl.observer = true;
+    assert(PlayerMembers(pl) == ",\"tag\":\"O00\",\"player_tag\":\"O00\",\"observed_tag\":null,\"observer\":true");
+
+    // The view is found in the tree by its widget pointer.
+    UiTree t;
+    UiWidget view;
+    view.name = "provinceview";
+    view.type = UiType::Window;
+    view.shown = true;
+    view.address = 0x5000;
+    t.widgets.push_back(view);
+    t.roots = {0};
+    SelectionRaw s;
+    assert(SelectionMembers(s, t) == ",\"last_selected\":null,\"view\":{\"province\":null,\"visible\":false,\"path\":null}");
+    s.last_selected = 295;
+    s.view_province = 295;
+    s.view_widget = 0x5000;
+    assert(SelectionMembers(s, t) ==
+           ",\"last_selected\":295,\"view\":{\"province\":295,\"visible\":true,\"path\":\"provinceview\"}");
+    t.widgets[0].shown = false;  // closed: the selection keeps both provinces (#107)
+    assert(SelectionMembers(s, t) == ",\"last_selected\":295,\"view\":{\"province\":295,\"visible\":false,\"path\":null}");
+}
+
+static void TestWorldCommands() {
+    Handlers h;
+    h.now_ms = SteadyMs;
+    std::string out = HandleRequest("province 295", h);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"unavailable\"") && Contains(out, "\"command\":\"province\""));
+    out = HandleRequest("province x", h);  // a bad request is told before anything else
+    assert(Contains(out, "\"error\":\"bad_command\""));
+    Dispatcher d(SteadyMs);
+    h.dispatcher = &d;
+    StateSnapshot game;
+    game.in_game = true;
+    game.date_raw = 58'860'240;
+    game.load = 1;
+    game.pid = 77;
+    h.read_state = [&game] { return game; };
+    assert(Contains(HandleRequest("player", h), "\"detail\":\"world reads are not set up\""));
+    std::thread::id reader;
+    h.read_province = [&reader](std::int32_t id, ProvinceRaw& p) -> WorldFailure {
+        reader = std::this_thread::get_id();
+        if (id >= 4942) return {"unknown_province", "no province " + std::to_string(id) + " (valid IDs 1..4941)"};
+        if (id == 13) return {"read_failed", "the entry of province 13 holds ID 0"};
+        p.id = id;
+        p.name = "Moskva";
+        p.owner = "RUS";
+        return {};
+    };
+    h.read_country = [](std::string_view tag, CountryRaw& c) -> WorldFailure {
+        if (tag != "RUS") return {"unknown_country", "the game knows no country " + std::string(tag)};
+        c.tag = "RUS";
+        c.province_count = 1;
+        c.provinces = {295};
+        return {};
+    };
+    h.read_player = [](PlayerRaw& p) {
+        p.tag = p.player_tag = "RUS";
+        return WorldFailure{};
+    };
+    h.read_selection = [](SelectionRaw& s) {
+        s.last_selected = 295;
+        return WorldFailure{};
+    };
+    assert(Contains(HandleRequest("selection", h), "\"error\":\"unavailable\""));  // needs the widget tree
+    h.read_ui = [](UiTree&) { return std::string(); };
+    out = HandleRequest("province 295 timeout=1", h);  // no frame comes
+    assert(Contains(out, "\"ok\":false,\"error\":\"main thread busy\",\"command\":\"province\",\"queued_ms\":") &&
+           Contains(out, "\"date\":\"1719.3.17\""));
+    {
+        FakeMainThread main(d);
+        out = HandleRequest("province 295", h);
+        assert(Contains(out, "{\"ok\":true,\"command\":\"province\",\"id\":295,\"name\":\"Moskva\",\"owner\":\"RUS\""));
+        assert(Contains(out, "\"in_game\":true,\"date\":\"1719.3.17\"") && Contains(out, "\"session\":1,\"pid\":77") &&
+               Contains(out, "\"queued_ms\":") && Contains(out, "\"run_ms\":") && Contains(out, "\"frame\":"));
+        assert(reader != std::this_thread::get_id());  // read on the "main thread"
+        out = HandleRequest("province 4942", h);
+        assert(Contains(out, "{\"ok\":false,\"error\":\"unknown_province\",\"detail\":\"no province 4942 (valid IDs 1..4941)\"") &&
+               Contains(out, "\"date\":\"1719.3.17\"") && Contains(out, "\"frame\":"));
+        assert(Contains(HandleRequest("province 13", h), "\"error\":\"read_failed\""));
+        assert(Contains(HandleRequest("province 1", h), "\"ok\":true"));  // a failed guard costs only its answer
+        out = HandleRequest("country rus", h);
+        assert(Contains(out, "{\"ok\":true,\"command\":\"country\",\"tag\":\"RUS\",\"exists\":true,\"province_count\":1"));
+        assert(Contains(HandleRequest("country SWE", h), "\"error\":\"unknown_country\""));
+        assert(Contains(HandleRequest("player", h), "{\"ok\":true,\"command\":\"player\",\"tag\":\"RUS\""));
+        out = HandleRequest("selection", h);
+        assert(Contains(out, "{\"ok\":true,\"command\":\"selection\",\"last_selected\":295,\"view\":{\"province\":null"));
+        h.read_ui = [](UiTree&) { return std::string("access violation while reading the widget tree"); };
+        assert(Contains(HandleRequest("selection", h), "\"error\":\"read_failed\",\"detail\":\"access violation"));
+        // Reads run while Anvil keeps Tongs suspended, and are not counted.
+        h.suspended = [] { return true; };
+        assert(Contains(HandleRequest("player", h), "\"ok\":true"));
+        h.suspended = {};
+        game.in_game = false;
+        game.reason = "no game loaded (root object is null)";
+        out = HandleRequest("country RUS", h);
+        assert(Contains(out, "{\"ok\":false,\"error\":\"not_in_game\",\"detail\":\"no game loaded (root object is null)\""));
+    }
+    assert(Contains(HandleRequest("help", h), "\"province\",\"country\",\"player\",\"selection\""));
+}
+
 int main() {
+    TestWorldParsing();
+    TestWorldAnswers();
+    TestWorldCommands();
     TestSubscribeParsing();
     TestDateCrosses();
     TestSubscriptionQueue();
