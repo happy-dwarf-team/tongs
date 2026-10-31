@@ -284,14 +284,21 @@ text, list boxes, check boxes and edit boxes, by their names in the game's
 
 - `speed_controls/button_speedup`: a child of a top-level window;
   `EventWindow//event_option_button`: anywhere below it; `//DateText`:
-  anywhere.
-- Names ignore case and take `*` and `?`.
-- Filters in brackets: `[2]` (the second match, from 1), `[type=button]`
-  (`window`, `button`, `icon`, `text`, `listbox`, `checkbox`,
-  `editbox`, `other`), `[text=...]`, `[text~=...]` (contains),
-  `[text^=...]` (starts with), `[enabled]`, `[disabled]`, `[checked]`,
-  `[unchecked]`. A step made only of filters means any name:
-  `speed_controls/[type=button]`.
+  anywhere. A selector starts with a top-level window's name or with `//`,
+  never with a single `/`.
+- Names ignore case and take `*` and `?`; there are no character classes.
+- Filters in brackets after a name, as many as needed: `[2]` (the second
+  match, from 1; one per step), `[type=button]` (`window`, `button`,
+  `icon`, `text`, `listbox`, `checkbox`, `editbox`, `other`),
+  `[text=...]` (the whole text), `[text~=...]` (contains), `[text^=...]`
+  (starts with), `[enabled]`, `[disabled]`, `[checked]`, `[unchecked]`.
+  Text filters ignore case; put the value in `"..."` when it has `]` in it
+  or spaces at its ends (single quotes are part of the value). A step made
+  only of filters means any name: `speed_controls/[type=button]`.
+- It is not XPath or a glob: `//*[name='text_MIL']` is `//text_MIL`,
+  `//*[@text='Save']` is `//[text=Save]`, `**/*[Ss]ave*` is `//*save*`.
+  A `bad_selector` answer has the parser's `detail` and a `hint` with this
+  grammar in short.
 - Hidden widgets are left out unless the command ends with `all`.
 - Stale widgets are left out of `ui find` unless it ends with `stale`. They
   were built from a `.gui` definition that a reload (console `reload <file>`)
