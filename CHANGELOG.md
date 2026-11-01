@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.0](https://github.com/happy-dwarf-team/tongs/compare/v0.24.0...v0.25.0) (2026-11-01)
+
+
+### Features
+
+* error_log notifications carry the counts of anvil-log-throttle ([#131](https://github.com/happy-dwarf-team/tongs/issues/131)) ([c37247c](https://github.com/happy-dwarf-team/tongs/commit/c37247cf3c69a352ce355a55238f3bba96e81ff4))
+
 ## [0.24.0](https://github.com/happy-dwarf-team/tongs/compare/v0.23.0...v0.24.0) (2026-11-01)
 
 
