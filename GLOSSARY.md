@@ -12,7 +12,8 @@ first kind.
 _Avoid_: function call, invoke, DOM call
 
 **Client call**:
-Game code that Tongs runs on the game's main thread on a client's request and
+Game code that Tongs runs on the game's main thread on a client's request (or,
+through `tongs.navigation`, another plugin's: ADR 0004) and
 that changes only what the game shows (the camera, the selection, open views),
 never the state of the game, and reaches no further than a player clicking in
 the interface; a call that would change the state is a game call instead.

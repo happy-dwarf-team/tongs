@@ -2557,6 +2557,83 @@ game wrote beside it.
 | `timeout=1` on an 8 s load | `timeout` with `started: true` after 1 s; `ready(session=6)` then found the loaded save |
 | counts and `session` | `game_calls_total` 1 and `client_calls_total` 0 after each load, `session` +1 per load (2 … 6); `entered_game` with `loaded_by: "tongs"` and the new `session`, an `activity` with `what: "game_call"`; the player's load through the UI (0.19's check, `t111-live1`) leaves `game_calls_total` 0 |
 
+## The tongs.navigation service (0.24.0)
+
+Other plugins select a province and read the province view through the
+service `tongs.navigation` version 1, without the pipe and without `input`
+([ADR 0004](adr/0004-navigation-as-in-process-service.md)); the first
+consumer is Etch's live game, which brings the province view back after a
+restart and after a reload of `provinceview.gui`. The header
+[`include/tongs/tongs_navigation.h`](../include/tongs/tongs_navigation.h) is
+plain C11 and holds the contract; the release zip carries it beside
+`tongs_ui.h`. No address is new: the service uses the "Navigation" symbols
+above and `render_pick`'s shown byte.
+
+- **One rule set.** `src/navigation_service.cpp` holds the service's logic
+  and knows the game only through `NavigationServiceHost`, so the tests play
+  the game and its main thread. Its checks are the pipe's `province open`
+  (`ReadNavigationFacts`, `NavigationRefusal`), in the same order, and its
+  calls are `CallOpen`: the province links' sequence of `0xFF6350` with
+  each step but the selection optional.
+- **`province_view`** reads the selection object (`selection` of `ReadSelection`:
+  the selected province, the province the view shows, the view's window and
+  the colonisation panel's) and adds three flags: the shown byte of the view's
+  window and of the colonisation panel (both are top-level windows, so the
+  byte is their visibility, as `UiView::Visible` gives it for a root), and
+  `views_open` (`0x8208A0`), the game's own test of the session's views, which
+  the province links call before closing them. Outside a game it answers
+  zeros. It reads no widget tree, so a consumer may call it every frame.
+- **`open_province`** refuses in this order: `suspended`, `tripped`,
+  `not_in_game`, the reads' and `NavigationRefusal`'s refusals
+  (`unknown_province`, `not_selectable`, `terra_incognita`,
+  `selection_blocked`, `read_failed`), then `discover` (the pipe's promotion to
+  a game call, never made here). `TONGS_NAV_KEEP_VIEWS` skips `close_views`,
+  `TONGS_NAV_NO_CAMERA` the camera; the selection is always made. A locked
+  camera does not refuse it, as it does not refuse the pipe's `open`.
+- **The same province again.** Selecting the province the view already shows
+  runs the view's update again without a province change (`0x1347A50` skips
+  only the strait and river indicators and `0x134A930`, which would post a
+  rename of the province before it changes when the name box was edited), so
+  it is the player's click on that province once more. Etch uses it after a
+  reload of `provinceview.gui`: the reload (the view's slot `0x10`,
+  `0x1345F40`) rebuilds the window, selects the view's province itself and
+  then clears the province and capital names the view caches (`+0x960`,
+  `+0x980`), and the view sets the header's `provincename` only when its cache
+  differs (`0x13470C0`, the view's slot `0x48`); until the next refresh the
+  name stays blank.
+- **Thread and arguments.** As `tongs.ui`: `ANVIL_ERROR_WRONG_PHASE` off the
+  main thread (0 before the first frame counts as none),
+  `ANVIL_ERROR_INVALID_ARGUMENT` for unknown flags, a NULL pointer or a
+  `TongsProvinceView` whose `size` is below version 1's; a read that fails is
+  `ANVIL_ERROR_INTERNAL` and logged once until the error changes.
+- **Settings and suspension.** Tongs registers the service before it looks at
+  `enabled`, and follows Anvil's `anvil.suspended` with or without the pipe.
+  With the pipe on, a call that called the game is counted as the pipe's client
+  calls are (`CountClientCall`, command `tongs.navigation open_province`).
+- **Faults.** `NavigationTripped` and `TripNavigation`
+  (`navigation_service.hpp`) are shared with the pipe's `province open` and
+  `province goto`.
+
+### Live check (2026-11-01)
+
+EU4 1.37.5 with the original `eu4.exe`, Anvil 1.5.2, this branch's Tongs and
+Etch's plugin from its branch (`etch-reselect-province`) as the consumer, in
+Etch's private install driven by the lab's harness (`work/etch-h8`), under the
+lab's game lock: vanilla windowed 1920×1080 on a copy of the Russia save of
+1719.3.17, and Anbennar with Proper 2K UI Enhanced and P2KE Patch - Anbennar
+windowed 2560×1440 on a copy of Verne 1444.11.11. The pipe's `province open`
+played the player's clicks; the last series ran with Tongs as Etch installs
+it, `enabled = false` and no settings file.
+
+| Check | Seen |
+| --- | --- |
+| registration | `service tongs.navigation v1 registered` on every start, with the pipe on and with `pipe disabled` |
+| `province_view` | the province and window on screen (`provinceview`) after an open; none once the view closed (its shown byte), also when the pipe's `selection` still said `visible: true` after a rebuild |
+| `open_province` after a restart, no view open (Etch's `reselect`) | `opened`: 151, 295 (vanilla), 51, 292 (Anbennar), 295 with the pipe disabled; the view showed it two frames later, with its name |
+| refusals | 3190 `terra_incognita`, 1252 (a sea) `not_selectable`; nothing called |
+| `KEEP_VIEWS \| NO_CAMERA` on the province the view shows, right after the game's `reload provinceview.gui` | the header's `provincename` kept its text: Moskva, Murom, Tsargrad (a foreign province), Clawmarches, Watchman's Point, Moskva with the pipe disabled; without the call the same reload blanked it (Moskva, Verne), and the pipe's `province open` of the same province brought it back |
+| counts | with the pipe on, `client_calls_total` rose by one per `open_province` that called the game, refusals none |
+
 ## Releases
 
 Each release is one PR with its live checks done before it merges; the order

@@ -3,6 +3,7 @@
 #include "game_symbols.hpp"
 #include "game_world.hpp"
 #include "navigation.hpp"
+#include "navigation_service.hpp"
 
 #include <cstdint>
 
@@ -33,6 +34,7 @@ struct NavigationLayout {
     std::uint32_t layout_flags = U32(sym::province_view_layout.layout_flags);  // province: byte
     std::uint32_t layout_bit = U32(sym::province_view_layout.layout_bit);
     std::uint32_t capital_province = U32(sym::province_view_discover.capital_province);  // country: Province*
+    std::uint32_t widget_shown = U32(sym::render_pick.shown);  // widget: byte, shown (a top-level window: visible)
     std::uint32_t camera_rva = 0;       // RvaOf(sym::camera_to_province_id): (session, id)
     std::uint32_t views_open_rva = 0;   // RvaOf(sym::views_open): bool (session)
     std::uint32_t close_views_rva = 0;  // RvaOf(sym::close_views): (session)
@@ -76,6 +78,17 @@ WorldFailure ReadNavigationFacts(std::uintptr_t image_base, const NavigationLayo
 // close the open views, move the camera and select the province (the religion
 // view's province link, 0xFF6350); otherwise the camera only. False when the
 // game's code raised a structured exception (`fault_code`).
+// Main thread only, right after ReadNavigationFacts in the same job: the calls of
+// tongs.navigation's open_province, each step optional except the selection
+// (close the shown views, the camera, select). False on a fault (`fault_code`).
+bool CallOpen(std::uintptr_t image_base, const NavigationLayout& layout, const NavigationFacts& facts, bool close_views,
+              bool camera, unsigned long& fault_code);
+
+// Main thread only, in game: the selection, whether the province view's window and the
+// colonisation panel are shown (their shown byte; both are top-level windows), and
+// whether a session view is (views_open).
+WorldFailure ReadProvinceView(std::uintptr_t image_base, const NavigationLayout& layout, ProvinceViewRaw& out);
+
 bool CallNavigation(std::uintptr_t image_base, const NavigationLayout& layout, bool open, const NavigationFacts& facts,
                     unsigned long& fault_code);
 

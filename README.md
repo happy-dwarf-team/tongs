@@ -23,6 +23,7 @@ outside the forge.
 > can also subscribe to notifications: state and date changes, events opening
 > and closing, new `error.log` lines and other clients' input and game calls.
 > Other Anvil plugins can read the widget tree through the service `tongs.ui`
+> and select a province through `tongs.navigation`
 > (see [For other plugins](#for-other-plugins-tongsui)).
 > Supported game build: EU4 1.37.5
 > (Steam, Windows 64-bit); Anvil skips it on other builds. It needs Anvil
@@ -127,6 +128,17 @@ service only reads, and Tongs registers it on every load, also with
 `enabled = false` (no pipe then). Design:
 [docs/design.md](docs/design.md#the-tongsui-service), decision:
 [ADR 0002](docs/adr/0002-widget-tree-as-in-process-service.md).
+
+From 0.24.0 the service `tongs.navigation` version 1 gives other plugins the
+province selection: `province_view` (the selected province, the one the
+province view shows, and whether the view, the colonisation panel or a view of
+the session is on screen) and `open_province`, the client call of
+`province open` with its refusals, also with `enabled = false` and
+`input = false`. It never makes a game call: the case that would make the
+player discover a capital is refused. Header:
+[include/tongs/tongs_navigation.h](include/tongs/tongs_navigation.h); design:
+[docs/design.md](docs/design.md#the-tongsnavigation-service-0240), decision:
+[ADR 0004](docs/adr/0004-navigation-as-in-process-service.md).
 
 ## Safety
 
