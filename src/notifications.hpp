@@ -182,4 +182,23 @@ struct ErrorLogLocation {
 // A log line as UTF-8: kept when it is valid UTF-8, otherwise read as Windows-1252.
 std::string LogTextToUtf8(std::string_view text);
 
+// A line that Anvil's anvil-log-throttle plugin writes in place of repeats of a
+// game line (anvil#172), after the game's "[<file>:<line>]: " prefix:
+//   notice: "[anvil-log-throttle] logged <n> times; further repeats are counted and reported every <s> s: <text>"
+//   report: "[anvil-log-throttle] repeated <n> more times in the last <s> s: <text>"
+// The notice stands in for the first counted line, so the lines of a message are
+// its ordinary lines plus the counts of its reports.
+struct ThrottledLine {
+    bool report = false;        // a report; else a notice
+    std::uint64_t count = 0;    // report: lines counted since the last report; notice: lines written before
+    std::uint64_t seconds = 0;  // report: how long it counted; notice: how often it reports
+    std::string text;           // the game's line as it wrote it each time: the prefix and the message
+};
+
+std::optional<ThrottledLine> ParseThrottledLine(std::string_view line);
+
+// The fields of an error_log notification for a line: `line`, and for a line of
+// anvil-log-throttle also `throttle` ("notice" or "report"), the count and `text`.
+std::string ErrorLogFields(std::string_view line);
+
 }  // namespace tongs

@@ -1864,6 +1864,17 @@ stream in `src/pipe_server.cpp`; the file in `src/game_files.cpp`):
   A smaller size or another file identity (volume serial and file index)
   means the file was replaced: `restarted: true` is sent and reading starts
   at 0. A missing file is followed from its start once it appears.
+- **Lines of `anvil-log-throttle`.** Anvil's plugin (anvil#172) writes a
+  repeating message's first lines, then a notice and periodic reports of the
+  count in place of the rest. Tongs reads them from the line alone
+  (`ParseThrottledLine` in `notifications.cpp`): after the game's
+  `[<file>:<line>]: ` (or at the start of the line), the plugin's
+  `[anvil-log-throttle] ` and one of its two texts with whole decimal numbers,
+  then `: ` and the message. A line that only looks like one (a number out of
+  range of 64 bits, another text, the tag later in the line) stays an
+  ordinary line. Nothing asks the plugin: the counts are what the file says,
+  so a client counts the same whether it reads the notifications or the file
+  afterwards. A service of Anvil with live counts was left out for now.
 - **Where `error.log` is.** The game writes its logs to `logs/` in PhysFS's
   write directory, which it sets at start-up from the Documents folder or
   from `userdir=` / `userdir.txt` (Bellows found `logs/error.log` there; the

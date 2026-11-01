@@ -2196,6 +2196,46 @@ static void TestLineTail() {
     assert(LogTextToUtf8("plain") == "plain" && LogTextToUtf8("\x80") == "\xE2\x82\xAC" && LogTextToUtf8("\xC3") == "\xC3\x83");
 }
 
+static void TestThrottledLine() {
+    // Lines of error.log with anvil-log-throttle in the game (lab, 1.11.2026).
+    const std::string culture = R"([triggerimplementation.cpp:7256]: Script error! Script Object Token: "culture_group", )"
+                                R"(Error: Unknown culture group "west_germanic". Root Country: RUS. Root Province: 0)";
+    const std::string report = R"([triggerimplementation.cpp:7256]: [anvil-log-throttle] repeated 3008 more times in the last 81 s: )"
+                               R"(Script error! Script Object Token: "culture_group", Error: Unknown culture group "west_germanic". )"
+                               R"(Root Country: RUS. Root Province: 0)";
+    std::optional<ThrottledLine> t = ParseThrottledLine(report);
+    assert(t && t->report && t->count == 3008 && t->seconds == 81 && t->text == culture);
+    const std::string notice = R"([pdx_localize.cpp:1063]: [anvil-log-throttle] logged 10 times; further repeats are counted )"
+                               R"(and reported every 60 s: Error in localization value! Key: "MODIFIER_ALLOW_CLIENT_STATES", )"
+                               R"(Error: "Couldn't find Latin1 character")";
+    t = ParseThrottledLine(notice);
+    assert(t && !t->report && t->count == 10 && t->seconds == 60 &&
+           t->text == R"([pdx_localize.cpp:1063]: Error in localization value! Key: "MODIFIER_ALLOW_CLIENT_STATES", )"
+                      R"(Error: "Couldn't find Latin1 character")");
+    // Without the game's prefix, and with an empty message.
+    t = ParseThrottledLine("[anvil-log-throttle] repeated 6 more times in the last 62 s: ");
+    assert(t && t->report && t->count == 6 && t->seconds == 62 && t->text.empty());
+    // Ordinary lines, and lines that only look like the plugin's.
+    for (const char* line : {"", "[dlc.cpp:254]: Invalid supported_version in  file: mod/ugc_2043210489.mod line: 8",
+                             culture.c_str(), "[a.cpp:1]: [anvil-log-throttle] repeated x more times in the last 5 s: m",
+                             "[a.cpp:1]: [anvil-log-throttle] repeated -1 more times in the last 5 s: m",
+                             "[a.cpp:1]: [anvil-log-throttle] repeated 99999999999999999999 more times in the last 5 s: m",
+                             "[a.cpp:1]: [anvil-log-throttle] repeated 4 more times in the last 5 s",
+                             "[a.cpp:1]: [anvil-log-throttle] something else: m",
+                             "[a.cpp:1]: m [anvil-log-throttle] repeated 4 more times in the last 5 s: m",
+                             "x [anvil-log-throttle] repeated 4 more times in the last 5 s: m"})
+        assert(!ParseThrottledLine(line));
+
+    // The notification's fields: ordinary lines as before, the plugin's with its count.
+    assert(ErrorLogFields("[a.cpp:1]: \"m\"") == ",\"line\":\"[a.cpp:1]: \\\"m\\\"\"");
+    assert(ErrorLogFields("[a.cpp:1]: [anvil-log-throttle] repeated 4 more times in the last 61 s: \"m\"") ==
+           ",\"line\":\"[a.cpp:1]: [anvil-log-throttle] repeated 4 more times in the last 61 s: \\\"m\\\"\","
+           "\"throttle\":\"report\",\"repeated\":4,\"window_s\":61,\"text\":\"[a.cpp:1]: \\\"m\\\"\"");
+    assert(ErrorLogFields("[a.cpp:1]: [anvil-log-throttle] logged 10 times; further repeats are counted and reported every 60 s: m") ==
+           ",\"line\":\"[a.cpp:1]: [anvil-log-throttle] logged 10 times; further repeats are counted and reported every 60 s: m\","
+           "\"throttle\":\"notice\",\"logged\":10,\"report_s\":60,\"text\":\"[a.cpp:1]: m\"");
+}
+
 static void TestNotificationSources() {
     // State and date.
     FakeGame game = LoadedGame();
@@ -2324,7 +2364,14 @@ static void TestNotificationSources() {
     log_sources.PollErrorLog();
     lines = Lines(log->Take(0));
     assert(lines.size() == 1 && Contains(lines[0], "\"notification\":\"error_log\",\"seq\":1,\"date\":\"1719.3.17\"") &&
-           Contains(lines[0], "\"line\":\"[culture.cpp:1]: Unknown culture group \\\"x\\\"\""));
+           Contains(lines[0], "\"line\":\"[culture.cpp:1]: Unknown culture group \\\"x\\\"\"") &&
+           !Contains(lines[0], "throttle"));
+    file += "\n[culture.cpp:1]: [anvil-log-throttle] repeated 41 more times in the last 60 s: Unknown culture group \"x\"\n";
+    log_sources.PollErrorLog();
+    lines = Lines(log->Take(0));
+    assert(lines.size() == 2 && Contains(lines[0], "\"line\":\"partial\"}") &&
+           Contains(lines[1], "\"throttle\":\"report\",\"repeated\":41,\"window_s\":60,"
+                              "\"text\":\"[culture.cpp:1]: Unknown culture group \\\"x\\\"\"}"));
     file = "fresh\n";
     file_id = 2;
     log_sources.PollErrorLog();
@@ -4029,6 +4076,7 @@ int main() {
     TestEventChanges();
     TestChoiceLog();
     TestLineTail();
+    TestThrottledLine();
     TestNotificationSources();
     TestSubscribeCommands();
     TestEvents();
