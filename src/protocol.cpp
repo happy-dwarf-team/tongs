@@ -1,6 +1,7 @@
 #include "protocol.hpp"
 
 #include "game_date.hpp"
+#include "navigation_service.hpp"
 
 #include <atomic>
 #include <charconv>
@@ -1595,8 +1596,8 @@ private:
     bool called_ = false;
 };
 
-// Set when the game's code faulted in a navigation call; refuses every later one until the game exits.
-std::atomic<bool> g_navigation_tripped{false};
+// A fault in a navigation call (here or in tongs.navigation) refuses every later
+// one until the game exits: NavigationTripped, navigation_service.hpp.
 
 // province open ID / province goto ID [timeout=S]: client calls (ADR 0003). One
 // main-thread job checks and calls (it ends its batch), later jobs check what
@@ -1618,7 +1619,7 @@ std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
     if (!h.dispatcher || !h.read_navigation || !h.call_navigation || !h.read_camera || !h.read_selection || !h.read_ui) {
         return refuse("unavailable", h.dispatcher ? "navigation is not set up" : kNoDispatch);
     }
-    if (g_navigation_tripped.load()) {
+    if (NavigationTripped()) {
         return refuse("navigation_tripped", "navigation is off until the game exits after a call faulted");
     }
     std::lock_guard lock(g_input_mutex);  // client calls take turns with input
@@ -1669,7 +1670,7 @@ std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
             if (refusal.failed()) return std::string();
             faulted = !h.call_navigation(open, facts, fault_code);
             if (faulted) {
-                g_navigation_tripped.store(true);
+                TripNavigation();
             } else {
                 camera_failure = h.read_camera(set);
             }

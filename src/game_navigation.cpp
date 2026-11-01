@@ -68,19 +68,30 @@ bool TutorialBlocks(TutorialFn fn, std::uintptr_t tutorial, bool& out) {
     }
 }
 
-bool Call(std::uintptr_t base, const NavigationLayout& l, bool open, const NavigationFacts& f, unsigned long* code) {
+// The province links' sequence (0xFF6350): close the shown views, the camera, select.
+bool Call(std::uintptr_t base, const NavigationLayout& l, bool close_views, bool camera, bool select,
+          const NavigationFacts& f, unsigned long* code) {
     __try {
         auto* session = reinterpret_cast<void*>(f.session);
-        if (open && reinterpret_cast<SessionBoolFn>(base + l.views_open_rva)(session)) {
+        if (close_views && reinterpret_cast<SessionBoolFn>(base + l.views_open_rva)(session)) {
             reinterpret_cast<SessionFn>(base + l.close_views_rva)(session);
         }
-        reinterpret_cast<CameraFn>(base + l.camera_rva)(session, f.id);
-        if (open) {
+        if (camera) reinterpret_cast<CameraFn>(base + l.camera_rva)(session, f.id);
+        if (select) {
             reinterpret_cast<SelectFn>(base + l.select_rva)(reinterpret_cast<void*>(f.selection),
                                                             reinterpret_cast<void*>(f.province));
         }
         return true;
     } __except (*code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool ViewsOpen(std::uintptr_t base, const NavigationLayout& l, std::uintptr_t session, bool& out) {
+    __try {
+        out = reinterpret_cast<SessionBoolFn>(base + l.views_open_rva)(reinterpret_cast<void*>(session));
+        return true;
+    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
         return false;
     }
 }
@@ -152,7 +163,34 @@ WorldFailure ReadNavigationFacts(std::uintptr_t base, const NavigationLayout& nl
 
 bool CallNavigation(std::uintptr_t base, const NavigationLayout& l, bool open, const NavigationFacts& f,
                     unsigned long& fault_code) {
-    return Call(base, l, open, f, &fault_code);
+    return Call(base, l, open, true, open, f, &fault_code);
+}
+
+bool CallOpen(std::uintptr_t base, const NavigationLayout& l, const NavigationFacts& f, bool close_views, bool camera,
+              unsigned long& fault_code) {
+    return Call(base, l, close_views, camera, true, f, &fault_code);
+}
+
+WorldFailure ReadProvinceView(std::uintptr_t base, const NavigationLayout& nl, ProvinceViewRaw& out) {
+    out = {};
+    if (WorldFailure f = ReadSelection(base, nl.world, out.selection); f.failed()) return f;
+    std::uint8_t shown = 0;
+    if (out.selection.view_widget != 0) {
+        if (!Read(out.selection.view_widget + nl.widget_shown, shown)) return Failed("the province view is not readable");
+        out.view_shown = shown != 0;
+    }
+    if (out.selection.colonisation_widget != 0) {
+        if (!Read(out.selection.colonisation_widget + nl.widget_shown, shown)) {
+            return Failed("the colonisation panel is not readable");
+        }
+        out.colonisation_shown = shown != 0;
+    }
+    std::uintptr_t root = 0, session = 0;
+    if (!Read(base + nl.world.root_rva, root) || root == 0 || !Read(root + nl.world.session, session) || session == 0 ||
+        !ViewsOpen(base, nl, session, out.views_open)) {
+        return Failed("the session's views are not readable");
+    }
+    return {};
 }
 
 WorldFailure ReadCamera(std::uintptr_t base, const NavigationLayout& nl, CameraRaw& out) {

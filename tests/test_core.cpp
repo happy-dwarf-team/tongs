@@ -3,6 +3,7 @@
 #include "game_date.hpp"
 #include "load_watch.hpp"
 #include "navigation.hpp"
+#include "navigation_service.hpp"
 #include "notify_sources.hpp"
 #include "protocol.hpp"
 #include "save_meta.hpp"
@@ -3868,6 +3869,152 @@ static void TestSaveLoadCommand() {
     assert(!logged.empty());
 }
 
+// tongs.navigation (docs/adr/0004): the pipe's checks for another plugin, on its main thread.
+struct NavigationFake {
+    std::uint32_t thread = 7, main = 7;
+    bool in_game = true, suspended = false;
+    ProvinceViewRaw view;
+    NavigationFacts facts;
+    WorldFailure read_failure;
+    int reads = 0, calls = 0, counted = 0;
+    bool close_views = false, camera = false, fault = false;
+    std::vector<std::string> logged;
+
+    NavigationServiceHost Host() {
+        NavigationServiceHost h;
+        h.current_thread = [this] { return thread; };
+        h.main_thread = [this] { return main; };
+        h.in_game = [this] { return in_game; };
+        h.suspended = [this] { return suspended; };
+        h.read_view = [this](ProvinceViewRaw& out) {
+            out = view;
+            return read_failure;
+        };
+        h.read_facts = [this](std::int32_t id, NavigationFacts& out) {
+            ++reads;
+            out = facts;
+            out.id = id;
+            return read_failure;
+        };
+        h.call = [this](const NavigationFacts&, bool close, bool cam, unsigned long& code) {
+            ++calls;
+            close_views = close;
+            camera = cam;
+            code = 0xC0000005;
+            return !fault;
+        };
+        h.count = [this] { ++counted; };
+        h.log_error = [this](const std::string& message) { logged.push_back(message); };
+        return h;
+    }
+};
+
+static void TestNavigationService() {
+    NavigationFake fake;
+    fake.facts.land = true;
+    NavigationService service(fake.Host());
+
+    // province_view: the selection and the three shown flags.
+    fake.view.selection.last_selected = 295;
+    fake.view.selection.view_province = 295;
+    fake.view.selection.view_widget = 0x1000;
+    fake.view.selection.colonisation_widget = 0x2000;
+    fake.view.view_shown = true;
+    fake.view.views_open = true;
+    TongsProvinceView view{};
+    view.size = sizeof view;
+    assert(service.ProvinceView(&view) == ANVIL_OK);
+    assert(view.selected == 295 && view.shown == 295 && view.view_id == 0x1000 && view.colonisation_id == 0x2000);
+    assert(view.flags == (TONGS_NAV_VIEW_SHOWN | TONGS_NAV_VIEWS_OPEN) && view.size == sizeof view);
+    // Outside a game: all zero; a short struct, NULL and other threads are refused.
+    fake.in_game = false;
+    assert(service.ProvinceView(&view) == ANVIL_OK && view.selected == 0 && view.flags == 0 && view.view_id == 0);
+    fake.in_game = true;
+    view.size = 8;
+    assert(service.ProvinceView(&view) == ANVIL_ERROR_INVALID_ARGUMENT);
+    assert(service.ProvinceView(nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+    view.size = sizeof view;
+    fake.thread = 8;
+    assert(service.ProvinceView(&view) == ANVIL_ERROR_WRONG_PHASE);
+    fake.thread = fake.main = 0;
+    assert(service.ProvinceView(&view) == ANVIL_ERROR_WRONG_PHASE);
+    fake.thread = fake.main = 7;
+    // A read that fails is an internal error, logged once until it changes.
+    fake.read_failure = {"read_failed", "the selection is not readable"};
+    assert(service.ProvinceView(&view) == ANVIL_ERROR_INTERNAL && service.ProvinceView(&view) == ANVIL_ERROR_INTERNAL);
+    assert(fake.logged.size() == 1 && Contains(fake.logged[0], "the selection is not readable"));
+    fake.read_failure = {};
+
+    // open_province: the links' sequence by default, steps left out by the flags, counted.
+    std::uint32_t outcome = 99;
+    assert(service.OpenProvince(295, 0, &outcome) == ANVIL_OK && outcome == TONGS_NAV_OPENED);
+    assert(fake.calls == 1 && fake.close_views && fake.camera && fake.counted == 1);
+    assert(service.OpenProvince(295, TONGS_NAV_KEEP_VIEWS | TONGS_NAV_NO_CAMERA, &outcome) == ANVIL_OK);
+    assert(outcome == TONGS_NAV_OPENED && fake.calls == 2 && !fake.close_views && !fake.camera && fake.counted == 2);
+    // Bad arguments and other threads: nothing read or called.
+    assert(service.OpenProvince(295, 0x4, &outcome) == ANVIL_ERROR_INVALID_ARGUMENT);
+    assert(service.OpenProvince(295, 0, nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+    fake.thread = 8;
+    assert(service.OpenProvince(295, 0, &outcome) == ANVIL_ERROR_WRONG_PHASE);
+    fake.thread = 7;
+    assert(fake.reads == 2 && fake.calls == 2);
+
+    // Refusals come before any call, and are not counted.
+    const auto refused = [&](std::uint32_t expected) {
+        const int calls = fake.calls, counted = fake.counted;
+        outcome = 99;
+        assert(service.OpenProvince(295, 0, &outcome) == ANVIL_OK && outcome == expected);
+        assert(fake.calls == calls && fake.counted == counted);
+    };
+    fake.suspended = true;
+    refused(TONGS_NAV_SUSPENDED);
+    fake.suspended = false;
+    fake.in_game = false;
+    refused(TONGS_NAV_NOT_IN_GAME);
+    fake.in_game = true;
+    fake.read_failure = {"unknown_province", "no province 9999"};
+    refused(TONGS_NAV_UNKNOWN_PROVINCE);
+    fake.read_failure = {"read_failed", "province 295 is not readable"};
+    refused(TONGS_NAV_READ_FAILED);
+    assert(Contains(fake.logged.back(), "province 295 is not readable"));
+    fake.read_failure = {};
+    fake.facts.land = false;
+    refused(TONGS_NAV_NOT_SELECTABLE);
+    fake.facts.land = true;
+    fake.facts.wasteland = true;
+    refused(TONGS_NAV_NOT_SELECTABLE);
+    fake.facts.wasteland = false;
+    fake.facts.terra_incognita = true;
+    refused(TONGS_NAV_TERRA_INCOGNITA);
+    fake.facts.terra_incognita = false;
+    fake.facts.selection_blocked = true;
+    refused(TONGS_NAV_SELECTION_BLOCKED);
+    fake.facts.selection_blocked = false;
+    // The discover case: a game call for the pipe, never made by the service.
+    fake.facts.discover = true;
+    refused(TONGS_NAV_DISCOVER);
+    fake.facts.discover = false;
+    // A locked camera refuses `goto`, not opening a view.
+    fake.facts.camera_locked = true;
+    assert(service.OpenProvince(295, 0, &outcome) == ANVIL_OK && outcome == TONGS_NAV_OPENED);
+    assert(!NavigationTripped());
+}
+
+static void TestNavigationServiceTripped() {
+    // The pipe's fault (TestNavigationCommands) turns the service's navigation off too.
+    NavigationFake fake;
+    fake.facts.land = true;
+    NavigationService service(fake.Host());
+    std::uint32_t outcome = 99;
+    assert(NavigationTripped());
+    assert(service.OpenProvince(295, 0, &outcome) == ANVIL_OK && outcome == TONGS_NAV_TRIPPED);
+    assert(fake.reads == 0 && fake.calls == 0);
+    // province_view still reads.
+    TongsProvinceView view{};
+    view.size = sizeof view;
+    assert(service.ProvinceView(&view) == ANVIL_OK);
+}
+
 int main() {
     TestWorldParsing();
     TestWorldAnswers();
@@ -3929,7 +4076,9 @@ int main() {
     TestUiRequests();
     TestUiCommand();
     TestConsoleRules();
+    TestNavigationService();
     TestNavigationCommands();  // trips navigation for the rest of the process
+    TestNavigationServiceTripped();
     TestSaveLoadCommand();
     TestConsoleCommand();  // last: it trips game calls for the rest of the process
     std::puts("ok");

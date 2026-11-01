@@ -6,6 +6,7 @@
 #include "game_frame.hpp"
 #include "game_input.hpp"
 #include "game_navigation.hpp"
+#include "game_navigation_service.hpp"
 #include "game_save.hpp"
 #include "game_state.hpp"
 #include "game_symbols.hpp"
@@ -22,6 +23,7 @@
 
 #include <anvil/anvil.hpp>
 #include <anvil/anvil_game.h>
+#include <tongs/tongs_navigation.h>
 #include <tongs/tongs_ui.h>
 
 #include <windows.h>
@@ -64,6 +66,24 @@ struct Tongs : anvil::Plugin {
         } else {
             host.warn("cannot register {} ({})", TONGS_UI_SERVICE, error);
         }
+        // Suspension stops tongs.navigation's calls too, with or without the pipe.
+        host.subscribe(ANVIL_EVENT_SUSPENDED, [host] {
+            g_suspended.store(true, std::memory_order_release);
+            host.warn("suspended by Anvil (ironman or multiplayer): input commands, game calls and navigation answer "
+                      "an error until the game session ends; reads go on");
+        });
+        host.subscribe(ANVIL_EVENT_RESUMED, [host] {
+            g_suspended.store(false, std::memory_order_release);
+            host.info("resumed by Anvil: input commands, game calls and navigation are back");
+        });
+        // tongs.navigation makes client calls for other plugins only (docs/adr/0004), whatever the settings.
+        if (const std::string error = tongs::RegisterNavigationService(
+                image_base, [] { return g_suspended.load(std::memory_order_acquire); });
+            error.empty()) {
+            host.info("service {} v{} registered", TONGS_NAVIGATION_SERVICE, TONGS_NAVIGATION_SERVICE_VERSION);
+        } else {
+            host.warn("cannot register {} ({})", TONGS_NAVIGATION_SERVICE, error);
+        }
         if (!config.enabled) {
             host.info("pipe disabled (set enabled = true in anvil/data/tongs/settings.toml)");
             return;
@@ -99,15 +119,6 @@ struct Tongs : anvil::Plugin {
                                                   .count());
         };
         handlers.suspended = [] { return g_suspended.load(std::memory_order_acquire); };
-        host.subscribe(ANVIL_EVENT_SUSPENDED, [host] {
-            g_suspended.store(true, std::memory_order_release);
-            host.warn("suspended by Anvil (ironman or multiplayer): input commands and game calls answer an error "
-                      "until the game session ends; reads go on");
-        });
-        host.subscribe(ANVIL_EVENT_RESUMED, [host] {
-            g_suspended.store(false, std::memory_order_release);
-            host.info("resumed by Anvil: input commands and game calls are back");
-        });
         // Main-thread jobs run after anvil-game's outer frames; they live as long as the process.
         static tongs::Dispatcher dispatcher(handlers.now_ms);
         static tongs::FrameStats frame_stats;
@@ -227,6 +238,12 @@ struct Tongs : anvil::Plugin {
                                      tongs::LineTail::Chunk& chunk) { return tongs::ReadLogChunk(path, offset, max, chunk); };
         static tongs::NotificationSources sources(handlers, hub);
         sources.Start();
+        // Another plugin's open_province counts in the pipe's client_calls (ADR 0003).
+        tongs::CountNavigationServiceCalls([handlers] {
+            if (handlers.read_state) {
+                tongs::CountClientCall(handlers, "tongs.navigation open_province", handlers.read_state());
+            }
+        });
         tongs::StartPipeServer(handlers, Log);
         // A pipe that failed to start only turns the plugin into a no-op.
     }
