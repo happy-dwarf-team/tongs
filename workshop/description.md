@@ -5,7 +5,7 @@
 ## Overview
 Tongs is for people who automate EU4: mod testers, tool makers and anyone who wants an AI agent to look at a game and press its buttons. While the game runs, a program on your own computer can ask Tongs what is going on (the date, the speed, the open windows and events, a screenshot) and, if you allow it, pause, change speed, press keys and click buttons by name, just as a player would.
 
-Other Anvil plugins can read the game's interface through Tongs too, even while its pipe is switched off.
+Other Anvil plugins can read the game's interface through Tongs too, and open a province's view, even while its pipe is switched off.
 
 On its own Tongs does nothing you can see. It waits until you switch it on, and it only listens to programs on your own computer.
 
@@ -30,7 +30,7 @@ Anvil asks again after every update. Until you approve, the version you trusted 
 ## What it doesn't touch
 - No game files: the files the game checks stay the same, so ironman achievements stay available.
 - Reading the game changes nothing. Keyboard, mouse and console commands do change your game, exactly as if you had pressed the keys yourself, and each of them needs its own switch.
-- Navigation moves your camera and opens province views, as the game's own province links do; it is switched on together with keyboard and mouse.
+- Navigation moves your camera and opens province views, as the game's own province links do. For your scripts it is switched on together with keyboard and mouse; another plugin you installed (such as Etch's live game) can ask for it even when they are off, and never gets more than a province link would do.
 - Loading a save by name is a console-level command: it discards the running game without saving it, as the game's own Load dialog does, and never saves for you.
 - In ironman and multiplayer Anvil keeps Tongs asleep unless you allow it there yourself.
 - Unsubscribe and it's gone. Nothing is left in your saves.
