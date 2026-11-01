@@ -2614,6 +2614,26 @@ above and `render_pick`'s shown byte.
   (`navigation_service.hpp`) are shared with the pipe's `province open` and
   `province goto`.
 
+### Live check (2026-11-01)
+
+EU4 1.37.5 with the original `eu4.exe`, Anvil 1.5.2, this branch's Tongs and
+Etch's plugin from its branch (`etch-reselect-province`) as the consumer, in
+Etch's private install driven by the lab's harness (`work/etch-h8`), under the
+lab's game lock: vanilla windowed 1920×1080 on a copy of the Russia save of
+1719.3.17, and Anbennar with Proper 2K UI Enhanced and P2KE Patch - Anbennar
+windowed 2560×1440 on a copy of Verne 1444.11.11. The pipe's `province open`
+played the player's clicks; the last series ran with Tongs as Etch installs
+it, `enabled = false` and no settings file.
+
+| Check | Seen |
+| --- | --- |
+| registration | `service tongs.navigation v1 registered` on every start, with the pipe on and with `pipe disabled` |
+| `province_view` | the province and window on screen (`provinceview`) after an open; none once the view closed (its shown byte), also when the pipe's `selection` still said `visible: true` after a rebuild |
+| `open_province` after a restart, no view open (Etch's `reselect`) | `opened`: 151, 295 (vanilla), 51, 292 (Anbennar), 295 with the pipe disabled; the view showed it two frames later, with its name |
+| refusals | 3190 `terra_incognita`, 1252 (a sea) `not_selectable`; nothing called |
+| `KEEP_VIEWS \| NO_CAMERA` on the province the view shows, right after the game's `reload provinceview.gui` | the header's `provincename` kept its text: Moskva, Murom, Tsargrad (a foreign province), Clawmarches, Watchman's Point, Moskva with the pipe disabled; without the call the same reload blanked it (Moskva, Verne), and the pipe's `province open` of the same province brought it back |
+| counts | with the pipe on, `client_calls_total` rose by one per `open_province` that called the game, refusals none |
+
 ## Releases
 
 Each release is one PR with its live checks done before it merges; the order
