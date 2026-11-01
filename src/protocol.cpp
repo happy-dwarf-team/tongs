@@ -807,6 +807,7 @@ struct ClickOutcome {
     std::string members;  // the point and the hover check
     std::uint64_t clicked_at = 0;  // when the button events were queued
     std::uint64_t frame = 0;       // the frame of the hover check
+    bool nothing_hovered = false;  // `covered` with covered_by null
     StateSnapshot state;
 };
 
@@ -876,9 +877,9 @@ HoverOutcome HoverCheck(const Handlers& h, std::uintptr_t target, const UiRect& 
 
 // `,"pointer_released":true` when the hook has handed the pointer back because the
 // real mouse moved: the game then hovers what lies under the real pointer.
-std::string PointerNote(const Handlers& h) {
-    return h.cursor_held && !h.cursor_held() ? ",\"pointer_released\":true" : "";
-}
+bool PointerReleased(const Handlers& h) { return h.cursor_held && !h.cursor_held(); }
+
+std::string PointerNote(const Handlers& h) { return PointerReleased(h) ? ",\"pointer_released\":true" : ""; }
 
 // Moves the GUI pointer to the centre of the widget, checks on the main thread
 // that the game hovers the widget (or one inside it) there, then presses and
@@ -903,6 +904,7 @@ ClickOutcome ClickWidget(const Handlers& h, std::uintptr_t target, const UiRect&
     if (cover.covered) {
         c.members += ",\"covered_by\":" + (cover.covered_by.empty() ? std::string("null") : Quote(cover.covered_by));
         c.members += PointerNote(h);
+        c.nothing_hovered = cover.covered_by.empty();
         return fail("covered");
     }
     if (!cover.hovered.empty()) c.members += ",\"hovered\":" + Quote(cover.hovered);
@@ -1161,21 +1163,38 @@ struct EventsFirst {
     std::uint64_t missed_since = 0;
     int attempts = 0;  // clicks on the `missed` event so far
     int retries = 0;   // failed choices tried again, in the whole run
+    // Why the clicks on the `missed` event did not take.
+    struct Misses {
+        int covered = 0;
+        int nothing_hovered = 0;  // of `covered`: covered_by null
+        int still_waiting = 0;
+        int pointer_released = 0;  // of both: the real mouse had the pointer
+
+        std::string Json() const {
+            return ",\"missed\":{\"covered\":" + std::to_string(covered) + ",\"nothing_hovered\":" +
+                   std::to_string(nothing_hovered) + ",\"still_waiting\":" + std::to_string(still_waiting) +
+                   ",\"pointer_released\":" + std::to_string(pointer_released) + "}";
+        }
+    } misses;
 
     bool Stop(std::string why) {
         error = std::move(why);
         return false;
     }
 
+    // `attempts` and `missed` of an event that needed more than one click.
+    std::string AttemptFields() const {
+        return attempts > 1 ? ",\"attempts\":" + std::to_string(attempts) + misses.Json() : std::string();
+    }
+
     // Ends the run on the event: `click` has the click's own members (point, covered_by, ...).
     bool Fail(const EventView& e, std::string why, const std::string& click) {
-        members = ",\"event\":" + EventJson(e) + click;
-        if (attempts > 1) members += ",\"attempts\":" + std::to_string(attempts);
+        members = ",\"event\":" + EventJson(e) + click + AttemptFields();
         return Stop(std::move(why));
     }
 
-    // Live, most of these were the virtual pointer handed back to a moving real mouse, and
-    // a second event or a popup over the option; a later look found the option free.
+    // A second event or a popup over the option, or nothing hovered there, or a click that did
+    // not take: a later look may find the option free.
     bool Missed(const EventView& e, std::string why, const std::string& click) {
         const std::uint64_t now = h.now_ms();
         if (missed == 0) {
@@ -1216,6 +1235,7 @@ struct EventsFirst {
         if (e.controller != missed) {
             missed = 0;
             attempts = 0;
+            misses = {};
         }
         ++attempts;
         const EventOption& o = e.options[option];
@@ -1226,19 +1246,28 @@ struct EventsFirst {
             const CountedInput counted(h, "run_until events=first: choice");
             c = ClickWidget(counted.handlers(), button.address, button.rect, h.dispatch_timeout_ms, false);
         }
-        if (!c.ok) return c.error == "covered" ? Missed(e, c.error, c.members) : Fail(e, c.error, c.members);
+        if (!c.ok && c.error != "covered") return Fail(e, c.error, c.members);
+        if (!c.ok) {
+            ++misses.covered;
+            misses.nothing_hovered += c.nothing_hovered;
+            misses.pointer_released += PointerReleased(h);
+            return Missed(e, c.error, c.members);
+        }
         NoteChoice(h, e, o, before);
         const CloseWatch w = WatchClose(h, e, c.clicked_at, c.frame);
         if (!w.chosen) {
             ForgetChoice(h, e);
+            ++misses.still_waiting;
+            misses.pointer_released += PointerReleased(h);
             return Missed(e, NotChosen(), PointerNote(h));
         }
         if (!choices.empty()) choices += ',';
         std::string choice = ChoiceJson(e, o, before.in_game ? DateText(before.date_raw) : std::string());
-        if (attempts > 1) choice.insert(choice.size() - 1, ",\"attempts\":" + std::to_string(attempts));
+        choice.insert(choice.size() - 1, AttemptFields());
         choices += choice;
         missed = 0;
         attempts = 0;
+        misses = {};
         // An event that paused the game with the player pause leaves it paused.
         const StateSnapshot after = h.read_state();
         if (after.in_game && after.paused_flag) {

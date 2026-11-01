@@ -376,7 +376,10 @@ resumed after the choice. Every click counts in `inputs`.
 A choice that does not take (`covered`, or the event still waiting for a choice
 3 s after the click) is tried again a quarter of a second later, from whatever
 event is then on top, while the game goes on. `choice_retries` counts these
-tries in the run, and a choice that needed more than one click has `attempts`.
+tries in the run, and a choice that needed more than one click has `attempts`
+and `missed`: how many clicks were `covered` (of them `nothing_hovered`, with
+`covered_by: null`), how many left the event `still_waiting`, and in how many
+of both the real mouse had the pointer (`pointer_released`).
 Only when the same event has not taken a click for 30 s does the run end with
 that error, the event and its `attempts`. Like every `run_until`, it ends
 paused.

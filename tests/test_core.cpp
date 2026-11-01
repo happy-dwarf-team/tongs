@@ -1603,7 +1603,9 @@ static void TestRunUntilEventsFirst() {
     screen.game.state.date_raw = *ParseGameDate("1719.4.2");
     out = HandleRequest("run_until 1719.5.1 events=first", flaky);
     assert(Contains(out, "{\"ok\":true,\"command\":\"run_until\"") && Contains(out, "\"choice_retries\":1"));
-    assert(Contains(out, "\"text\":\"Pray\"") && Contains(out, "\"attempts\":2}") &&
+    assert(Contains(out, "\"text\":\"Pray\"") &&
+           Contains(out, "\"attempts\":2,\"missed\":{\"covered\":1,\"nothing_hovered\":1,\"still_waiting\":0,"
+                         "\"pointer_released\":0}}") &&
            screen.chosen == std::vector<std::string>({"5_0", "7_0"}));
 
     // Never free: after 30 s of tries the run ends `covered`, paused, with the event, its
@@ -1618,7 +1620,8 @@ static void TestRunUntilEventsFirst() {
     const std::uint64_t began = screen.game.clock;
     out = HandleRequest("run_until 1719.6.1 events=first", flaky);
     assert(Contains(out, "{\"ok\":false,\"error\":\"covered\"") && Contains(out, "\"events\":[],\"choice_retries\":") &&
-           Contains(out, "\"covered_by\":null,\"pointer_released\":true") && Contains(out, "\"attempts\":"));
+           Contains(out, "\"covered_by\":null,\"pointer_released\":true,\"attempts\":") &&
+           Contains(out, "\"still_waiting\":0,\"pointer_released\":") && !Contains(out, "\"pointer_released\":0}"));
     assert(screen.game.clock - began >= 30000 && screen.chosen.empty() && screen.game.state.paused_flag);
 
     // No option enabled: the run ends with the event.
