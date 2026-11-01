@@ -875,8 +875,8 @@ HoverOutcome HoverCheck(const Handlers& h, std::uintptr_t target, const UiRect& 
     }
 }
 
-// `,"pointer_released":true` when the hook has handed the pointer back because the
-// real mouse moved: the game then hovers what lies under the real pointer.
+// True when the hook has handed the pointer back because the real mouse moved: the
+// game then hovers what lies under the real pointer. PointerNote is its answer member.
 bool PointerReleased(const Handlers& h) { return h.cursor_held && !h.cursor_held(); }
 
 std::string PointerNote(const Handlers& h) { return PointerReleased(h) ? ",\"pointer_released\":true" : ""; }
