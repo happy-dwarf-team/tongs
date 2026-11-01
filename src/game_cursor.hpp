@@ -17,5 +17,7 @@ std::string InstallCursorHook();
 
 void SetVirtualCursor(int x, int y);
 void ReleaseVirtualCursor();
+// False after `release`, and once the hook saw the real cursor move and handed it back.
+bool VirtualCursorHeld();
 
 }  // namespace tongs

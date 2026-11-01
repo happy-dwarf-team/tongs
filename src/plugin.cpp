@@ -193,6 +193,7 @@ struct Tongs : anvil::Plugin {
             if (const std::string error = tongs::InstallCursorHook(); error.empty()) {
                 handlers.set_cursor = [](int x, int y) { tongs::SetVirtualCursor(x, y); };
                 handlers.release_cursor = [] { tongs::ReleaseVirtualCursor(); };
+                handlers.cursor_held = [] { return tongs::VirtualCursorHeld(); };
             } else {
                 host.warn("{}; mouse commands send SDL events only", error);
             }

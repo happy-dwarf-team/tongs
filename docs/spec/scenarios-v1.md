@@ -477,9 +477,14 @@ Not blocking any release:
 - Batch world reads and a map scan: `country TAG` → `provinces` covers the
   nearest need.
 - A per-session outer-frame counter in `state`: `ready()` works with `frames`.
-- Whether `run_until events=first` chooses what `key return` does: a separate
-  check in the game,
-  [#110](https://github.com/happy-dwarf-team/tongs/issues/110).
+- Whether `run_until events=first` chooses what `key return` does: checked in
+  the lab ([#110](https://github.com/happy-dwarf-team/tongs/issues/110), lab
+  step L3). The game itself chose every event the old resume loop left open,
+  at the deadline and with the first option (53 of 53), `events=first` chose
+  the same option at once (8 of 8), and `key return` chose nothing. The stops
+  the lab's years scenario still met (`covered`, the event still waiting after
+  the click) are tried again inside `run_until` since that check
+  ([docs/commands.md](../commands.md#events)).
 
 ## 13. Open points to check during implementation
 

@@ -251,11 +251,18 @@ How `events=first` works (0.6.0):
 - It takes the input lock, picks the topmost event (the newest, see
   "Events") and waits up to 10 s for an option to become enabled (the game
   keeps them disabled for half a second after opening). Without one, the run
-  ends with `no_enabled_option`.
+  ends with `no_enabled_option`. Every read of that wait takes the
+  topmost event again, so an event that opens meanwhile is answered first
+  instead of lying over the option.
 - It clicks the first enabled option as `event choose` does, waits until the
   event is no longer waiting for a choice, and presses `resume` when the game
-  is left with the player pause on. A click that is refused (`covered`) or
-  has no effect within 3 s ends the run.
+  is left with the player pause on.
+- A click that is refused (`covered`) or has no effect within 3 s releases the
+  input lock and is tried again on the next look, 250 ms later, from the
+  topmost event (`choice_retries`, `attempts`). Only an event that has not
+  taken a click for 30 s ends the run, with the error and the event (in
+  0.22 and earlier the first such click ended it). A choice is listed in `events` only
+  once it took.
 
 ## Mouse
 

@@ -56,8 +56,10 @@ With `game_calls = true` in the settings, also (see [Console](#console)):
 | `save load NAME [timeout=S]` | loads a save from `save games` in the running game, as the Load dialog does (see [Loading a save](#loading-a-save)). **Discards the running game without saving** |
 
 Input commands answer once the game has reacted (or after 10 s) with
-`command`, `presses`, `waited_ms` and the fields of `state`. When the game
-does not react in time, `ok` is `false` with an `error`, and the state is
+`command`, `presses`, `waited_ms` and the fields of `state`. A pause (also
+the one that ends `run_until`) answers once the date has stayed the same for
+three frames: the day the game is in when the pause takes hold still ends.
+When the game does not react in time, `ok` is `false` with an `error`, and the state is
 still included. `key`, `text` and the mouse commands do not expect a change;
 they answer with the state read 0.1 s after the input. Input commands from
 different clients take turns.
@@ -332,7 +334,10 @@ pointer, and only then clicks. It refuses without clicking: `not_found`,
 match), `stale` (only stale widgets match), `disabled`, or `covered` (with `covered_by`, the widget that would get
 the click). The answer has `clicked`, `point` and the state after the click.
 When the game reports no widget at all under the pointer, the move is tried up
-to three times (`hover_attempts`). A click on an event's option button also
+to three times (`hover_attempts`). `covered` with `pointer_released: true`
+means the real mouse moved meanwhile, so the game took the real pointer again
+(see the mouse commands above); the same answer comes from `event choose` when
+its click did not take. A click on an event's option button also
 answers `event_option` and counts as a choice Tongs knows (see [Events](#events)).
 
 ```powershell
@@ -367,7 +372,14 @@ lists within 3 s; it took 3 frames in the live check) and the state after.
 the run: it waits for the first enabled option of the topmost event, clicks it
 and lists the choices in `events`; when no option becomes enabled, the run
 ends with `no_enabled_option` and the event. An event that paused the game is
-resumed after the choice. Every choice counts in `inputs`.
+resumed after the choice. Every click counts in `inputs`.
+A choice that does not take (`covered`, or the event still waiting for a choice
+3 s after the click) is tried again a quarter of a second later, from whatever
+event is then on top, while the game goes on. `choice_retries` counts these
+tries in the run, and a choice that needed more than one click has `attempts`.
+Only when the same event has not taken a click for 30 s does the run end with
+that error, the event and its `attempts`. Like every `run_until`, it ends
+paused.
 
 ## Notifications
 

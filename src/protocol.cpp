@@ -18,6 +18,8 @@ namespace tongs {
 namespace {
 
 constexpr int kMaxSpeedPresses = 8;  // speed 1 -> 5 needs 4; the rest is slack for a lost press
+constexpr int kPauseSettleFrames = 3;      // frames with one date before a pause answers
+constexpr int kPauseSettleMaxFrames = 30;
 constexpr int kDefaultRunTimeoutS = 3600;
 constexpr int kMaxRunTimeoutS = 4 * 3600;
 
@@ -225,6 +227,7 @@ public:
         const bool reached = WaitFor(r, [pause](const StateSnapshot& s) {
             return s.in_game && (pause ? s.paused_flag : !s.paused);
         });
+        if (reached && pause) SettleDate(r);
         if (reached) return Finish(r, start);
         if (!pause && r.state.in_game && !r.state.paused_flag) {
             return Fail(r, start, "the player pause is off, but the game is still paused");
@@ -257,6 +260,24 @@ public:
     }
 
 private:
+    // The day the game is in when the pause flag is set still ends: live, a run_until
+    // answered 1725.12.31 paused and the game stood on 1726.1.1 a moment later. Waits on
+    // main-thread frames until the date has stayed the same for kPauseSettleFrames.
+    void SettleDate(ActionResult& r) {
+        if (!h_.dispatcher) return;
+        std::int32_t date = r.state.date_raw;
+        int same = 0;
+        for (int frame = 0; frame < kPauseSettleMaxFrames && same < kPauseSettleFrames; ++frame) {
+            const Dispatcher::Outcome o =
+                h_.dispatcher->Run(Dispatcher::Kind::Read, [] { return std::string(); }, h_.dispatch_timeout_ms);
+            if (!o.ran) return;
+            const StateSnapshot s = h_.read_state();
+            if (!s.in_game) return;
+            same = s.date_raw == date ? same + 1 : 0;
+            date = s.date_raw;
+        }
+    }
+
     bool Press(const KeyPress& key, ActionResult& r) { return Send(KeyPressEvents(key), 1, r); }
 
     bool Send(const std::vector<InputEvent>& events, int presses, ActionResult& r) {
@@ -853,6 +874,12 @@ HoverOutcome HoverCheck(const Handlers& h, std::uintptr_t target, const UiRect& 
     }
 }
 
+// `,"pointer_released":true` when the hook has handed the pointer back because the
+// real mouse moved: the game then hovers what lies under the real pointer.
+std::string PointerNote(const Handlers& h) {
+    return h.cursor_held && !h.cursor_held() ? ",\"pointer_released\":true" : "";
+}
+
 // Moves the GUI pointer to the centre of the widget, checks on the main thread
 // that the game hovers the widget (or one inside it) there, then presses and
 // releases the left button. With `settle`, the state is read a moment after the
@@ -875,6 +902,7 @@ ClickOutcome ClickWidget(const Handlers& h, std::uintptr_t target, const UiRect&
     const UiCoverCheck& cover = hover.cover;
     if (cover.covered) {
         c.members += ",\"covered_by\":" + (cover.covered_by.empty() ? std::string("null") : Quote(cover.covered_by));
+        c.members += PointerNote(h);
         return fail("covered");
     }
     if (!cover.hovered.empty()) c.members += ",\"hovered\":" + Quote(cover.hovered);
@@ -957,6 +985,7 @@ constexpr int kMaxOptionScrolls = 30;  // scroll bar clicks to bring a hidden op
 constexpr int kOptionWaitMs = 10000;  // how long events=first waits for an enabled option
 constexpr int kOptionPollMs = 100;
 constexpr int kEventLookMs = 250;     // events=first: between reads while the window list is not empty
+constexpr int kChoiceRetryMs = 30000; // events=first: how long a choice that did not take is tried again
 
 std::string EventList(const Handlers& h, const EventRequest& r) {
     if (!h.dispatcher || !h.read_ui || !h.read_events || !h.now_ms) return Error(kNoDispatch);
@@ -1096,6 +1125,7 @@ std::string EventChoose(const Handlers& handlers, const EventRequest& r) {
         if (!w.chosen) {
             error = NotChosen();
             ForgetChoice(h, e);
+            fields += PointerNote(h);
         }
         fields += CloseFields(w);
         state = h.read_state();
@@ -1125,10 +1155,37 @@ struct EventsFirst {
     std::string error;    // why the run ends
     std::string members;  // with the error: the event
     std::uint64_t next_look = 0;
+    // A choice that did not take (`covered`, or the event still waiting after the click)
+    // is tried again on a later look, from the topmost event, for kChoiceRetryMs.
+    std::uintptr_t missed = 0;  // the controller of that event, 0 when the last choice took
+    std::uint64_t missed_since = 0;
+    int attempts = 0;  // clicks on the `missed` event so far
+    int retries = 0;   // failed choices tried again, in the whole run
 
     bool Stop(std::string why) {
         error = std::move(why);
         return false;
+    }
+
+    // Ends the run on the event: `click` has the click's own members (point, covered_by, ...).
+    bool Fail(const EventView& e, std::string why, const std::string& click) {
+        members = ",\"event\":" + EventJson(e) + click;
+        if (attempts > 1) members += ",\"attempts\":" + std::to_string(attempts);
+        return Stop(std::move(why));
+    }
+
+    // Live, most of these were the virtual pointer handed back to a moving real mouse, and
+    // a second event or a popup over the option; a later look found the option free.
+    bool Missed(const EventView& e, std::string why, const std::string& click) {
+        const std::uint64_t now = h.now_ms();
+        if (missed == 0) {
+            missed = e.controller;
+            missed_since = now;
+        }
+        if (now - missed_since >= static_cast<std::uint64_t>(kChoiceRetryMs)) return Fail(e, std::move(why), click);
+        ++retries;
+        next_look = now + kEventLookMs;
+        return true;
     }
 
     bool Poll() {
@@ -1141,26 +1198,27 @@ struct EventsFirst {
             next_look = h.now_ms() + kEventLookMs;
             return true;
         }
-        const std::uintptr_t controller = s.events[0].controller;
-        const EventView* e = &s.events[0];
-        int option = FirstEnabledOption(*e);
-        // The game keeps the options disabled for a moment after the window opens.
+        int option = FirstEnabledOption(s.events[0]);
+        // The game keeps the options disabled for a moment after the window opens. Each read
+        // takes the topmost event again: one that opens meanwhile lies over the others' options.
         const std::uint64_t deadline = h.now_ms() + kOptionWaitMs;
         while (option == -1 && h.now_ms() < deadline) {
             h.sleep_ms(kOptionPollMs);
             if (!ReadScreen(h, h.dispatch_timeout_ms, true, s)) return Stop(s.Error());
-            e = nullptr;
-            for (const EventView& v : s.events) {
-                if (v.controller == controller) e = &v;
-            }
-            if (!e) return true;  // chosen meanwhile
-            option = FirstEnabledOption(*e);
+            if (s.events.empty()) return true;  // chosen meanwhile
+            option = FirstEnabledOption(s.events[0]);
         }
+        const EventView& e = s.events[0];
         if (option == -1) {
-            members = ",\"event\":" + EventJson(*e);
+            members = ",\"event\":" + EventJson(e);
             return Stop("no_enabled_option");
         }
-        const EventOption& o = e->options[option];
+        if (e.controller != missed) {
+            missed = 0;
+            attempts = 0;
+        }
+        ++attempts;
+        const EventOption& o = e.options[option];
         const StateSnapshot before = h.read_state();
         const UiWidget& button = s.tree.widgets[o.widget];
         ClickOutcome c;
@@ -1168,19 +1226,19 @@ struct EventsFirst {
             const CountedInput counted(h, "run_until events=first: choice");
             c = ClickWidget(counted.handlers(), button.address, button.rect, h.dispatch_timeout_ms, false);
         }
-        if (c.ok) NoteChoice(h, *e, o, before);
-        if (!c.ok) {
-            members = ",\"event\":" + EventJson(*e) + c.members;
-            return Stop(c.error);
+        if (!c.ok) return c.error == "covered" ? Missed(e, c.error, c.members) : Fail(e, c.error, c.members);
+        NoteChoice(h, e, o, before);
+        const CloseWatch w = WatchClose(h, e, c.clicked_at, c.frame);
+        if (!w.chosen) {
+            ForgetChoice(h, e);
+            return Missed(e, NotChosen(), PointerNote(h));
         }
         if (!choices.empty()) choices += ',';
-        choices += ChoiceJson(*e, o, before.in_game ? DateText(before.date_raw) : std::string());
-        const CloseWatch w = WatchClose(h, *e, c.clicked_at, c.frame);
-        if (!w.chosen) {
-            ForgetChoice(h, *e);
-            members = ",\"event\":" + EventJson(*e);
-            return Stop(NotChosen());
-        }
+        std::string choice = ChoiceJson(e, o, before.in_game ? DateText(before.date_raw) : std::string());
+        if (attempts > 1) choice.insert(choice.size() - 1, ",\"attempts\":" + std::to_string(attempts));
+        choices += choice;
+        missed = 0;
+        attempts = 0;
         // An event that paused the game with the player pause leaves it paused.
         const StateSnapshot after = h.read_state();
         if (after.in_game && after.paused_flag) {
@@ -1233,7 +1291,9 @@ std::string RunUntil(const Handlers& h, std::string_view argument) {
     std::string out = std::string("{\"ok\":") + Bool(message.empty());
     if (!message.empty()) out += ",\"error\":\"" + JsonEscape(message) + "\"";
     out += ",\"command\":\"run_until\"" + WaitFields(w, request.target);
-    if (request.events_first) out += ",\"events\":[" + events.choices + "]" + events.members;
+    if (request.events_first) {
+        out += ",\"events\":[" + events.choices + "],\"choice_retries\":" + std::to_string(events.retries) + events.members;
+    }
     out += ",\"start_speed\":" + std::to_string(before.speed + 1);
     if (w.reached && pause.state.in_game) {
         // Game hours past the target when the pause took hold.

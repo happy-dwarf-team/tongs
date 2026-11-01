@@ -70,4 +70,6 @@ void SetVirtualCursor(int x, int y) {
 
 void ReleaseVirtualCursor() { g_active.store(false, std::memory_order_release); }
 
+bool VirtualCursorHeld() { return g_active.load(std::memory_order_acquire); }
+
 }  // namespace tongs
