@@ -414,6 +414,13 @@ is `all` or a list such as `state,date,event`:
   (`error_log`, `game_log`), and the current state,
   which the first notifications change. Only changes after the subscription
   are reported.
+- `error_log` sends the lines that reach the file. From Anvil 1.6 its
+  standard plugin `anvil-log-throttle` (on by default) writes a repeated
+  message 10 times, then one `[anvil-log-throttle] logged 10 times; …` line,
+  and after that `[anvil-log-throttle] repeated <n> more times in the last
+  <s> s: <text>` reports instead of the repeats. A client that counts errors
+  adds the `<n>` of the reports, or the player turns on the plugin's
+  `full_log` to get every line.
 - `chosen` with `by` `player` or `auto` comes from the game's `game.log`,
   which names the option's index; `number`, `text` and `option_key` are those
   the event opened with (`null` for an option that was not on screen). Such a
