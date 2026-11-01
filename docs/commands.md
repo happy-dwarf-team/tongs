@@ -395,7 +395,7 @@ is `all` or a list such as `state,date,event`:
 | `state` | the game is entered or left (`change`: `entered_game` with `session`, `left_game` with `reason`; a load is `left_game` then `entered_game`), paused or resumed (`paused`, `resumed`) or the speed changes (`speed`, with `previous_speed`); each with `speed`, `paused`, `paused_flag`. Also while a save loads |
 | `date` | a new day, month (the default) or year begins, with `unit` and `previous` |
 | `event` | an event window opens (`opened`, with `id`, `title` and `options`) or closes (`closed`, with `chosen`: the option, with `by` saying who chose it: `tongs` for `event choose`, `run_until events=first` or `ui click` on the option button (`via: "ui click"`), `player` for any other click on an option (the real mouse, a plain `click`), `auto` for the game's own choice at the deadline; `null` when nobody's choice is known) |
-| `error_log` | the game writes a `line` to its `error.log`; `restarted` when the file was replaced |
+| `error_log` | the game writes a `line` to its `error.log`; `restarted` when the file was replaced. A line of Anvil's `anvil-log-throttle` also has `throttle` and its count (below) |
 | `activity` | any client sends an input command (`what: "input"`, `command`), makes a client call (`what: "client_call"`, `command`) or a game call (`what: "game_call"`, `line`, `name`), with the `client` (pipe instance) and the running count (`inputs`, `client_calls`, `game_calls`), so a marked run shows as it happens |
 
 ```powershell
@@ -420,6 +420,31 @@ is `all` or a list such as `state,date,event`:
   `closed` may come up to a second late while Tongs waits for the line. When
   two events with the same id close at once and the log names different
   options, `chosen` is `null` for both.
+- `error_log` sends the lines that reach the file. From Anvil 1.6, its
+  standard plugin `anvil-log-throttle` (on by default for `error.log`) writes
+  a message that repeats 10 times, then a notice and periodic reports of the
+  count in place of the repeats; with the plugin's `full_log` the player gets
+  every line again. The notifications of the plugin's lines keep `line` as it
+  is in the file and add
+  `throttle`, the count and `text`, the line as the game wrote it each time
+  (the game's `[<file>:<line>]: ` and its message, so it equals the `line`
+  of the message's ordinary notifications):
+  - `"throttle":"report"` with `repeated` (lines counted, not written) and
+    `window_s` (the seconds they were counted in), for
+    `[anvil-log-throttle] repeated <n> more times in the last <s> s: <text>`;
+  - `"throttle":"notice"` with `logged` (lines written before counting began)
+    and `report_s` (how often the plugin reports), for
+    `[anvil-log-throttle] logged <n> times; further repeats are counted and reported every <s> s: <text>`.
+    The notice stands in for the first counted line, which its first report counts.
+
+  So the game wrote a message as many times as its ordinary lines plus the
+  `repeated` of its reports; a notice adds nothing. Counts reach the file
+  only when a report is due (at a line of the log once the count is
+  `report_s` old) or when the game closes the log at exit, and a killed game
+  loses the counts since its last report. A message longer than the 4096
+  bytes of a line has its `text` cut with it; a message of several lines has
+  its first line in `text` and its other lines as ordinary notifications after
+  the report.
 - While subscribed, the connection answers `ping` and `unsubscribe` and
   refuses everything else (`subscribed`). `unsubscribe` answers with `sent`,
   `dropped` and `discarded` (still queued, not sent) and the connection takes

@@ -396,7 +396,7 @@ std::size_t NotificationSources::PollErrorLog() {
     if (got.restarted || !got.lines.empty()) {
         const std::optional<std::int32_t> date = Date();
         if (got.restarted) hub_.Publish(NotificationKind::ErrorLog, date, ",\"restarted\":true");
-        for (const std::string& line : got.lines) hub_.Publish(NotificationKind::ErrorLog, date, ",\"line\":" + Quote(line));
+        for (const std::string& line : got.lines) hub_.Publish(NotificationKind::ErrorLog, date, ErrorLogFields(line));
     }
     return chunk.data.size();
 }

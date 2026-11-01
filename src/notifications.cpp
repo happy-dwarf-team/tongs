@@ -5,6 +5,7 @@
 #include "ui_tree.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <utility>
 
@@ -330,6 +331,68 @@ std::string LogTextToUtf8(std::string_view text) {
         out += GameTextToUtf8(std::string_view(&ch, 1));
     }
     return out;
+}
+
+namespace {
+
+constexpr std::string_view kThrottleTag = "[anvil-log-throttle] ";
+
+bool TakeText(std::string_view& s, std::string_view prefix) {
+    if (!s.starts_with(prefix)) return false;
+    s.remove_prefix(prefix.size());
+    return true;
+}
+
+bool TakeNumber(std::string_view& s, std::uint64_t& out) {
+    const auto [end, ec] = std::from_chars(s.data(), s.data() + s.size(), out);
+    if (ec != std::errc() || end == s.data()) return false;
+    s.remove_prefix(static_cast<std::size_t>(end - s.data()));
+    return true;
+}
+
+}  // namespace
+
+std::optional<ThrottledLine> ParseThrottledLine(std::string_view line) {
+    // The game's writer puts "[<file>:<line>]: " before the plugin's text.
+    std::string_view prefix;
+    std::string_view rest = line;
+    if (!rest.starts_with(kThrottleTag)) {
+        const std::size_t end = line.find("]: ");
+        if (!line.starts_with('[') || end == std::string_view::npos) return std::nullopt;
+        prefix = line.substr(0, end + 3);
+        rest = line.substr(end + 3);
+        if (!TakeText(rest, kThrottleTag)) return std::nullopt;
+    } else {
+        rest.remove_prefix(kThrottleTag.size());
+    }
+    ThrottledLine out;
+    if (TakeText(rest, "repeated ")) {
+        out.report = true;
+        if (!TakeNumber(rest, out.count) || !TakeText(rest, " more times in the last ") ||
+            !TakeNumber(rest, out.seconds) || !TakeText(rest, " s: "))
+            return std::nullopt;
+    } else if (TakeText(rest, "logged ")) {
+        if (!TakeNumber(rest, out.count) || !TakeText(rest, " times; further repeats are counted and reported every ") ||
+            !TakeNumber(rest, out.seconds) || !TakeText(rest, " s: "))
+            return std::nullopt;
+    } else {
+        return std::nullopt;
+    }
+    out.text = std::string(prefix) + std::string(rest);
+    return out;
+}
+
+std::string ErrorLogFields(std::string_view line) {
+    std::string out = ",\"line\":\"" + JsonEscape(line) + "\"";
+    const std::optional<ThrottledLine> t = ParseThrottledLine(line);
+    if (!t) return out;
+    if (t->report)
+        out += ",\"throttle\":\"report\",\"repeated\":" + std::to_string(t->count) +
+               ",\"window_s\":" + std::to_string(t->seconds);
+    else
+        out += ",\"throttle\":\"notice\",\"logged\":" + std::to_string(t->count) +
+               ",\"report_s\":" + std::to_string(t->seconds);
+    return out + ",\"text\":\"" + JsonEscape(t->text) + "\"";
 }
 
 }  // namespace tongs
