@@ -263,6 +263,36 @@ How `events=first` works (0.6.0):
   taken a click for 30 s ends the run, with the error and the event (in
   0.22 and earlier the first such click ended it). A choice is listed in `events` only
   once it took.
+- A pause waits on main-thread frames until the date has stayed the same for
+  three of them before it answers (`pause`, and the pause that ends
+  `run_until`).
+
+### Live check of the retries (2026-11-01)
+
+The lab's years scenario (`run-scenario.ps1 drive-years -Set until=1730`:
+the Russia save of 17 March 1719, speed 5, each year a `run_until …
+events=first` that the scenario starts again after a stop), Anvil 1.5.2,
+`eu4.exe` 1.37.5, process on CPU 1–7, pools 6/6, under the lab's game lock.
+
+- **Before (0.22.0):** in run `l3-drive-years-final2` 11 `covered` and 5
+  "still waiting" stops. 10 of the `covered` had `covered_by: null` after
+  three moves: the game hovered nothing at the option; the next `run_until`,
+  a moment later, chose the same event. The other one was a second event
+  window that had opened over the option while Tongs waited for the first
+  event's option to be enabled. In 24 of 57 stops and arrivals of three such
+  runs the next `run_until` started one day after the date the last one had
+  answered, although that answer had `paused_flag` true (and a `state` read
+  in between too, on 1725.12.31 → 1726.1.1): the day in progress ended after
+  the pause.
+- **After:** two runs (`l3-events-retry-1` and `-2`), both through to
+  1730.1.1. No stop for `covered` or "still waiting"; the only stops were
+  pauses past `max_pause` with no event open (the game's own popups). Run 1:
+  35 choices, 9 retries, the longest `parlaments.1` with 6 attempts; run 2
+  (with `missed`): 31 choices, no retries. Every following `run_until`
+  started on the date the last one answered (12 of 12 and 11 of 11).
+- Not settled: why the game hovers nothing at an option. Moving the real
+  mouse hands the pointer back (`pointer_released`), but run 2 had no miss
+  to tell, and the real mouse was not moved on purpose.
 
 ## Mouse
 
