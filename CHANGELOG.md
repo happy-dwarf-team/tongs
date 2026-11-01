@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.0](https://github.com/happy-dwarf-team/tongs/compare/v0.23.0...v0.24.0) (2026-11-01)
+
+
+### Features
+
+* tongs.navigation, a service that selects a province for other plugins ([#129](https://github.com/happy-dwarf-team/tongs/issues/129)) ([3c7b5e9](https://github.com/happy-dwarf-team/tongs/commit/3c7b5e9917339674a1c8406a6eac7f0206639b87))
+
 ## [0.23.0](https://github.com/happy-dwarf-team/tongs/compare/v0.22.0...v0.23.0) (2026-11-01)
 
 
