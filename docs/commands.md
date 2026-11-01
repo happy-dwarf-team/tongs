@@ -420,9 +420,12 @@ is `all` or a list such as `state,date,event`:
   `closed` may come up to a second late while Tongs waits for the line. When
   two events with the same id close at once and the log names different
   options, `chosen` is `null` for both.
-- With Anvil's `anvil-log-throttle` plugin, `error.log` has the first lines of
-  a message that repeats, then lines of the plugin in place of the rest. Their
-  `error_log` notifications keep `line` as it is in the file and add
+- `error_log` sends the lines that reach the file. From Anvil 1.6, its
+  standard plugin `anvil-log-throttle` (on by default for `error.log`) writes
+  a message that repeats 10 times, then a notice and periodic reports of the
+  count in place of the repeats; with the plugin's `full_log` the player gets
+  every line again. The notifications of the plugin's lines keep `line` as it
+  is in the file and add
   `throttle`, the count and `text`, the line as the game wrote it each time
   (the game's `[<file>:<line>]: ` and its message, so it equals the `line`
   of the message's ordinary notifications):
