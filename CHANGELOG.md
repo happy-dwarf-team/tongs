@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.23.0](https://github.com/happy-dwarf-team/tongs/compare/v0.22.0...v0.23.0) (2026-11-01)
+
+
+### Features
+
+* **ui:** answer a bad selector with the selector grammar ([#125](https://github.com/happy-dwarf-team/tongs/issues/125)) ([a5bbae1](https://github.com/happy-dwarf-team/tongs/commit/a5bbae10911c63bb80e6609d40e926c43cf2679f))
+
+
+### Bug Fixes
+
+* **input:** run_until events=first tries a choice that did not take again ([#128](https://github.com/happy-dwarf-team/tongs/issues/128)) ([6acaeec](https://github.com/happy-dwarf-team/tongs/commit/6acaeecf290d50a923c2976d62bf64b03b18b106))
+
 ## [0.22.0](https://github.com/happy-dwarf-team/tongs/compare/v0.21.0...v0.22.0) (2026-10-31)
 
 
