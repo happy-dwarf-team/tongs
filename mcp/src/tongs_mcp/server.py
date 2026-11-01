@@ -540,7 +540,8 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
     ) -> CallToolResult:
         """Sets the speed, resumes, waits until the game date reaches `date` and pauses again; answers
         with the timing of tongs_wait_until plus start_speed, overshoot_hours and, with
-        events=first, the `events` chosen. Its own presses are not counted in its `inputs`.
+        events=first, the `events` chosen and `choice_retries` (clicks that did not take and were
+        tried again). Its own presses are not counted in its `inputs`.
         Blocks for as long as the game takes (up to hours): set the MCP client's tool timeout
         above `timeout`. tongs_cancel ends it; cancelling this call sends `cancel`, which ends
         every wait in progress."""

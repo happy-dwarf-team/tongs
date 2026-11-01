@@ -106,6 +106,9 @@ struct Handlers {
     // the position.
     std::function<void(int x, int y)> set_cursor;
     std::function<void()> release_cursor;
+    // False when the GUI no longer sees the virtual pointer: after `release`, or once
+    // the real mouse moved. Optional.
+    std::function<bool()> cursor_held;
     std::function<void(int ms)> sleep_ms;
     std::function<std::uint64_t()> now_ms;  // monotonic clock
     // Main-thread jobs (game_frame.cpp): both null when anvil-game's outer

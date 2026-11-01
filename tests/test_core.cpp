@@ -1573,7 +1573,7 @@ static void TestRunUntilEventsFirst() {
     assert(Contains(HandleRequest("run_until 1719.4.1 events=first", Handlers{}), "input = true"));
 
     // Two events open (and pause the game) on 1719.3.25; both are chosen, topmost first.
-    const std::int32_t opens = *ParseGameDate("1719.3.25");
+    std::int32_t opens = *ParseGameDate("1719.3.25");
     bool open = false;
     screen.game.on_sleep = [&] {
         if (!open && screen.game.state.date_raw >= opens) {
@@ -1588,7 +1588,41 @@ static void TestRunUntilEventsFirst() {
            Contains(out, "\"id\":\"flavor_x.2\",\"title\":\"Plague\",\"option\":1,\"text\":\"Pray\""));
     // Two choices and one resume after the pause the first event set.
     assert(Contains(out, "\"inputs\":3,") && screen.chosen == std::vector<std::string>({"5_0", "7_0"}));
+    assert(Contains(out, "\"choice_retries\":0") && !Contains(out, "\"attempts\""));
     assert(screen.game.state.paused_flag);
+
+    // Nothing hovered at the first click (live: the real mouse moved and took the pointer
+    // back): the choice is tried again on a later look, and the choice counts its attempts.
+    Handlers flaky = h;
+    int misses = 3;  // the three moves of one hover check
+    flaky.read_hovered = [&screen, &misses] { return misses-- > 0 ? std::uintptr_t{0} : screen.Hovered(); };
+    screen.raw = {};
+    screen.chosen.clear();
+    open = false;
+    opens = *ParseGameDate("1719.4.10");
+    screen.game.state.date_raw = *ParseGameDate("1719.4.2");
+    out = HandleRequest("run_until 1719.5.1 events=first", flaky);
+    assert(Contains(out, "{\"ok\":true,\"command\":\"run_until\"") && Contains(out, "\"choice_retries\":1"));
+    assert(Contains(out, "\"text\":\"Pray\"") &&
+           Contains(out, "\"attempts\":2,\"missed\":{\"covered\":1,\"nothing_hovered\":1,\"still_waiting\":0,"
+                         "\"pointer_released\":0}}") &&
+           screen.chosen == std::vector<std::string>({"5_0", "7_0"}));
+
+    // Never free: after 30 s of tries the run ends `covered`, paused, with the event, its
+    // attempts and the note that the real mouse had the pointer.
+    flaky.read_hovered = [] { return std::uintptr_t{0}; };
+    flaky.cursor_held = [] { return false; };
+    screen.raw = {};
+    screen.chosen.clear();
+    open = false;
+    opens = *ParseGameDate("1719.5.10");
+    screen.game.state.date_raw = *ParseGameDate("1719.5.2");
+    const std::uint64_t began = screen.game.clock;
+    out = HandleRequest("run_until 1719.6.1 events=first", flaky);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"covered\"") && Contains(out, "\"events\":[],\"choice_retries\":") &&
+           Contains(out, "\"covered_by\":null,\"pointer_released\":true,\"attempts\":") &&
+           Contains(out, "\"still_waiting\":0,\"pointer_released\":") && !Contains(out, "\"pointer_released\":0}"));
+    assert(screen.game.clock - began >= 30000 && screen.chosen.empty() && screen.game.state.paused_flag);
 
     // No option enabled: the run ends with the event.
     screen.game.on_sleep = nullptr;
@@ -1598,7 +1632,7 @@ static void TestRunUntilEventsFirst() {
     for (const int b : {11, 13}) screen.tree.widgets[b].enabled = false;
     screen.game.state.date_raw = *ParseGameDate("1719.4.2");
     out = HandleRequest("run_until 1719.5.1 events=first", h);
-    assert(Contains(out, "{\"ok\":false,\"error\":\"no_enabled_option\"") && Contains(out, "\"events\":[],\"event\":{\"number\":1,") &&
+    assert(Contains(out, "{\"ok\":false,\"error\":\"no_enabled_option\"") && Contains(out, "\"events\":[],\"choice_retries\":0,\"event\":{\"number\":1,") &&
            screen.game.state.paused_flag);
     // events=stop (the default) leaves events alone.
     screen.game.state.date_raw = *ParseGameDate("1719.4.2");
