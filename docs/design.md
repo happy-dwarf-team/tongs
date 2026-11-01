@@ -1875,6 +1875,20 @@ stream in `src/pipe_server.cpp`; the file in `src/game_files.cpp`):
   ordinary line. Nothing asks the plugin: the counts are what the file says,
   so a client counts the same whether it reads the notifications or the file
   afterwards. A service of Anvil with live counts was left out for now.
+  Checked in the game (2026-11-01): the original `eu4.exe`, Anvil `main`
+  with `anvil-log-throttle` at its defaults, the lab's ten mods with "Themes
+  of the Old World", the Russia save of 17 March 1719, input through Tongs
+  (speed 5, `run_until events=first` to 1727). One `subscribe error_log`,
+  from when the save was ready (`ready`) to the end, got 1163
+  notifications, without gaps, equal to the last 1163 lines of the
+  `error.log` copied after the game was closed, and
+  every `throttle`, count and `text` equal to a separate parse of the file.
+  The mod's two bursts of `Unknown culture group` (44 groups) came as 440
+  ordinary lines, 44 notices and two rounds of 44 reports: 440 + 125 175 =
+  125 615 for the first burst, the lab's count without the plugin, and
+  127 405 for the second, at a later date with each group evaluated about
+  1.3 % more often. Reports written at exit were not seen: the game was
+  closed without its menu.
 - **Where `error.log` is.** The game writes its logs to `logs/` in PhysFS's
   write directory, which it sets at start-up from the Documents folder or
   from `userdir=` / `userdir.txt` (Bellows found `logs/error.log` there; the
