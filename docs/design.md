@@ -257,15 +257,17 @@ verified), through the lab's launcher rules, `input = true`:
   with `via: "button"`; `run_until 1719.5.1 speed=5` ran 19 days with
   `inputs: 0` and its first change after 21 ms. `key escape` neither closed
   the message pop-ups nor opened the menu, so the guard was never seen set.
-- **A host alone is not multiplayer** (`tongs134-mp`): a private hosted game
-  (the lab's 1444 save, Ottomans) went into the game at "Play" without the
-  in-game lobby, `console echo` answered `mode.multiplayer: false` and Anvil
-  logged the session as "neither ironman nor multiplayer". There `speed`,
+- **A host alone is not multiplayer** (`tongs134-mp`, `tongs134-mp-pub`): a
+  hosted game with a password, private and then public (the lab's 1444 save,
+  Ottomans), went into the game at "Play" without the in-game lobby,
+  `console echo` answered `mode.multiplayer: false` and Anvil logged the
+  session as "neither ironman nor multiplayer". In the private one `speed`,
   `pause`, `resume` and `run_until` (45 days, `inputs: 0`) worked through the
   buttons, and Space and `kp_minus` through the keys, so the run checks the
   single-player path only.
 - **Not checked:** the buttons in a multiplayer game (the posted pause and
   speed commands, a second player), and Space with more than one player.
+  That needs a second computer that joins the game.
 
 ## Run timing
 
