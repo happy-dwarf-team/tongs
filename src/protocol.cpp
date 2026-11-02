@@ -19,6 +19,10 @@ namespace tongs {
 namespace {
 
 constexpr int kMaxSpeedPresses = 8;  // speed 1 -> 5 needs 4; the rest is slack for a lost press
+// Levels of Handlers::log (AnvilLogLevel).
+constexpr int kLogInfo = 1;
+constexpr int kLogWarning = 2;
+constexpr int kLogError = 3;
 constexpr int kPauseSettleFrames = 3;      // frames with one date before a pause answers
 constexpr int kPauseSettleMaxFrames = 30;
 constexpr int kDefaultRunTimeoutS = 3600;
@@ -36,6 +40,8 @@ std::atomic<std::uint64_t> g_game_calls{0};
 std::atomic<std::uint64_t> g_client_calls{0};
 // Set by a game call that faulted; refuses every later game call until the game exits.
 std::atomic<bool> g_game_calls_tripped{false};
+// Set by a speed button press that faulted; pause, resume and speed refuse until the game exits.
+std::atomic<bool> g_speed_buttons_tripped{false};
 // The pipe instance (from 1) whose request this thread is handling, for `activity`.
 thread_local int t_client = 0;
 
@@ -80,9 +86,9 @@ std::uint64_t AddTotalCall(TotalCalls& total, const StateSnapshot& s) {
     return ++total.count;
 }
 
-// The handlers with a send_input that notices whether anything was queued; the
-// command counts as one input when it was, and an `activity` notification
-// names it.
+// The handlers with a send_input and a press_speed_button that notice whether
+// anything was queued or pressed; the command counts as one input when it was,
+// and an `activity` notification names it.
 class CountedInput {
 public:
     CountedInput(const Handlers& h, std::string_view command) : handlers_(h), command_(command) {
@@ -91,6 +97,13 @@ public:
             if (error.empty()) sent_ = true;
             return error;
         };
+        if (h.press_speed_button) {
+            handlers_.press_speed_button = [this, press = h.press_speed_button](SpeedButton button) {
+                SpeedButtonPress p = press(button);
+                if (p.pressed) sent_ = true;
+                return p;
+            };
+        }
     }
     CountedInput(const CountedInput&) = delete;
     CountedInput& operator=(const CountedInput&) = delete;
@@ -184,6 +197,7 @@ struct ActionResult {
     int presses = 0;
     std::uint64_t waited_ms = 0;
     std::string extra;  // command-specific JSON members, each starting with a comma
+    const char* via = nullptr;  // pause, resume, speed: "button" or "key" (ADR 0005)
     StateSnapshot state;
 };
 
@@ -192,6 +206,7 @@ std::string ActionJson(std::string_view command, const ActionResult& r) {
     if (!r.ok) out += ",\"error\":\"" + JsonEscape(r.error) + "\"";
     out += ",\"command\":\"" + JsonEscape(command) + "\"";
     out += ",\"presses\":" + std::to_string(r.presses);
+    if (r.via) out += std::string(",\"via\":\"") + r.via + "\"";
     out += ",\"waited_ms\":" + std::to_string(r.waited_ms);
     out += r.extra;
     out += "," + StateFields(r.state) + "}";
@@ -216,15 +231,15 @@ public:
     ActionResult SetPaused(bool pause) {
         ActionResult r;
         const std::uint64_t start = h_.now_ms();
+        r.via = Via();
         r.state = h_.read_state();
         if (!r.state.in_game) return Fail(r, start, "no game loaded");
         if (pause ? r.state.paused_flag : !r.state.paused) return Finish(r, start);
         if (!pause && !r.state.paused_flag) {
-            // Space would set the player pause on top of whatever holds the game.
+            // The button toggles: it would set the player pause on top of whatever holds the game.
             return Fail(r, start, "the game is paused, but not by the player pause");
         }
-        const KeyPress key = *FindKey(kPauseKeyName);
-        if (!Press(key, r)) return Finish(r, start);
+        if (!Press(SpeedButton::Pause, kPauseKeyName, r)) return Finish(r, start);
         const bool reached = WaitFor(r, [pause](const StateSnapshot& s) {
             return s.in_game && (pause ? s.paused_flag : !s.paused);
         });
@@ -241,14 +256,16 @@ public:
     ActionResult SetSpeed(int target) {
         ActionResult r;
         const std::uint64_t start = h_.now_ms();
+        r.via = Via();
         r.state = h_.read_state();
         if (!r.state.in_game) return Fail(r, start, "no game loaded");
-        const KeyPress up = *FindKey(kSpeedUpKeyName);
-        const KeyPress down = *FindKey(kSpeedDownKeyName);
         while (r.state.speed + 1 != target) {
-            if (r.presses >= kMaxSpeedPresses) return Fail(r, start, "speed: too many key presses");
+            if (r.presses >= kMaxSpeedPresses) return Fail(r, start, "speed: too many presses");
             const int before = r.state.speed;
-            if (!Press(r.state.speed + 1 < target ? up : down, r)) return Finish(r, start);
+            const bool up = r.state.speed + 1 < target;
+            if (!Press(up ? SpeedButton::Faster : SpeedButton::Slower, up ? kSpeedUpKeyName : kSpeedDownKeyName, r)) {
+                return Finish(r, start);
+            }
             const bool changed = WaitFor(r, [before](const StateSnapshot& s) {
                 return !s.in_game || s.speed != before;
             });
@@ -279,7 +296,46 @@ private:
         }
     }
 
-    bool Press(const KeyPress& key, ActionResult& r) { return Send(KeyPressEvents(key), 1, r); }
+    bool Buttons() const { return h_.press_speed_button && h_.dispatcher; }
+    const char* Via() const { return Buttons() ? "button" : "key"; }
+
+    // One press of a top-bar button: on the main thread, the call its handler makes
+    // (ADR 0005); without the main thread, the key that does the same in single player.
+    bool Press(SpeedButton button, std::string_view key_name, ActionResult& r) {
+        if (!Buttons()) return Send(KeyPressEvents(*FindKey(key_name)), 1, r);
+        if (g_speed_buttons_tripped.load()) {
+            return Refuse(r, "the speed and pause buttons are off until the game exits after a press faulted");
+        }
+        SpeedButtonPress press;
+        const Dispatcher::Outcome o = h_.dispatcher->Run(
+            Dispatcher::Kind::GameCall,
+            [&] {
+                press = h_.press_speed_button(button);
+                return std::string();
+            },
+            h_.dispatch_timeout_ms);
+        if (!o.ran) return Refuse(r, o.error + "; nothing was pressed");
+        if (press.fault_code != 0) {
+            g_speed_buttons_tripped = true;
+            char code[16];
+            std::snprintf(code, sizeof code, "0x%08lX", press.fault_code);
+            const std::string detail = std::string("exception ") + code +
+                                       " in the game's code; the speed and pause buttons are off until the game exits";
+            if (h_.log) h_.log(kLogError, "speed button faulted (" + detail + ")");
+            return Refuse(r, detail);
+        }
+        if (!press.error.empty()) return Refuse(r, press.error + "; nothing was pressed");
+        if (press.blocked) return Refuse(r, "the game ignores its speed and pause buttons now; nothing was pressed");
+        ++r.presses;
+        return true;
+    }
+
+    bool Refuse(ActionResult& r, std::string error) {
+        r.ok = false;
+        r.error = std::move(error);
+        r.state = h_.read_state();
+        return false;
+    }
 
     bool Send(const std::vector<InputEvent>& events, int presses, ActionResult& r) {
         const std::string error = h_.send_input(events);
@@ -1440,9 +1496,6 @@ std::string WorldCommand(const Handlers& h, std::string_view command, std::strin
     return "{\"ok\":true,\"command\":" + Quote(command) + members + tail + "}";
 }
 
-constexpr int kLogInfo = 1;
-constexpr int kLogWarning = 2;
-constexpr int kLogError = 3;
 constexpr std::size_t kLogText = 200;  // characters of a game call's text in the log
 
 // Game calls: one console line run on the main thread (ADR 0001).

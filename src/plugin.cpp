@@ -6,6 +6,7 @@
 #include "game_frame.hpp"
 #include "game_input.hpp"
 #include "game_navigation.hpp"
+#include "game_speed_buttons.hpp"
 #include "game_navigation_service.hpp"
 #include "game_save.hpp"
 #include "game_state.hpp"
@@ -195,6 +196,11 @@ struct Tongs : anvil::Plugin {
             };
             handlers.read_camera = [image_base, navigation](tongs::CameraRaw& out) {
                 return tongs::ReadCamera(image_base, navigation, out);
+            };
+            // pause, resume and speed press the top bar's buttons (ADR 0005), which works in multiplayer too.
+            const tongs::SpeedButtonLayout speed_buttons = tongs::SpeedButtonLayout::Load();
+            handlers.press_speed_button = [image_base, speed_buttons](tongs::SpeedButton button) {
+                return tongs::PressSpeedButton(image_base, speed_buttons, button);
             };
         }
         if (config.input) {
