@@ -95,6 +95,46 @@ memory = "code"
 signature = "void* (void* out, uint8_t a, uint8_t b)"
 note = "the GUI's pointer position in client coordinates (POINT* out), asked once per frame; hooked for the virtual cursor"
 
+# --- Speed buttons (docs/design.md, "Speed buttons"; ADR 0005) ---
+# What the top bar's speed and pause buttons call (their handlers in the window
+# built by 0x1431020), each with the session (root + session_of_root.session).
+
+[symbol.speed_up_button]
+rva = 0x81F6D0
+bytes = "40 53 48 83 EC 50 48 8B 81 F0 12 00 00 48 8B D9 80 B8 F5 00 00 00 00 0F 85 43 01 00 00 E8 AE B3 EC FF 84 C0 0F 84 36 01 00 00"
+memory = "code"
+signature = "void (void* session)"
+values.blocker = { at = 9, size = 4 }
+values.blocked = { at = 18, size = 4 }
+note = "session: speed up as the top bar's button and the + key do; posts the speed command unless the byte blocker+0xF5 is set or the player may not change the speed"
+
+[symbol.speed_down_button]
+rva = 0x81F840
+bytes = "40 53 48 83 EC 50 48 8B 81 F0 12 00 00 48 8B D9 80 B8 F5 00 00 00 00 0F 85 53 01 00 00 E8 3E B2 EC FF 84 C0 0F 84 46 01 00 00"
+memory = "code"
+signature = "void (void* session)"
+values.blocker = { at = 9, size = 4 }
+values.blocked = { at = 18, size = 4 }
+note = "session: speed down, as speed_up_button"
+
+[symbol.toggle_pause]
+rva = 0x810570
+bytes = "48 89 5C 24 10 55 56 57 48 83 EC 50 0F B6 EA 48 8B D9 C7 44 24 70 00 00 00 00 48 8B 3D E7 F8 B2 01 48 8B B1 18 04 00 00 80 7E 48 00"
+memory = "code"
+signature = "void (void* session, bool from_button)"
+values.game_speed = { at = 36, size = 4 }
+values.pause_flag = { at = 42, size = 1 }
+note = "session: toggles the player pause; in multiplayer it posts the pause command instead (0x848860, executed by 0x848970)"
+
+[symbol.pause_button]
+rva = 0x1437762
+bytes = "48 8B 8F 48 06 00 00 48 8B 81 F0 12 00 00 80 B8 F5 00 00 00 00 75 07 B2 01 E8 F0 8D 3D FF"
+memory = "code"
+values.blocker = { at = 10, size = 4 }
+values.blocked = { at = 16, size = 4 }
+values.from_button = { at = 24, size = 1 }
+note = "top bar, the pause button's handler 0x14376B0: toggle_pause(session, 1) unless the byte blocker+0xF5 is set"
+
 # --- Threads (docs/design.md, "Threads") ---
 # Each worker pool is a global object; its worker threads sit in a std::vector
 # of 8-byte handles (begin, end, capacity) that the static initializer clears.
