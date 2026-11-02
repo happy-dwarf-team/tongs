@@ -246,6 +246,27 @@ relative to the image, the session is `root+0x1E00`.
   while it is set (`blocked`, an error answer). What sets it is not known;
   close_views (`0x8205E0`) checks it too.
 
+### Live check (2026-11-02)
+
+The original `eu4.exe` 1.37.5, Anvil 1.5.2 and this branch (176 symbols
+verified), through the lab's launcher rules, `input = true`:
+
+- **Single player** (`tongs134-sp`, the Russia save of 17 March 1719, 73
+  outer frames per second): `speed 5` from 2 answered `presses: 3`,
+  `via: "button"` in 61 ms; `resume`, `pause` and `speed 2` likewise, each
+  with `via: "button"`; `run_until 1719.5.1 speed=5` ran 19 days with
+  `inputs: 0` and its first change after 21 ms. `key escape` neither closed
+  the message pop-ups nor opened the menu, so the guard was never seen set.
+- **A host alone is not multiplayer** (`tongs134-mp`): a private hosted game
+  (the lab's 1444 save, Ottomans) went into the game at "Play" without the
+  in-game lobby, `console echo` answered `mode.multiplayer: false` and Anvil
+  logged the session as "neither ironman nor multiplayer". There `speed`,
+  `pause`, `resume` and `run_until` (45 days, `inputs: 0`) worked through the
+  buttons, and Space and `kp_minus` through the keys, so the run checks the
+  single-player path only.
+- **Not checked:** the buttons in a multiplayer game (the posted pause and
+  speed commands, a second player), and Space with more than one player.
+
 ## Run timing
 
 `wait_until` polls the state every 10 ms (`std::chrono::steady_clock`, i.e.
@@ -2757,6 +2778,9 @@ Not in draft 4:
   pass).
 - Whether the speed keys need `SDL_TEXTINPUT` alone or both events; both are
   sent, as SDL does for a real key.
+- The speed buttons in a multiplayer game with a second player (ADR 0005):
+  the posted pause and speed commands, a client's view of them, the game's
+  speed setting, and what sets the buttons' guard byte.
 - Mouse: dragging (no command yet), right and middle clicks, double clicks,
   clicks on the map (only interface buttons were tried), and the focused
   window path of `0x14E5E50` (the game was never focused in the checks).

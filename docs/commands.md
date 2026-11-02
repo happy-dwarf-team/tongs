@@ -66,12 +66,12 @@ still included.
 buttons by calling, on the main thread after an outer frame, what each
 button's handler calls ([ADR 0005](adr/0005-speed-buttons.md)); `via` in the
 answer is `"button"`. In single player that is what Space and keypad `+` /
-`-` do too, and in multiplayer it posts the same pause and speed commands as
-a player's click, which the keys do not (Space does not pause there with
-more than one player). Each press counts as an input, like a key. While the
-game ignores its buttons (the byte the buttons check is set, e.g. while a
-window blocks the interface) nothing is pressed and the command answers an
-error. Without the main thread (no `anvil-game` frames) the commands press
+`-` do too. In multiplayer the game's code posts the same pause and speed
+commands as a player's click, while Space does not pause there with more than
+one player (read from the code; not yet checked with a second player, see
+[design.md](design.md#speed-buttons)). Each press counts as an input, like a
+key. While the game ignores its buttons (the byte the buttons check is set)
+nothing is pressed and the command answers an error. Without the main thread (no `anvil-game` frames) the commands press
 the keys instead, and `via` is `"key"`. `key`, `text` and the mouse commands do not expect a change;
 they answer with the state read 0.1 s after the input. Input commands from
 different clients take turns.
