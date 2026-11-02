@@ -94,8 +94,12 @@ _Avoid_: listener, channel, watch
 
 **Input**:
 A key press, typed text or mouse action that Tongs gives the game the way a player's
-keyboard and mouse would.
+keyboard and mouse would, or a press of a speed button.
 _Avoid_: injection, synthetic event
+
+**Speed button**:
+One of the top bar's speed up, speed down and pause buttons, pressed by `speed`,
+`pause` and `resume` through the call its handler makes (ADR 0005); an input.
 
 **Client**:
 A program connected to Tongs through the pipe, such as a script or the MCP

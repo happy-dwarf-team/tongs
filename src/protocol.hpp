@@ -84,6 +84,17 @@ struct ScreenshotResult {
     bool blank = false;    // every pixel black: the capture probably failed
 };
 
+// The top bar's speed and pause buttons (ADR 0005). Pause toggles the player pause.
+enum class SpeedButton { Faster, Slower, Pause };
+
+// One press of a speed button on the main thread (game_speed_buttons.cpp).
+struct SpeedButtonPress {
+    bool pressed = false;          // the button's call ran
+    bool blocked = false;          // the game ignores the buttons now; nothing was called
+    unsigned long fault_code = 0;  // the call raised this structured exception
+    std::string error;             // the session was not readable; nothing was called
+};
+
 // Protocol: UTF-8 lines. A request is one command line; the answer is one
 // JSON object on one line. Commands: ping, state, window, threads, screenshot,
 // frames, ui, event, province, country, player, selection, help, wait_until, cancel,
@@ -101,6 +112,10 @@ struct Handlers {
     // Queues SDL events for the game in order; returns an error text, or an
     // empty string on success. Left empty when input is disabled.
     std::function<std::string(const std::vector<InputEvent>&)> send_input;
+    // Main thread: presses a speed or pause button by calling what its handler
+    // calls (game_speed_buttons.cpp, ADR 0005). pause, resume and speed, also
+    // inside run_until, use it through the dispatcher; null: they press the keys.
+    std::function<SpeedButtonPress(SpeedButton)> press_speed_button;
     // Where the game's GUI sees the pointer (game_cursor.cpp): set before mouse
     // events, released by `release`. Optional; without it only the SDL events carry
     // the position.

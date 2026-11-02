@@ -163,15 +163,16 @@ game (below). RVAs relative to `eu4.exe`; `plugin/symbols.toml` checks the code.
 - A key press is queued as a player's would be: `SDL_KEYDOWN`, then
   `SDL_TEXTINPUT` with its character for keys that have one (no modifiers,
   US layout), then `SDL_KEYUP`. `mod` is 0.
-- Keys: pause and resume press Space, speed presses keypad `+` / `-`
-  (`KP_PLUS` / `KP_MINUS` are names in the game's key table in
-  `keyevent.cpp`). No `.gui` file binds the speed buttons; the bindings are in
-  the game's code.
+- Keys: without the main thread, pause and resume press Space and speed
+  presses keypad `+` / `-` (`KP_PLUS` / `KP_MINUS` are names in the game's
+  key table in `keyevent.cpp`). With it they press the speed buttons (below).
+  No `.gui` file binds the speed buttons; the bindings are in the game's code.
 
 `pause` waits for the player pause byte, `resume` for the game's own "is
 paused" answer to become false. `resume` refuses without pressing anything
-when the game is paused but the player pause is off: Space would add a
-player pause. `speed N` presses one key at a time and waits for each step.
+when the game is paused but the player pause is off: the pause button (and
+Space) toggles, so it would add a player pause. `speed N` presses one button
+or key at a time and waits for each step.
 
 ### Live check (2026-10-16)
 
@@ -200,6 +201,50 @@ PID, path and start time; save unchanged, `settings.txt` differed only in
   that, `resume` worked.
 - After `pause`, the date may still advance by one day (the day in progress);
   then it stays.
+
+## Speed buttons
+
+`pause`, `resume` and `speed` (also inside `run_until`) press the top bar's
+buttons through the calls their handlers make ([ADR 0005](adr/0005-speed-buttons.md)):
+one dispatcher job each, a game-call job (it ends the batch, so the next
+read sees a frame later). Found with Ghidra on `eu4.exe` 1.37.5; RVAs
+relative to the image, the session is `root+0x1E00`.
+
+- **The buttons.** The top bar's window (constructor `0x1431020`, init
+  `0x1436E40`) binds `button_speedup` to `0x1437690`, `button_speeddown` to
+  `0x14376A0` and `button_pause` to `0x14376B0`. The first two only jump to
+  `0x81F6D0(session)` and `0x81F840(session)`; the pause handler calls
+  `0x810570(session, 1)` unless the byte at `[session+0x12F0]+0xF5` is set
+  (it also counts pauses for a tutorial hint, which Tongs leaves out).
+- **Speed.** `0x81F6D0` / `0x81F840` return without doing anything while that
+  byte is set, or when `0x6EAAA0(session)` says the player may not change the
+  speed (in multiplayer: the host, or the game's speed setting,
+  `0x76ECD0`). Otherwise they post a speed command (vtable `0x1CEA1D8` /
+  `0x1CEA3D0`, 0x50 / 0x70 bytes) to the session's command queue
+  (`0x14CA2D0` on `[session+0x330]+0x370`) and play the click sound. The
+  command's execute (vtable slot 0x48, `0xB79970` / `0xB79AB0`) sets
+  `root+0x1E08` through `0x7579F0`, as the console's `gamespeed` does. So the
+  speed changes when the queue runs, in single player too.
+- **Pause.** `0x810570` toggles the player pause. In single player it flips
+  the game-speed object's pause byte (`0x7E0250`) at once. In multiplayer
+  (`0x6EAA10`) it posts a pause command instead (`0x848860`, vtable
+  `0x1CBA508`, with the player's name), whose execute `0x848970` pauses
+  (`0x7E02D0`) or unpauses (`0x7E0770`) on every machine; `paused_flag` then
+  changes when the command runs. While the game is paused, `0x810570` may
+  return without resuming (date and session conditions), as the button does.
+- **The keys.** The session's key handler `0x816AD0` reads the keys the GUI
+  left (`session+0x1208`). Space or the Pause key without modifiers calls
+  `0x810570(session, 1)`, except when `session+0x19F1` is set and the game
+  has more than one player (`root+0xA60 > 1`): then only the Pause key
+  pauses, through `0x810570(session, 0)`. `+` / `-` as text input call
+  `0x81F6D0` / `0x81F840` when `session+0x19F1` is clear or the player may
+  change the speed. Why the speed keys did not change the speed in the lab's
+  two-player game (2.11.2026) while the buttons did is not known; a
+  hypothesis is that the GUI kept the keys (a focused text field) before
+  they reached this handler.
+- **Guard.** Tongs reads `[session+0x12F0]+0xF5` first and calls nothing
+  while it is set (`blocked`, an error answer). What sets it is not known;
+  close_views (`0x8205E0`) checks it too.
 
 ## Run timing
 

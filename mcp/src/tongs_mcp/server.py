@@ -554,22 +554,22 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         still waiting for a frame. Does not press anything."""
         return await call("cancel")
 
-    # --- keyboard ---
+    # --- speed buttons and keyboard ---
 
     @tool(INPUT, INPUT_NOTE)
     async def tongs_pause() -> CallToolResult:
-        """Presses Space unless the player pause is already on, then waits until it is."""
+        """Presses the pause button unless the player pause is already on, then waits until it is."""
         return await call("pause")
 
     @tool(INPUT, INPUT_NOTE)
     async def tongs_resume() -> CallToolResult:
-        """Presses Space if the player pause is on, then waits until the game runs; refuses when
+        """Presses the pause button if the player pause is on, then waits until the game runs; refuses when
         something else (an event, a menu) holds the game paused."""
         return await call("resume")
 
     @tool(INPUT, INPUT_NOTE)
     async def tongs_speed(speed: Annotated[int, Field(ge=1, le=5, description="Target speed 1-5.")]) -> CallToolResult:
-        """Presses keypad +/- until the game speed is `speed` (1-5 as in the UI); works while paused."""
+        """Presses the speed buttons until the game speed is `speed` (1-5 as in the UI); works while paused."""
         return await call(_line("speed", speed))
 
     @tool(PLAYER, INPUT_NOTE)
