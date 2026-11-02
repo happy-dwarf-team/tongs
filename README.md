@@ -29,7 +29,7 @@ outside the forge.
 > (Steam, Windows 64-bit) and EU4 1.37.5.2 (GOG, Windows 64-bit); Anvil skips
 > it on other builds. It needs Anvil 1.7 or newer with its standard plugin
 > `anvil-game` (Tongs 0.25 and older: Anvil 1.0, Steam only). From 0.16.0 it is also
-> published as a Steam Workshop mod for Anvil 1.3 or newer (see
+> published as a Steam Workshop mod (see
 > [Steam Workshop](#steam-workshop)). Design and the
 > addresses it relies on: [docs/design.md](docs/design.md) and
 > [plugin/symbols.toml](plugin/symbols.toml).
@@ -183,7 +183,7 @@ player discover a capital is refused. Header:
 ## Install / uninstall
 
 Install [Anvil](https://github.com/happy-dwarf-team/anvil#install--uninstall)
-1.0.0 or newer first, with its standard plugin `anvil-game` (part of Anvil's
+1.7.0 or newer first, with its standard plugin `anvil-game` (part of Anvil's
 package). Then download `tongs-windows-x64.zip` from the
 [latest release](https://github.com/happy-dwarf-team/tongs/releases/latest)
 and extract it into `<EU4>/anvil/plugins/`; it contains the `tongs` folder
@@ -191,7 +191,7 @@ and extract it into `<EU4>/anvil/plugins/`; it contains the `tongs` folder
 `anvil/data/tongs/settings.toml` (see "Settings") and start the game. Delete
 the `tongs` folder to uninstall.
 
-With Anvil 1.3 or newer, Tongs can also come from its Steam Workshop mod
+Tongs can also come from its Steam Workshop mod
 (see [Steam Workshop](#steam-workshop)): Anvil loads it from the enabled mod
 once you approve that version in its panel or in Anvil Manager.
 
@@ -248,8 +248,8 @@ Contributions, the commit convention and the release process: see
 
 ## Steam Workshop
 
-Tongs can also be published as a Steam Workshop mod for Anvil 1.3 or newer,
-which loads plugins from enabled mods after the player approves each version.
+Tongs can also be published as a Steam Workshop mod; Anvil (since 1.3)
+loads plugins from enabled mods after the player approves each version.
 The mod is the `workshop/` folder ([`workshop.toml`](workshop.toml)):
 `descriptor.mod`, `thumbnail.png` and `anvil/tongs/`, the plugin folder of a
 release, which is not in Git. [`workshop/description.md`](workshop/description.md)
