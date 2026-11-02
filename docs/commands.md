@@ -33,9 +33,9 @@ With `input = true` in the settings, also:
 
 | Command | What it does |
 | --- | --- |
-| `pause` | presses Space unless the player pause is already on, then waits until it is |
-| `resume` | presses Space if the player pause is on, then waits until the game runs; refuses when something else holds the game paused |
-| `speed N` | presses keypad `+` / `-` one step at a time until the speed is `N` (1–5, as in the UI); works while paused |
+| `pause` | presses the top bar's pause button unless the player pause is already on, then waits until it is |
+| `resume` | presses the pause button if the player pause is on, then waits until the game runs; refuses when something else holds the game paused |
+| `speed N` | presses the speed up / down button one step at a time until the speed is `N` (1–5, as in the UI); works while paused |
 | `run_until DATE [speed=N] [timeout=S] [max_pause=S] [events=first\|stop]` | sets the speed, resumes, waits for the date and pauses again; for measuring how fast the game runs. `events=first` chooses the first enabled option of every event that opens on the way |
 | `key NAME` | presses one key: `a`–`z`, `0`–`9`, `f1`–`f12`, `space`, `return`, `escape`, `tab`, `backspace`, `delete`, `minus`, `equals`, `grave` (the console key on a US layout), `kp_plus`, `kp_minus`, `kp_enter`, arrows (`up`, `down`, `left`, `right`), `home`, `end`, `page_up`, `page_down` |
 | `text STRING` | types the rest of the line into the focused text field (characters U+0020–U+007E and U+00A0–U+00FF) |
@@ -60,7 +60,19 @@ Input commands answer once the game has reacted (or after 10 s) with
 the one that ends `run_until`) answers once the date has stayed the same for
 three frames: the day the game is in when the pause takes hold still ends.
 When the game does not react in time, `ok` is `false` with an `error`, and the state is
-still included. `key`, `text` and the mouse commands do not expect a change;
+still included.
+
+`pause`, `resume` and `speed` (also inside `run_until`) press the top bar's
+buttons by calling, on the main thread after an outer frame, what each
+button's handler calls ([ADR 0005](adr/0005-speed-buttons.md)); `via` in the
+answer is `"button"`. In single player that is what Space and keypad `+` /
+`-` do too, and in multiplayer it posts the same pause and speed commands as
+a player's click, which the keys do not (Space does not pause there with
+more than one player). Each press counts as an input, like a key. While the
+game ignores its buttons (the byte the buttons check is set, e.g. while a
+window blocks the interface) nothing is pressed and the command answers an
+error. Without the main thread (no `anvil-game` frames) the commands press
+the keys instead, and `via` is `"key"`. `key`, `text` and the mouse commands do not expect a change;
 they answer with the state read 0.1 s after the input. Input commands from
 different clients take turns.
 

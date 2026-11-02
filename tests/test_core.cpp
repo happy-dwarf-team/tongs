@@ -647,6 +647,11 @@ struct FakeGame {
     std::string push_error;
     std::vector<std::pair<std::uint64_t, KeyPress>> pending;
     std::vector<std::int32_t> pressed;
+    // The top bar's buttons (UseButtons): what each press did, and how the next one goes.
+    std::vector<std::pair<std::uint64_t, SpeedButton>> pending_buttons;
+    std::vector<SpeedButton> buttons;
+    bool buttons_blocked = false;
+    unsigned long button_fault = 0;
     std::vector<InputEvent> events;
     WindowSnapshot window;
     std::pair<int, int> cursor{-1, -1};  // the virtual GUI cursor
@@ -666,6 +671,13 @@ struct FakeGame {
             if (key.sym == ' ') state.paused_flag = !state.paused_flag;
             if (key.sym == FindKey(kSpeedUpKeyName)->sym && state.speed < 4) ++state.speed;
             if (key.sym == FindKey(kSpeedDownKeyName)->sym && state.speed > 0) --state.speed;
+        }
+        while (!pending_buttons.empty() && pending_buttons.front().first <= clock) {
+            const SpeedButton button = pending_buttons.front().second;
+            pending_buttons.erase(pending_buttons.begin());
+            if (button == SpeedButton::Pause) state.paused_flag = !state.paused_flag;
+            if (button == SpeedButton::Faster && state.speed < 4) ++state.speed;
+            if (button == SpeedButton::Slower && state.speed > 0) --state.speed;
         }
         state.paused = state.paused_flag || held_by_game;
     }
@@ -693,6 +705,27 @@ struct FakeGame {
         };
         h.now_ms = [this] { return clock; };
         return h;
+    }
+
+    // The main thread with the top bar's buttons: pause, resume and speed press them
+    // instead of keys. The press takes effect a few polls later, like the posted command.
+    void UseButtons(Handlers& h, Dispatcher& d) {
+        h.dispatcher = &d;
+        h.press_speed_button = [this](SpeedButton button) {
+            SpeedButtonPress p;
+            if (button_fault != 0) {
+                p.fault_code = button_fault;
+                return p;
+            }
+            if (buttons_blocked) {
+                p.blocked = true;
+                return p;
+            }
+            buttons.push_back(button);
+            pending_buttons.emplace_back(clock + react_after_ms, button);
+            p.pressed = true;
+            return p;
+        };
     }
 };
 
@@ -819,6 +852,79 @@ static void TestSpeed() {
     game.ignore_keys = true;
     out = HandleRequest("speed 3", h);
     assert(Contains(out, "\"ok\":false") && Contains(out, "speed: no change") && Contains(out, "\"presses\":1"));
+}
+
+// pause, resume and speed press the top bar's buttons on the main thread (ADR 0005):
+// no keys, one input each, and refusals when the game ignores the buttons or a press faulted.
+static void TestSpeedButtons() {
+    FakeGame game = LoadedGame();  // paused, UI speed 2
+    game.clock_runs_date = true;
+    Handlers h = game.Make();
+    Dispatcher d(SteadyMs);
+    game.UseButtons(h, d);
+    FakeMainThread main(d);
+
+    std::string out = HandleRequest("speed 4", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"presses\":2,\"via\":\"button\"") && Contains(out, "\"speed\":4"));
+    out = HandleRequest("resume", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"presses\":1,\"via\":\"button\"") && Contains(out, "\"paused\":false"));
+    out = HandleRequest("pause", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"paused_flag\":true"));
+    out = HandleRequest("speed 3", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"speed\":3"));
+    assert(game.pressed.empty() && game.events.empty());
+    assert(game.buttons == std::vector<SpeedButton>({SpeedButton::Faster, SpeedButton::Faster, SpeedButton::Pause,
+                                                     SpeedButton::Pause, SpeedButton::Slower}));
+
+    // run_until presses the buttons too, and still does not count its own presses.
+    game.buttons.clear();
+    out = HandleRequest("run_until 1719.4.1 speed=5", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"reached\":true") && Contains(out, "\"inputs\":0,"));
+    assert(game.state.paused_flag && game.state.speed == 4 && game.pressed.empty());
+    assert(game.buttons == std::vector<SpeedButton>({SpeedButton::Faster, SpeedButton::Faster, SpeedButton::Pause,
+                                                     SpeedButton::Pause}));
+
+    // Another client's speed press counts as one input of a wait in progress.
+    game.state.paused_flag = false;
+    int ticks = 0;
+    game.on_sleep = [&] {
+        if (++ticks == 5) assert(Contains(HandleRequest("speed 4", h), "\"ok\":true"));
+    };
+    out = HandleRequest("wait_until 1719.5.1", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"inputs\":1,"));
+    game.on_sleep = nullptr;
+    assert(Contains(HandleRequest("pause", h), "\"ok\":true"));
+
+    // The game ignores the buttons: nothing is pressed or counted, and the answer says why.
+    game.buttons.clear();
+    game.buttons_blocked = true;
+    out = HandleRequest("resume", h);
+    assert(Contains(out, "\"ok\":false") && Contains(out, "ignores its speed and pause buttons") &&
+           Contains(out, "\"presses\":0") && Contains(out, "\"paused\":true"));
+    ticks = 0;
+    game.on_sleep = [&] {
+        if (++ticks == 5) assert(Contains(HandleRequest("speed 1", h), "\"ok\":false"));
+    };
+    out = HandleRequest("wait_until 1719.6.1 timeout=1", h);
+    assert(Contains(out, "\"inputs\":0,"));
+    game.on_sleep = nullptr;
+    game.buttons_blocked = false;
+
+    // Without the main thread the keys do the same, as before.
+    Handlers keys = h;
+    keys.dispatcher = nullptr;
+    out = HandleRequest("speed 5", keys);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"via\":\"key\"") && Contains(out, "\"speed\":5"));
+    assert(game.pressed.size() == 1 && game.buttons.empty());
+
+    // A press that faults turns the buttons off for the rest of the process.
+    game.button_fault = 0xC0000005;
+    out = HandleRequest("speed 1", h);
+    assert(Contains(out, "\"ok\":false") && Contains(out, "exception 0xC0000005") && Contains(out, "\"presses\":0"));
+    game.button_fault = 0;
+    out = HandleRequest("resume", h);
+    assert(Contains(out, "\"ok\":false") && Contains(out, "off until the game exits"));
+    assert(game.buttons.empty());
 }
 
 static void TestParseDate() {
@@ -4117,6 +4223,7 @@ int main() {
     TestPauseResume();
     TestPauseTimeoutAndErrors();
     TestSpeed();
+    TestSpeedButtons();  // trips the speed buttons for the rest of the process
     TestDispatcher();
     TestFrameStats();
     TestFramesCommand();

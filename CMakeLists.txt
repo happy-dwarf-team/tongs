@@ -41,7 +41,7 @@ endif()
 # tongs-check runs `anvil check plugin` (with -DEU4_EXE=<eu4.exe> it also
 # verifies the symbols and rewrites plugin/symbols.lock).
 set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
-anvil_add_plugin(tongs PLUGIN_DIR plugin SOURCES src/plugin.cpp src/settings.cpp src/game_state.cpp src/game_input.cpp src/game_window.cpp src/game_cursor.cpp src/game_frame.cpp src/game_threads.cpp src/game_ui.cpp src/game_ui_service.cpp src/game_events.cpp src/game_console.cpp src/game_world.cpp src/game_navigation.cpp src/game_navigation_service.cpp src/game_save.cpp src/game_files.cpp src/game_memory.cpp src/pipe_server.cpp src/screenshot.cpp)
+anvil_add_plugin(tongs PLUGIN_DIR plugin SOURCES src/plugin.cpp src/settings.cpp src/game_state.cpp src/game_input.cpp src/game_window.cpp src/game_cursor.cpp src/game_frame.cpp src/game_threads.cpp src/game_ui.cpp src/game_ui_service.cpp src/game_events.cpp src/game_console.cpp src/game_world.cpp src/game_navigation.cpp src/game_navigation_service.cpp src/game_speed_buttons.cpp src/game_save.cpp src/game_files.cpp src/game_memory.cpp src/pipe_server.cpp src/screenshot.cpp)
 unset(CMAKE_COMPILE_WARNING_AS_ERROR)
 target_link_libraries(tongs PRIVATE tongs_core advapi32 user32 gdi32 ole32 shell32 windowscodecs)
 
