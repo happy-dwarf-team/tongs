@@ -1,4 +1,4 @@
-version="0.25.1" # x-release-please-version
+version="0.26.0" # x-release-please-version
 tags={
 	"Utilities"
 }

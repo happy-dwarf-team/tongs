@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.26.0](https://github.com/happy-dwarf-team/tongs/compare/v0.25.1...v0.26.0) (2026-11-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* **plugin:** run on the GOG build 1.37.5.2 ([#137](https://github.com/happy-dwarf-team/tongs/issues/137))
+
+### Features
+
+* **plugin:** run on the GOG build 1.37.5.2 ([#137](https://github.com/happy-dwarf-team/tongs/issues/137)) ([ec95b19](https://github.com/happy-dwarf-team/tongs/commit/ec95b194e37df8f8ffd09255df1726c6fa2071a3))
+
 ## [0.25.1](https://github.com/happy-dwarf-team/tongs/compare/v0.25.0...v0.25.1) (2026-11-02)
 
 
