@@ -2293,7 +2293,8 @@ not from a second copy in the code.
   checked live in their releases, as before.
 - `plugin/symbols.lock` records the check against `eu4.exe`
   `9AD3EFE1…771A` (`anvil check plugin --exe`); CI and `ctest` fail when it
-  does not match `symbols.toml`.
+  does not match `symbols.toml`. Since 0.26.0 it holds one check per build
+  (Steam `9AD3EFE1…771A`, GOG `D29CF745…5319`; see "The GOG build 1.37.5.2").
 
 ### Frames and the main thread
 
@@ -2726,6 +2727,72 @@ it, `enabled = false` and no settings file.
 | refusals | 3190 `terra_incognita`, 1252 (a sea) `not_selectable`; nothing called |
 | `KEEP_VIEWS \| NO_CAMERA` on the province the view shows, right after the game's `reload provinceview.gui` | the header's `provincename` kept its text: Moskva, Murom, Tsargrad (a foreign province), Clawmarches, Watchman's Point, Moskva with the pipe disabled; without the call the same reload blanked it (Moskva, Verne), and the pipe's `province open` of the same province brought it back |
 | counts | with the pipe on, `client_calls_total` rose by one per `open_province` that called the game, refusals none |
+
+## The GOG build 1.37.5.2 (0.26.0)
+
+Anvil 1.7 knows the GOG `eu4.exe` 1.37.5.2 (`eu4-1.37.5.2-gog-win64`,
+SHA-256 `D29CF745…5319`) and lets one `symbols.toml` list several builds
+(Anvil design §5.2, [anvil#160](https://github.com/happy-dwarf-team/anvil/issues/160)).
+Tongs declares both and needs Anvil 1.7 (`anvil = ">=1.7.0"`, SDK 1.7.0); an
+older Anvil rejects the `builds` key and skips Tongs.
+
+- **Matching.** Every symbol was matched to the same instructions in the GOG
+  executable: functions through `.pdata` and their disassembly with addresses
+  masked, leaf code (most widget getters, `speed_object`) by the gap between
+  two matched functions and the same number of references to it, pointer
+  slots by the matched target and the neighbouring slots, and `save_extension`
+  by the code that reads it. The `eu4.pdb` GOG ships names each match
+  (`CTopbarGui::RefreshSpeedControlsWindow`, `CInGameIdler::IncreaseGameSpeed`,
+  `CEventWindow::Setup`, `CProvinceViewController::ShowProvinceView`, every
+  vtable value as the class's `vftable`, …), and the instructions every
+  symbol spans are the same apart from numbers. 85 symbols keep their bytes
+  and only move; 87 get bytes per build (displacements, and the moved
+  offsets below).
+- **What moved.** Addresses: all 51 `rip_relative` values. Offsets: only in
+  the game session (`CInGameIdler`), 0x10 bytes lower from the game-speed
+  object on: the speed object `+0x418` → `+0x408`, the top bar's blocker
+  `+0x12F0` → `+0x12E0`, the event window list `+0x4A0`/`+0x4A8` →
+  `+0x490`/`+0x498`, the selection holder `+0x1220` → `+0x1210`, the camera
+  `+0x1200` → `+0x11F0`, the tutorial `+0x1440` → `+0x1430`, the loading flag
+  `+0x460` → `+0x450`; and the session mode `+0x2C` → `+0x24`. The pop-up list
+  moved from `+0x80` to `+0x78`, which the compiler encodes as an 8-bit
+  displacement, so its tail is one byte at the same place in both builds
+  (`popup_list_tail`) and the node offsets are a symbol of their own
+  (`popup_list_append`).
+- **In the code.** `anvil gen` writes a value as a constant only when both
+  builds have it; the 64 others are read when the plugin loads
+  (`Value(sym::…, "name")` in `src/game_symbols.hpp`, Anvil's
+  `symbol_value`), so every layout is built in `load()` (the threads and input
+  layouts too, before per call). A `static_assert` between such values became
+  a check in the layout's `Load()` (`Require`): Tongs does not load when one
+  fails, and says which in `anvil.log`.
+- **Not in symbols.toml, checked in the PDB.** The GUI core has the same
+  layout on GOG: `CFixedWindow::_TextBoxes` at `0x798` (the first of the
+  seven 0x40-byte maps) and `_SubWindows` at `0x958`, the render node's
+  `_pParent` at `0x110`, `CEditBox::_Text` at `0xF8`, `CCheckBox::_state` at
+  `0x100`, `CConsoleCmdManager::_Commands` at `0`, and a session list's head
+  8 bytes before its tail (`CEU3Idler::_Updateables` at `0x70`, its tail at
+  `0x78`; `_ActiveInWindow` at `0x488`).
+
+### Live check (2026-11-02)
+
+A copy of the GOG game (folders as junctions, without Steam's environment),
+Anvil 1.7.0 from its release, Tongs and Bellows from their branches,
+`input = true`, a private profile; driven through the MCP server.
+
+| Check | Seen |
+| --- | --- |
+| load | `game build: eu4-1.37.5.2-gog-win64`, `tongs: 177 symbol(s) verified`, `tongs.ui` and `tongs.navigation` registered, 4 loaded, 0 failed, 0 skipped |
+| menu | `ready` (in_game false) after the start; `ui find` of the main menu's buttons with text, `ui click` on Single Player, the saves tab and the save entry (hovered checked each time); the saves tab's check box read as `checked: false`, then ticked |
+| load from the menu | PLAY on the Russia 1719 save; `ready` in session 1, 1719.3.17, paused, speed 2 |
+| reads | `state`, `player` (RUS), `province 295` (Moskva, RUS, 15/8/9), `country RUS` (1423 provinces, capital 33), `threads` (two pools of 6 workers, process mask `0xFE`), `frames` (119 outer frames/s paused), `event list` (none, `option_delay` 0.5) |
+| navigation | `province open 295`: `provinceview`, `client_calls_total` 1; `selection` 295 visible; after `ui click provinceview//close_button` not visible |
+| speed buttons | `speed 5` in 3 presses through the buttons while paused |
+| run | `run_until 1720.1.3 speed=5 events=first`: 292 days in 23.8 s, `paused_ms` 0, `inputs` 0; the top bar's `DateText` "4 January 1720" |
+
+Not checked on GOG: game calls (`console`, `save load`), key and mouse input
+other than clicks and speed buttons, events (none opened in the run),
+notifications and screenshots of other windows than the whole game.
 
 ## Releases
 

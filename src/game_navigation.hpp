@@ -13,18 +13,18 @@ namespace tongs {
 // province links (docs/design.md, "Navigation (0.21.0)"), from plugin/symbols.toml.
 struct NavigationLayout {
     WorldLayout world;
-    std::uint32_t camera = U32(sym::camera_to_province.camera);             // session: the camera
+    std::uint32_t camera = Value(sym::camera_to_province, "camera");             // session: the camera
     std::uint32_t lock = U32(sym::camera_set_target.lock);                  // camera: byte, debug_lockcamera
     std::uint32_t current_x = U32(sym::camera_snap.current_x);              // camera: float
     std::uint32_t current_z = U32(sym::camera_snap.current_z);
     std::uint32_t target_x = U32(sym::camera_set_target.target_x);
     std::uint32_t target_z = U32(sym::camera_set_target.target_z);
     std::uint32_t wrap = U32(sym::camera_to_province.wrap);                 // camera: byte, the map wraps
-    std::uint32_t map_rva = U32(sym::camera_to_province.map);               // pointer to the map
+    std::uint32_t map_rva = Value(sym::camera_to_province, "map");               // pointer to the map
     std::uint32_t map_width = U32(sym::camera_to_province.map_width);       // map: int32
     std::uint32_t selection_session = U32(sym::select_province.session);   // selection: the session
-    std::uint32_t tutorial = U32(sym::select_province.tutorial);            // session: the tutorial, or null
-    std::uint32_t session_mode = U32(sym::select_province.session_mode);    // session: int32
+    std::uint32_t tutorial = Value(sym::select_province, "tutorial");            // session: the tutorial, or null
+    std::uint32_t session_mode = Value(sym::select_province, "session_mode");    // session: int32
     std::uint32_t blocked_mode = U32(sym::select_province.blocked_mode);    // the mode in which nothing is selected
     std::uint32_t ti_flags = U32(sym::terra_incognita_check.ti_flags);      // province: byte
     std::uint32_t ti_bit = U32(sym::terra_incognita_check.ti_bit);          // set: the province can be undiscovered
@@ -41,8 +41,7 @@ struct NavigationLayout {
     std::uint32_t select_rva = 0;       // RvaOf(sym::select_province): (selection, province)
     std::uint32_t tutorial_blocks_rva = 0;  // RvaOf(sym::tutorial_blocks): bool (tutorial)
 
-    static_assert(sym::camera_to_province_id.root == sym::root_and_date.root &&
-                  sym::camera_to_province_id.provinces == sym::province_count.provinces &&
+    static_assert(sym::camera_to_province_id.provinces == sym::province_count.provinces &&
                   sym::camera_to_province_id.provinces_end == sym::province_count.provinces_end &&
                   sym::camera_to_province_id.province_size == sym::province_is_sea.province_size &&
                   sym::camera_to_province_id.province_array == sym::province_is_sea.province_array);
@@ -60,6 +59,8 @@ struct NavigationLayout {
     // The members only Anvil knows: call when the plugin is loading.
     static NavigationLayout Load() {
         NavigationLayout l;
+        l.world = WorldLayout::Load();
+        Require(Value(sym::camera_to_province_id, "root") == l.world.root_rva, "the game root of camera_to_province_id");
         l.camera_rva = RvaOf(sym::camera_to_province_id);
         l.views_open_rva = RvaOf(sym::views_open);
         l.close_views_rva = RvaOf(sym::close_views);

@@ -12,7 +12,7 @@ namespace tongs {
 // selection (docs/design.md, "World reads (0.20.0)"), from plugin/symbols.toml.
 // RVAs are relative to eu4.exe; offsets are from the object named in each comment.
 struct WorldLayout {
-    std::uint32_t root_rva = U32(sym::province_count.root);
+    std::uint32_t root_rva = Value(sym::province_count, "root");
     std::uint32_t provinces = U32(sym::province_count.provinces);          // root: vector of Province*, entry 0 included
     std::uint32_t provinces_end = U32(sym::province_count.provinces_end);
     std::uint32_t pointer_shift = U32(sym::province_count.pointer_shift);  // 8-byte entries
@@ -40,7 +40,7 @@ struct WorldLayout {
     std::uint32_t tag_valid = U32(sym::player_country.observed_valid - sym::player_country.observed);
     std::uint32_t observer_kind = U32(sym::player_country.observer_kind);
 
-    std::uint32_t countries_db_rva = U32(sym::province_base_tax.countries_db);  // pointer to the country database
+    std::uint32_t countries_db_rva = Value(sym::province_base_tax, "countries_db");  // pointer to the country database
     std::uint32_t countries = U32(sym::province_base_tax.countries);            // db: Country*[], by country index
     std::uint32_t buckets = U32(sym::tag_buckets.buckets);                      // db + n*stride: tags of bucket n
     std::uint32_t bucket_count = U32(sym::tag_buckets.bucket_count);            // db + n*stride: int32
@@ -56,7 +56,7 @@ struct WorldLayout {
     std::uint32_t observed = U32(sym::player_country.observed);  // root: tag
 
     std::uint32_t session = U32(sym::session_of_root.session);    // root: the session
-    std::uint32_t holder = U32(sym::selection_holder.holder);      // session: the selection object
+    std::uint32_t holder = Value(sym::selection_holder, "holder");      // session: the selection object
     std::uint32_t selected = 0x00;  // selection: the province, the `mov [rbx],rsi` of selected_province
     std::uint32_t view = U32(sym::selection_view.view);            // selection: the province view
     std::uint32_t view_province = U32(sym::province_view_province.shown);  // view: the province it shows
@@ -65,15 +65,11 @@ struct WorldLayout {
     std::uint32_t colonisation_window = U32(sym::province_view_colonisation.window);  // holder: the panel's full object
     std::uint32_t window_part = U32(sym::eu3dialog_vtable.window_part);    // full window object -> widget pointer
 
-    static_assert(sym::province_count.root == sym::root_and_date.root && sym::province_is_sea.root == sym::root_and_date.root &&
-                  sym::province_is_wasteland.root == sym::root_and_date.root);
     static_assert(sym::province_is_wasteland.province_size == sym::province_is_sea.province_size &&
                   sym::province_is_wasteland.province_array == sym::province_is_sea.province_array &&
                   sym::province_is_wasteland.static_part == sym::province_is_sea.static_part &&
                   sym::province_name.static_part == sym::province_is_sea.static_part);
-    static_assert(sym::player_country.countries_db == sym::province_base_tax.countries_db &&
-                  sym::country_exists.countries_db == sym::province_base_tax.countries_db &&
-                  sym::player_country.countries == sym::province_base_tax.countries &&
+    static_assert(sym::player_country.countries == sym::province_base_tax.countries &&
                   sym::country_exists.countries == sym::province_base_tax.countries);
     static_assert(sym::country_exists.owned_count == sym::country_provinces.owned_count &&
                   sym::country_exists.observer_kind == sym::player_country.observer_kind);
@@ -81,6 +77,19 @@ struct WorldLayout {
                   sym::view_window.view == sym::selection_view.view &&
                   sym::province_view_colonisation.shown == sym::render_pick.shown + sym::eu3dialog_vtable.window_part);
     static_assert(sym::tag_buckets.bucket_mask + 1 == kTagBuckets);
+
+    // Checks the values that differ between the game builds: call when the plugin is loading.
+    static WorldLayout Load() {
+        WorldLayout l;
+        const std::uint32_t root = Value(sym::root_and_date, "root");
+        Require(l.root_rva == root && Value(sym::province_is_sea, "root") == root &&
+                    Value(sym::province_is_wasteland, "root") == root,
+                "the game root of the world reads");
+        Require(Value(sym::player_country, "countries_db") == l.countries_db_rva &&
+                    Value(sym::country_exists, "countries_db") == l.countries_db_rva,
+                "the country database");
+        return l;
+    }
 };
 
 // Main thread only, in game (the caller checked the state on the same frame).

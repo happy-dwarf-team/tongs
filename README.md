@@ -25,9 +25,10 @@ outside the forge.
 > Other Anvil plugins can read the widget tree through the service `tongs.ui`
 > and select a province through `tongs.navigation`
 > (see [For other plugins](#for-other-plugins-tongsui)).
-> Supported game build: EU4 1.37.5
-> (Steam, Windows 64-bit); Anvil skips it on other builds. It needs Anvil
-> 1.0 or newer with its standard plugin `anvil-game`. From 0.16.0 it is also
+> Supported game builds: EU4 1.37.5
+> (Steam, Windows 64-bit) and EU4 1.37.5.2 (GOG, Windows 64-bit); Anvil skips
+> it on other builds. It needs Anvil 1.7 or newer with its standard plugin
+> `anvil-game` (Tongs 0.25 and older: Anvil 1.0, Steam only). From 0.16.0 it is also
 > published as a Steam Workshop mod for Anvil 1.3 or newer (see
 > [Steam Workshop](#steam-workshop)). Design and the
 > addresses it relies on: [docs/design.md](docs/design.md) and

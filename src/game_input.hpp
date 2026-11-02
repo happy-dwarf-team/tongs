@@ -14,8 +14,8 @@ namespace tongs {
 // SDL fills when it starts. symbols.toml takes both RVAs from the code that
 // fills the slot (sdl_dynapi_init) and checks SDL_PushEvent itself.
 struct InputLayout {
-    std::uint32_t push_event_slot_rva = U32(sym::sdl_dynapi_init.push_event_slot);  // dynapi slot 88: SDL_PushEvent
-    std::uint32_t push_event_rva = U32(sym::sdl_dynapi_init.push_event);            // the game's own SDL_PushEvent
+    std::uint32_t push_event_slot_rva = Value(sym::sdl_dynapi_init, "push_event_slot");  // dynapi slot 88: SDL_PushEvent
+    std::uint32_t push_event_rva = Value(sym::sdl_dynapi_init, "push_event");            // the game's own SDL_PushEvent
 };
 
 // Queues the events in order in the game's SDL event queue, as SDL would for

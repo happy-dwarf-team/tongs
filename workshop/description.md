@@ -12,8 +12,8 @@ On its own Tongs does nothing you can see. It waits until you switch it on, and 
 ![](https://i.imgur.com/Uf8Z21n.png)
 
 ## Before you subscribe
-- **[Anvil](https://anvil.happydwarf.dev/) 1.3 or newer** must be installed in the game folder. Get it from [anvil.happydwarf.dev](https://anvil.happydwarf.dev/) and press Download. The Workshop can't install it for you: a dwarf has to carry it in by hand, once.
-- **EU4 1.37.5** (Steam, Windows). On any other version Tongs stays out of the way and the game starts as usual.
+- **[Anvil](https://anvil.happydwarf.dev/) 1.7 or newer** must be installed in the game folder. Get it from [anvil.happydwarf.dev](https://anvil.happydwarf.dev/) and press Download. The Workshop can't install it for you: a dwarf has to carry it in by hand, once.
+- **EU4 1.37.5** (Steam, Windows; the GOG build 1.37.5.2 works too). On any other version Tongs stays out of the way and the game starts as usual.
 - **Something to talk to it:** a script or an agent. The [GitHub page](https://github.com/happy-dwarf-team/tongs) has ready clients for PowerShell and Python and an MCP server, which lets Claude Code and other AI agents use Tongs as a set of tools.
 
 ![](https://i.imgur.com/Uf8Z21n.png)
@@ -62,7 +62,7 @@ That is on purpose: Tongs starts switched off. Turn it on in Anvil's panel or in
 No. Tongs only answers programs running on your own computer under your own Windows user. The front gate stays shut, and the dwarf keeps the key.
 
 ### Does it work with my mods?
-It reads the interface the game is actually showing, so interface mods should not get in its way. The game itself has to be 1.37.5.
+It reads the interface the game is actually showing, so interface mods should not get in its way. The game itself has to be 1.37.5 (or GOG's 1.37.5.2).
 
 ### What is that little dwarf head on the thumbnail?
 If you check the mod's GitHub page, you will notice the repository belongs to Happy Dwarf Team.
