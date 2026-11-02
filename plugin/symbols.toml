@@ -1,213 +1,338 @@
-# Every game address and offset Tongs uses on EU4 1.37.5 (Steam, win64), declared
-# once. `anvil gen` turns this file into symbols.gen.hpp (sym::<name>, each value
-# a constant); Anvil verifies every symbol against eu4.exe before it loads
-# tongs.dll and skips the plugin on any other build or on changed bytes.
-# `anvil check plugin --exe <eu4.exe>` checks it offline and rewrites symbols.lock.
+# Every game address and offset Tongs uses on EU4 1.37.5 (Steam, win64) and
+# 1.37.5.2 (GOG, win64), declared once. `anvil gen` turns this file into
+# symbols.gen.hpp (sym::<name>, each value a constant when both builds have the
+# same one; the others are read when the game loads, Value()); Anvil verifies
+# every symbol against eu4.exe before it loads tongs.dll and skips the plugin on
+# any other build or on changed bytes. The GOG build has the same code at other
+# addresses and some game structs moved: each symbol was matched to the same
+# instructions there and named from the eu4.pdb GOG ships, and only rva, bytes
+# and points_to differ (in `build."<id>"`). Addresses in notes are the Steam
+# build's. `anvil check plugin --exe <eu4.exe>` with each build's eu4.exe checks
+# it offline and rewrites symbols.lock.
 # The few offsets that no declared instruction holds stay in the code, each
 # marked "not in symbols.toml" (docs/design.md, "Symbols").
-build = "eu4-1.37.5-steam-win64"
+builds = ["eu4-1.37.5-steam-win64", "eu4-1.37.5.2-gog-win64"]
 
 # --- Game state (docs/design.md, "State reader") ---
 
 [symbol.root_and_date]
-rva = 0x14321FC
-bytes = "48 8B 05 75 DC F0 00 8B 98 D0 1D 00 00"
 memory = "code"
 values.root = { at = 3, rip_relative = 7 }
 values.date = { at = 9, size = 4 }
 note = "top bar: the game root object (global) and its current date at root+0x1DD0"
 
+[symbol.root_and_date.build."eu4-1.37.5-steam-win64"]
+rva = 0x14321FC
+bytes = "48 8B 05 75 DC F0 00 8B 98 D0 1D 00 00"
+
+[symbol.root_and_date.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x142C19C
+bytes = "48 8B 05 55 7B EF 00 8B 98 D0 1D 00 00"
+
 [symbol.speed_of_root]
-rva = 0x1432315
 bytes = "8B 98 08 1E 00 00 FF C3"
 memory = "code"
 values.speed = { at = 2, size = 4 }
 note = "top bar: game speed at root+0x1E08"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1432315 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x142C2B5 }
 
 [symbol.session_of_root]
-rva = 0x848976
-bytes = "48 8B 05 FB 74 AF 01 48 8B D9 48 8B 88 00 1E 00 00 48 8B 01 FF 90 00 01 00 00"
 memory = "code"
 values.session = { at = 13, size = 4 }
 values.speed_slot = { at = 22, size = 4 }
 note = "pause command: session at root+0x1E00, vtable slot 0x100 returns the game-speed object"
 
+[symbol.session_of_root.build."eu4-1.37.5-steam-win64"]
+rva = 0x848976
+bytes = "48 8B 05 FB 74 AF 01 48 8B D9 48 8B 88 00 1E 00 00 48 8B 01 FF 90 00 01 00 00"
+
+[symbol.session_of_root.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x847CD6
+bytes = "48 8B 05 1B C0 AD 01 48 8B D9 48 8B 88 00 1E 00 00 48 8B 01 FF 90 00 01 00 00"
+
 [symbol.session_speed_slot]
-rva = 0x1CB8560
 memory = "read"
-points_to = 0x8024D0
 note = "slot 0x100 of the game session's vtable (the vtable is this slot - session_of_root.speed_slot); in the menu and while loading the session has another class"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1CB8560, points_to = 0x8024D0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1CA1188, points_to = 0x801850 }
 
 [symbol.speed_object]
-rva = 0x8024D0
-bytes = "48 8B 81 18 04 00 00 C3"
 memory = "code"
 values.game_speed = { at = 3, size = 4 }
 note = "session vtable slot 0x100: game-speed object at session+0x418"
 
+[symbol.speed_object.build."eu4-1.37.5-steam-win64"]
+rva = 0x8024D0
+bytes = "48 8B 81 18 04 00 00 C3"
+
+[symbol.speed_object.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x801850
+bytes = "48 8B 81 08 04 00 00 C3"
+
 [symbol.is_paused]
+memory = "code"
+signature = "bool (void* game_speed)"
+values.pause_flag = { at = 8, size = 1 }
+note = "game speed: is paused; the player pause byte at +0x48"
+
+[symbol.is_paused.build."eu4-1.37.5-steam-win64"]
 rva = 0x7E01B0
 bytes = """
 40 53 48 83 EC 20 80 79 48 00 48 8B D9 74 0E 33 C0 83 F8 02 0F 95 C0 48 83 C4 20 5B C3
 48 8B 49 50 E8 3A A8 F0 FF 84 C0 75 14 48 8B 43 08 48 2B 03 48 A9 F8 FF FF FF
 B8 01 00 00 00 75 05 B8 02 00 00 00 83 F8 02 0F 95 C0 48 83 C4 20 5B C3
 """
-memory = "code"
-signature = "bool (void* game_speed)"
-values.pause_flag = { at = 8, size = 1 }
-note = "game speed: is paused; the player pause byte at +0x48"
+
+[symbol.is_paused.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x7DF520
+bytes = """
+40 53 48 83 EC 20 80 79 48 00 48 8B D9 74 0E 33 C0 83 F8 02 0F 95 C0 48 83 C4 20 5B C3
+48 8B 49 50 E8 8A AE F0 FF 84 C0 75 14 48 8B 43 08 48 2B 03 48 A9 F8 FF FF FF
+B8 01 00 00 00 75 05 B8 02 00 00 00 83 F8 02 0F 95 C0 48 83 C4 20 5B C3
+"""
 
 # --- Input (docs/design.md, "Input") ---
 # SDL 2.0.4 is linked into eu4.exe with its dynamic API: every SDL_* call jumps
 # through a table that SDL fills when it starts. The SDL_Event layout is SDL's own ABI.
 
 [symbol.sdl_dynapi_init]
-rva = 0x17325DD
-bytes = "48 8D 0D AC 45 01 00 48 89 0D D5 DC 87 00"
 memory = "code"
 values.push_event = { at = 3, rip_relative = 7 }
 values.push_event_slot = { at = 10, rip_relative = 14 }
 note = "SDL 2.0.4 dynapi init: slot 88 = SDL_PushEvent"
 
+[symbol.sdl_dynapi_init.build."eu4-1.37.5-steam-win64"]
+rva = 0x17325DD
+bytes = "48 8D 0D AC 45 01 00 48 89 0D D5 DC 87 00"
+
+[symbol.sdl_dynapi_init.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x171C25D
+bytes = "48 8D 0D AC 45 01 00 48 89 0D 55 80 87 00"
+
 [symbol.sdl_push_event]
-rva = 0x1746B90
 bytes = "40 57 48 83 EC 20 48 8B F9 E8 82 B3 01 00 89 47 04"
 memory = "code"
 signature = "int (void* event)"
 note = "SDL_PushEvent: timestamp from SDL_GetTicks"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1746B90 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1730810 }
 
 [symbol.sdl_poll_event]
-rva = 0x1569D08
-bytes = "48 8D 4D B0 E8 EF B6 1C 00 85 C0"
 memory = "code"
 note = "game event loop: SDL_PollEvent into the event at rbp-0x50"
 
+[symbol.sdl_poll_event.build."eu4-1.37.5-steam-win64"]
+rva = 0x1569D08
+bytes = "48 8D 4D B0 E8 EF B6 1C 00 85 C0"
+
+[symbol.sdl_poll_event.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x1560828
+bytes = "48 8D 4D B0 E8 4F E8 1B 00 85 C0"
+
 [symbol.sdl_keydown]
-rva = 0x156A043
 bytes = "44 8B 65 C4 33 C9 48 8B 95 88 00 00 00 41 81 FC 58 00 00 40 44 8B 7D C0"
 memory = "code"
 note = "game event loop, SDL_KEYDOWN: keysym.sym at +0x14, keysym.scancode at +0x10"
+build."eu4-1.37.5-steam-win64" = { rva = 0x156A043 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1560B63 }
 
 [symbol.gui_cursor]
-rva = 0x14E5E50
 bytes = "48 89 5C 24 10 55 56 57 48 83 EC 40"
 memory = "code"
 signature = "void* (void* out, uint8_t a, uint8_t b)"
 note = "the GUI's pointer position in client coordinates (POINT* out), asked once per frame; hooked for the virtual cursor"
+build."eu4-1.37.5-steam-win64" = { rva = 0x14E5E50 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x14DF9C0 }
 
 # --- Speed buttons (docs/design.md, "Speed buttons"; ADR 0005) ---
 # What the top bar's speed and pause buttons call (their handlers in the window
 # built by 0x1431020), each with the session (root + session_of_root.session).
 
 [symbol.speed_up_button]
-rva = 0x81F6D0
-bytes = "40 53 48 83 EC 50 48 8B 81 F0 12 00 00 48 8B D9 80 B8 F5 00 00 00 00 0F 85 43 01 00 00 E8 AE B3 EC FF 84 C0 0F 84 36 01 00 00"
 memory = "code"
 signature = "void (void* session)"
 values.blocker = { at = 9, size = 4 }
 values.blocked = { at = 18, size = 4 }
 note = "session: speed up as the top bar's button and the + key do; posts the speed command unless the byte blocker+0xF5 is set or the player may not change the speed"
 
+[symbol.speed_up_button.build."eu4-1.37.5-steam-win64"]
+rva = 0x81F6D0
+bytes = "40 53 48 83 EC 50 48 8B 81 F0 12 00 00 48 8B D9 80 B8 F5 00 00 00 00 0F 85 43 01 00 00 E8 AE B3 EC FF 84 C0 0F 84 36 01 00 00"
+
+[symbol.speed_up_button.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x81EA30
+bytes = "40 53 48 83 EC 50 48 8B 81 E0 12 00 00 48 8B D9 80 B8 F5 00 00 00 00 0F 85 43 01 00 00 E8 0E BA EC FF 84 C0 0F 84 36 01 00 00"
+
 [symbol.speed_down_button]
-rva = 0x81F840
-bytes = "40 53 48 83 EC 50 48 8B 81 F0 12 00 00 48 8B D9 80 B8 F5 00 00 00 00 0F 85 53 01 00 00 E8 3E B2 EC FF 84 C0 0F 84 46 01 00 00"
 memory = "code"
 signature = "void (void* session)"
 values.blocker = { at = 9, size = 4 }
 values.blocked = { at = 18, size = 4 }
 note = "session: speed down, as speed_up_button"
 
+[symbol.speed_down_button.build."eu4-1.37.5-steam-win64"]
+rva = 0x81F840
+bytes = "40 53 48 83 EC 50 48 8B 81 F0 12 00 00 48 8B D9 80 B8 F5 00 00 00 00 0F 85 53 01 00 00 E8 3E B2 EC FF 84 C0 0F 84 46 01 00 00"
+
+[symbol.speed_down_button.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x81EBA0
+bytes = "40 53 48 83 EC 50 48 8B 81 E0 12 00 00 48 8B D9 80 B8 F5 00 00 00 00 0F 85 53 01 00 00 E8 9E B8 EC FF 84 C0 0F 84 46 01 00 00"
+
 [symbol.toggle_pause]
-rva = 0x810570
-bytes = "48 89 5C 24 10 55 56 57 48 83 EC 50 0F B6 EA 48 8B D9 C7 44 24 70 00 00 00 00 48 8B 3D E7 F8 B2 01 48 8B B1 18 04 00 00 80 7E 48 00"
 memory = "code"
 signature = "void (void* session, bool from_button)"
 values.game_speed = { at = 36, size = 4 }
 values.pause_flag = { at = 42, size = 1 }
 note = "session: toggles the player pause; in multiplayer it posts the pause command instead (0x848860, executed by 0x848970)"
 
+[symbol.toggle_pause.build."eu4-1.37.5-steam-win64"]
+rva = 0x810570
+bytes = "48 89 5C 24 10 55 56 57 48 83 EC 50 0F B6 EA 48 8B D9 C7 44 24 70 00 00 00 00 48 8B 3D E7 F8 B2 01 48 8B B1 18 04 00 00 80 7E 48 00"
+
+[symbol.toggle_pause.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x80F8D0
+bytes = "48 89 5C 24 10 55 56 57 48 83 EC 50 0F B6 EA 48 8B D9 C7 44 24 70 00 00 00 00 48 8B 3D 07 44 B1 01 48 8B B1 08 04 00 00 80 7E 48 00"
+
 [symbol.pause_button]
-rva = 0x1437762
-bytes = "48 8B 8F 48 06 00 00 48 8B 81 F0 12 00 00 80 B8 F5 00 00 00 00 75 07 B2 01 E8 F0 8D 3D FF"
 memory = "code"
 values.blocker = { at = 10, size = 4 }
 values.blocked = { at = 16, size = 4 }
 values.from_button = { at = 24, size = 1 }
 note = "top bar, the pause button's handler 0x14376B0: toggle_pause(session, 1) unless the byte blocker+0xF5 is set"
 
+[symbol.pause_button.build."eu4-1.37.5-steam-win64"]
+rva = 0x1437762
+bytes = "48 8B 8F 48 06 00 00 48 8B 81 F0 12 00 00 80 B8 F5 00 00 00 00 75 07 B2 01 E8 F0 8D 3D FF"
+
+[symbol.pause_button.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x1431602
+bytes = "48 8B 8F 48 06 00 00 48 8B 81 E0 12 00 00 80 B8 F5 00 00 00 00 75 07 B2 01 E8 B0 E2 3D FF"
+
 # --- Threads (docs/design.md, "Threads") ---
 # Each worker pool is a global object; its worker threads sit in a std::vector
 # of 8-byte handles (begin, end, capacity) that the static initializer clears.
 
 [symbol.worker_pool_1]
-rva = 0x8A6D6
-bytes = "48 89 1D 03 12 3A 02"
 memory = "code"
 values.pool = { at = 3, rip_relative = 7 }
 note = "worker pool 1, static init: the first store into the pool object"
 
+[symbol.worker_pool_1.build."eu4-1.37.5-steam-win64"]
+rva = 0x8A6D6
+bytes = "48 89 1D 03 12 3A 02"
+
+[symbol.worker_pool_1.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x8A706
+bytes = "48 89 1D 53 50 38 02"
+
 [symbol.worker_pool_1_workers]
-rva = 0x8A750
-bytes = "48 89 1D C1 11 3A 02 0F 57 C0 66 0F 7F 05 BE 11 3A 02"
 memory = "code"
 values.workers = { at = 3, rip_relative = 7 }
 note = "worker pool 1, static init: its worker vector"
 
+[symbol.worker_pool_1_workers.build."eu4-1.37.5-steam-win64"]
+rva = 0x8A750
+bytes = "48 89 1D C1 11 3A 02 0F 57 C0 66 0F 7F 05 BE 11 3A 02"
+
+[symbol.worker_pool_1_workers.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x8A780
+bytes = "48 89 1D 11 50 38 02 0F 57 C0 66 0F 7F 05 0E 50 38 02"
+
 [symbol.worker_pool_2]
-rva = 0x8A7E6
-bytes = "48 89 1D 63 11 3A 02"
 memory = "code"
 values.pool = { at = 3, rip_relative = 7 }
 note = "worker pool 2, static init: the first store into the pool object"
 
+[symbol.worker_pool_2.build."eu4-1.37.5-steam-win64"]
+rva = 0x8A7E6
+bytes = "48 89 1D 63 11 3A 02"
+
+[symbol.worker_pool_2.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x8A816
+bytes = "48 89 1D B3 4F 38 02"
+
 [symbol.worker_pool_2_workers]
-rva = 0x8A860
-bytes = "48 89 1D 21 11 3A 02 0F 57 C0 66 0F 7F 05 1E 11 3A 02"
 memory = "code"
 values.workers = { at = 3, rip_relative = 7 }
 note = "worker pool 2, static init: its worker vector"
 
+[symbol.worker_pool_2_workers.build."eu4-1.37.5-steam-win64"]
+rva = 0x8A860
+bytes = "48 89 1D 21 11 3A 02 0F 57 C0 66 0F 7F 05 1E 11 3A 02"
+
+[symbol.worker_pool_2_workers.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x8A890
+bytes = "48 89 1D 71 4F 38 02 0F 57 C0 66 0F 7F 05 6E 4F 38 02"
+
 [symbol.threads_option]
-rva = 0x876999
-bytes = "89 05 0D BA 74 01"
 memory = "code"
 values.threads = { at = 2, rip_relative = 6 }
 note = "start-up: the threads option stored (int32, -1 = automatic)"
+
+[symbol.threads_option.build."eu4-1.37.5-steam-win64"]
+rva = 0x876999
+bytes = "89 05 0D BA 74 01"
+
+[symbol.threads_option.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x875C39
+bytes = "89 05 6D 07 73 01"
 
 # --- Frames (docs/design.md, "Dispatcher") ---
 # anvil-game hooks the frame function and reports the outer frames; Tongs counts
 # the nested ones at their only call site.
 
 [symbol.nested_frame]
-rva = 0x769FA6
-bytes = "48 8B BF 30 03 00 00 33 D2 48 8B CF E8 E9 85 D5 00"
 memory = "code"
 note = "nested frame from a game update or a save load: frame(app, outer = 0)"
 
+[symbol.nested_frame.build."eu4-1.37.5-steam-win64"]
+rva = 0x769FA6
+bytes = "48 8B BF 30 03 00 00 33 D2 48 8B CF E8 E9 85 D5 00"
+
+[symbol.nested_frame.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x769166
+bytes = "48 8B BF 28 03 00 00 33 D2 48 8B CF E8 89 32 D5 00"
+
 [symbol.session_update_gate]
-rva = 0x813F95
 bytes = "45 84 FF 74 27"
 memory = "code"
 note = "session update: the game update runs only in an outer frame (one level of nesting)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x813F95 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x8132F5 }
 
 # --- Widget tree (docs/design.md, "Widget tree") ---
 
 [symbol.gui_manager_store]
-rva = 0x14E8904
-bytes = "48 89 35 E5 0B E6 00"
 memory = "code"
 values.manager = { at = 3, rip_relative = 7 }
 note = "gui manager ctor: stores this to the global GUI manager pointer"
 
+[symbol.gui_manager_store.build."eu4-1.37.5-steam-win64"]
+rva = 0x14E8904
+bytes = "48 89 35 E5 0B E6 00"
+
+[symbol.gui_manager_store.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x14E2474
+bytes = "48 89 35 F5 AE E4 00"
+
 [symbol.widget_registry]
-rva = 0x14E9E16
 bytes = "48 8B BE 10 01 00 00 48 8B 86 18 01 00 00"
 memory = "code"
 values.begin = { at = 3, size = 4 }
 values.end = { at = 10, size = 4 }
 note = "gui update: widget registry vector at mgr+0x110 / +0x118"
+build."eu4-1.37.5-steam-win64" = { rva = 0x14E9E16 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x14E3986 }
 
 [symbol.render_pick]
+memory = "code"
+values.node_owner = { at = 76, size = 4 }
+values.shown = { at = 87, size = 4 }
+values.dead = { at = 96, size = 4 }
+note = "picking: render node owner at node+0x118, visible +0xC5, dead +0xC4"
+
+[symbol.render_pick.build."eu4-1.37.5-steam-win64"]
 rva = 0x14DEAF0
 bytes = """
 48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 56 41 57 48 83 EC 40 49 8B D8 8B EA 48 8B F1
@@ -215,43 +340,50 @@ bytes = """
 8A 00 48 8B 06 48 8B 14 F8 48 8B 82 18 01 00 00 48 85 C0 74 16 80 B8 C5 00 00 00 00 74 0D 80 B8
 C4 00 00 00 00 75 04
 """
-memory = "code"
-values.node_owner = { at = 76, size = 4 }
-values.shown = { at = 87, size = 4 }
-values.dead = { at = 96, size = 4 }
-note = "picking: render node owner at node+0x118, visible +0xC5, dead +0xC4"
+
+[symbol.render_pick.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x14D8660
+bytes = """
+48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 56 41 57 48 83 EC 40 49 8B D8 8B EA 48 8B F1
+48 8B 79 08 48 2B 39 48 C1 FF 03 83 EF 01 0F 88 85 00 00 00 4C 8D 35 DD DA 8A 00 4C 8D 3D E6 CE
+89 00 48 8B 06 48 8B 14 F8 48 8B 82 18 01 00 00 48 85 C0 74 16 80 B8 C5 00 00 00 00 74 0D 80 B8
+C4 00 00 00 00 75 04
+"""
 
 [symbol.button_hide]
-rva = 0x15AEAD0
 bytes = "40 53 48 83 EC 20 C6 81 C5 00 00 00 00"
 memory = "code"
 note = "button hide: visible byte +0xC5"
+build."eu4-1.37.5-steam-win64" = { rva = 0x15AEAD0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x15A55F0 }
 
 [symbol.widget_name_slot]
-rva = 0xFBF480
 bytes = "48 8B 89 B0 00 00 00 48 8B 01 48 FF 60 40"
 memory = "code"
 values.definition = { at = 3, size = 4 }
 values.name_slot = { at = 13, size = 1 }
 note = "widget vtable slot 0xA0 (name): .gui type at +0xB0, its slot 0x40; every kind but windows and containers"
+build."eu4-1.37.5-steam-win64" = { rva = 0xFBF480 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xFBDC90 }
 
 [symbol.type_name_slot]
-rva = 0x9A920
 bytes = "48 8D 41 10 C3"
 memory = "code"
 values.head = { at = 3, size = 1 }
 values.name = { at = 3, size = 1 }
 note = "type slot 0x40 (name at type+0x10) of every definition class; list object slot 0x60 (head at +0x10)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x9A920 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x9A950 }
 
 [symbol.button_state]
-rva = 0x1148250
 bytes = "8B 81 24 01 00 00 C3"
 memory = "code"
 values.state = { at = 2, size = 4 }
 note = "button slot 0x258: state at +0x124 (3 = disabled)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1148250 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x11425C0 }
 
 [symbol.window_find_child]
-rva = 0x1548040
 bytes = """
 48 89 5C 24 10 57 48 83 EC 20 48 83 7A 18 10 48 8B F9 48 8B CA 48 8B DA 72 03 48 8B 0A 8B 52 10
 4C 8D 8F 88 05 00 00 4C 8D 87 A0 05 00 00
@@ -260,9 +392,10 @@ memory = "code"
 values.pairs = { at = 35, size = 4 }
 values.names = { at = 42, size = 4 }
 note = "windowType find child: first button vector pair (pointers +0x588, lower-cased names +0x5A0 from the widget pointer)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1548040 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x153EF60 }
 
 [symbol.container_find_child]
-rva = 0x1636A50
 bytes = """
 48 89 5C 24 08 57 48 83 EC 20 48 83 7A 18 10 48 8B F9 48 8B CA 48 8B DA 72 03 48 8B 0A 8B 52 10
 4C 8D 8F 50 06 00 00 4C 8D 87 68 06 00 00
@@ -271,15 +404,10 @@ memory = "code"
 values.pairs = { at = 35, size = 4 }
 values.names = { at = 42, size = 4 }
 note = "containerWindowType find child: first vector pair (pointers +0x650, lower-cased names +0x668 from the widget pointer)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1636A50 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x162D500 }
 
 [symbol.listbox_find_child]
-rva = 0x152F220
-bytes = """
-48 89 5C 24 08 57 48 83 EC 20 48 8B 41 F8 48 83 C1 F8 48 8B FA FF 50 60 48 8B 18 48 85 DB 74 4B
-48 8B 03 48 8B 48 40 48 8B 41 30 48 83 C1 30 FF 90 A0 00 00 00 48 83 7F 18 10 48 8B D7 72 03 48
-8B 17 48 83 78 18 10 4C 8B 40 10 72 03 48 8B 00 4C 3B 47 10 75 0C 48 8B C8 E8 D2 63 50 00 85 C0
-74 16 48 8B 5B 10 48 85 DB 75 B5
-"""
 memory = "code"
 values.list_object = { at = 13, size = 1 }
 values.list_slot = { at = 23, size = 1 }
@@ -288,14 +416,38 @@ values.name_slot = { at = 49, size = 4 }
 values.next = { at = 101, size = 1 }
 note = "listboxType find child: item list through the object at -8, item window at +0x40, next node at +0x10"
 
+[symbol.listbox_find_child.build."eu4-1.37.5-steam-win64"]
+rva = 0x152F220
+bytes = """
+48 89 5C 24 08 57 48 83 EC 20 48 8B 41 F8 48 83 C1 F8 48 8B FA FF 50 60 48 8B 18 48 85 DB 74 4B
+48 8B 03 48 8B 48 40 48 8B 41 30 48 83 C1 30 FF 90 A0 00 00 00 48 83 7F 18 10 48 8B D7 72 03 48
+8B 17 48 83 78 18 10 4C 8B 40 10 72 03 48 8B 00 4C 3B 47 10 75 0C 48 8B C8 E8 D2 63 50 00 85 C0
+74 16 48 8B 5B 10 48 85 DB 75 B5
+"""
+
+[symbol.listbox_find_child.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x1526120
+bytes = """
+48 89 5C 24 08 57 48 83 EC 20 48 8B 41 F8 48 83 C1 F8 48 8B FA FF 50 60 48 8B 18 48 85 DB 74 4B
+48 8B 03 48 8B 48 40 48 8B 41 30 48 83 C1 30 FF 90 A0 00 00 00 48 83 7F 18 10 48 8B D7 72 03 48
+8B 17 48 83 78 18 10 4C 8B 40 10 72 03 48 8B 00 4C 3B 47 10 75 0C 48 8B C8 E8 52 91 4F 00 85 C0
+74 16 48 8B 5B 10 48 85 DB 75 B5
+"""
+
 [symbol.listbox_items]
-rva = 0x1530600
 bytes = "48 81 C1 F8 00 00 00 48 8B 01"
 memory = "code"
 values.list = { at = 3, size = 4 }
 note = "listboxType: the item list object at +0xF0 (list head at +0x100)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1530600 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1527500 }
 
 [symbol.smooth_listbox_find_child]
+memory = "code"
+values.item_window = { at = 38, size = 1 }
+note = "smoothListboxType find child: item window at +0x60"
+
+[symbol.smooth_listbox_find_child.build."eu4-1.37.5-steam-win64"]
 rva = 0x15839C0
 bytes = """
 48 89 5C 24 08 57 48 83 EC 20 48 8B 41 F8 48 83 C1 F8 48 8B FA FF 50 60 48 8B 18 48 85 DB 74 4B
@@ -303,42 +455,51 @@ bytes = """
 8B 17 48 83 78 18 10 4C 8B 40 10 72 03 48 8B 00 4C 3B 47 10 75 0C 48 8B C8 E8 32 1C 4B 00 85 C0
 74 16 48 8B 5B 10 48 85 DB 75 B5
 """
-memory = "code"
-values.item_window = { at = 38, size = 1 }
-note = "smoothListboxType find child: item window at +0x60"
+
+[symbol.smooth_listbox_find_child.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x157A4E0
+bytes = """
+48 89 5C 24 08 57 48 83 EC 20 48 8B 41 F8 48 83 C1 F8 48 8B FA FF 50 60 48 8B 18 48 85 DB 74 4B
+48 8B 03 48 8B 48 60 48 8B 41 30 48 83 C1 30 FF 90 A0 00 00 00 48 83 7F 18 10 48 8B D7 72 03 48
+8B 17 48 83 78 18 10 4C 8B 40 10 72 03 48 8B 00 4C 3B 47 10 75 0C 48 8B C8 E8 92 4D 4A 00 85 C0
+74 16 48 8B 5B 10 48 85 DB 75 B5
+"""
 
 [symbol.listbox_scrollbar]
-rva = 0x152F51A
 bytes = "48 8B F1 48 8B FA 48 8B 89 E0 01 00 00"
 memory = "code"
 values.scrollbar = { at = 9, size = 4 }
 note = "listboxType: scroll bar at +0x1E0"
+build."eu4-1.37.5-steam-win64" = { rva = 0x152F51A }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x152641A }
 
 [symbol.smooth_listbox_scrollbar]
-rva = 0x15833EB
 bytes = "48 8B 8E 28 02 00 00"
 memory = "code"
 values.scrollbar = { at = 3, size = 4 }
 note = "smoothListboxType: scroll bar at +0x228"
+build."eu4-1.37.5-steam-win64" = { rva = 0x15833EB }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1579F0B }
 
 [symbol.scrollbar_slider_up]
-rva = 0x1553540
 bytes = "49 8B 86 58 01 00 00 44 89 68 08 49 8B 8E E0 03 00 00"
 memory = "code"
 values.slider = { at = 3, size = 4 }
 values.up = { at = 14, size = 4 }
 note = "scrollbarType: slider button at +0x158, up button at +0x3E0"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1553540 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x154A460 }
 
 [symbol.scrollbar_down_track]
-rva = 0x1553A37
 bytes = "49 8B 8E F8 02 00 00 49 8B 86 30 01 00 00 48 89 81 80 01 00 00 49 8B 8E F0 02 00 00"
 memory = "code"
 values.down = { at = 3, size = 4 }
 values.track = { at = 24, size = 4 }
 note = "scrollbarType: down button at +0x2F8, track button at +0x2F0"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1553A37 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x154A957 }
 
 [symbol.overlapping_box_find_child]
-rva = 0x163D540
 bytes = """
 48 89 5C 24 08 57 48 83 EC 20 48 81 C1 F0 00 00 00 48 8B FA 48 8B 01 FF 50 58 48 8B 58 08 48 85
 DB 74 58 0F 1F 40 00 66 0F 1F 84 00 00 00 00 00 48 8B 03 48 8B 48 40 48 8B 41 30 48 83 C1 30
@@ -348,15 +509,16 @@ values.list_object = { at = 13, size = 4 }
 values.list_slot = { at = 25, size = 1 }
 values.item_window = { at = 54, size = 1 }
 note = "OverlappingElementsBoxType find child: item list through the object at +0xF0 (its slot 0x58), item window at +0x40"
+build."eu4-1.37.5-steam-win64" = { rva = 0x163D540 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1633FF0 }
 
 [symbol.item_list_head_slot]
-rva = 0x1D90370
 memory = "read"
-points_to = 0x9A920
 note = "slot 0x58 of the item list object's vtable (0x1D90318): type_name_slot, the list head at +0x10"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1D90370, points_to = 0x9A920 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1D78B60, points_to = 0x9A950 }
 
 [symbol.grid_box_show]
-rva = 0x158F300
 bytes = """
 48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B D9 0F B6 F2 48 8B 89 40 01 00 00 48 85 C9 74
 09 48 8B 01 FF 90 80 00 00 00 48 8B 83 98 01 00 00 33 FF 48 2B 83 90 01 00 00
@@ -366,33 +528,36 @@ values.scrollbar = { at = 24, size = 4 }
 values.items_end = { at = 45, size = 4 }
 values.items = { at = 54, size = 4 }
 note = "gridBoxType slot 0x80: scroll bar at +0x140, std::vector of item pointers at +0x190"
+build."eu4-1.37.5-steam-win64" = { rva = 0x158F300 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1585E20 }
 
 [symbol.grid_item_window]
-rva = 0x158F0F0
 bytes = "48 83 EC 28 48 8B 49 10 48 85 C9 74 1A 48 8B 01 FF 90 38 01 00 00"
 memory = "code"
 values.window = { at = 7, size = 1 }
 note = "grid box item: the full object of its window at +0x10"
+build."eu4-1.37.5-steam-win64" = { rva = 0x158F0F0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1585C10 }
 
 # --- Stale widgets (docs/design.md, "Stale widgets") ---
 
 [symbol.row_type_lookup]
-rva = 0x152DFD6
 bytes = "48 8D 8A C8 00 00 00 48 8B 01 49 8B D0 FF 50 08"
 memory = "code"
 values.registry = { at = 3, size = 4 }
 note = "list row base: looks its window's definition up by name in the type registry at mgr+0xC8 (slot +8)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x152DFD6 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1524ED6 }
 
 [symbol.type_tree_insert]
-rva = 0x14EC950
 bytes = "80 79 10 01 48 8B C2 0F 84 33 0C 00 00 48 83 7A 18 10 72 03 48 8B 02 4D 8B C8 48 8D 51 08 4C 8B C0 E9 EA 0D 00 00"
 memory = "code"
 values.root = { at = 29, size = 1 }
 note = "type registry insert: the ternary search tree's root node pointer at registry+0x08"
+build."eu4-1.37.5-steam-win64" = { rva = 0x14EC950 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x14E64C0 }
 
 [symbol.type_tree_node]
-rva = 0x14ED78C
-bytes = "B9 28 00 00 00 E8 3E 5B 54 00 0F BE 0F 48 8B F0 48 89 44 24 48 4C 89 38 E8 93 D6 55 00 88 46 08 48 FF C7 4C 89 7E 10 4C 89 7E 18 4C 89 7E 20"
 memory = "code"
 values.size = { at = 1, size = 4 }
 values.character = { at = 31, size = 1 }
@@ -401,77 +566,119 @@ values.higher = { at = 42, size = 1 }
 values.next = { at = 46, size = 1 }
 note = "type registry node {value +0, lower-cased character +8, lower +0x10, higher +0x18, next character +0x20}"
 
+[symbol.type_tree_node.build."eu4-1.37.5-steam-win64"]
+rva = 0x14ED78C
+bytes = "B9 28 00 00 00 E8 3E 5B 54 00 0F BE 0F 48 8B F0 48 89 44 24 48 4C 89 38 E8 93 D6 55 00 88 46 08 48 FF C7 4C 89 7E 10 4C 89 7E 18 4C 89 7E 20"
+
+[symbol.type_tree_node.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x14E72FC
+bytes = "B9 28 00 00 00 E8 4E 5C 53 00 0F BE 0F 48 8B F0 48 89 44 24 48 4C 89 38 E8 A3 D7 54 00 88 46 08 48 FF C7 4C 89 7E 10 4C 89 7E 18 4C 89 7E 20"
+
 [symbol.window_type_definition]
-rva = 0x155B900
-bytes = "48 8D 05 71 8B 83 00 48 89 01 48 8D 05 D7 8B 83 00 48 89 81 E0 00 00 00 48 8D 05 E1 22 83 00 48 89 81 E8 00 00 00"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 values.map_vtable = { at = 27, rip_relative = 31 }
 values.map = { at = 34, size = 4 }
 note = "windowType definition constructor 0x155B8E0: its vtable, and its nested definitions in a map (the type registry's class) at +0xE8"
 
+[symbol.window_type_definition.build."eu4-1.37.5-steam-win64"]
+rva = 0x155B900
+bytes = "48 8D 05 71 8B 83 00 48 89 01 48 8D 05 D7 8B 83 00 48 89 81 E0 00 00 00 48 8D 05 E1 22 83 00 48 89 81 E8 00 00 00"
+
+[symbol.window_type_definition.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x1552820
+bytes = "48 8D 05 21 A0 82 00 48 89 01 48 8D 05 87 A0 82 00 48 89 81 E0 00 00 00 48 8D 05 51 39 82 00 48 89 81 E8 00 00 00"
+
 [symbol.eu3dialog_definition]
-rva = 0x10B4038
-bytes = "E8 A3 78 4A 00 48 8D 05 5C 34 CA 00 48 89 03"
 memory = "code"
 values.vtable = { at = 8, rip_relative = 12 }
 note = "eu3dialogtype definition: built by the windowType definition constructor (0x155B8E0), so its nested map is at +0xE8 too"
 
+[symbol.eu3dialog_definition.build."eu4-1.37.5-steam-win64"]
+rva = 0x10B4038
+bytes = "E8 A3 78 4A 00 48 8D 05 5C 34 CA 00 48 89 03"
+
+[symbol.eu3dialog_definition.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x10B2838
+bytes = "E8 C3 FF 49 00 48 8D 05 44 D7 C8 00 48 89 03"
+
 [symbol.listbox_definition]
-rva = 0x15EABA2
-bytes = "48 8D 05 57 3C 7B 00 48 89 01"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "list box definition constructor 0x15EAB80: its vtable (278 live instances = listboxType + smoothListboxType of vanilla)"
 
+[symbol.listbox_definition.build."eu4-1.37.5-steam-win64"]
+rva = 0x15EABA2
+bytes = "48 8D 05 57 3C 7B 00 48 89 01"
+
+[symbol.listbox_definition.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x15E16C2
+bytes = "48 8D 05 E7 54 7A 00 48 89 01"
+
 [symbol.listbox_definition_map]
-rva = 0x15EAC7D
-bytes = "48 8D 05 7C 2F 7A 00 48 89 87 B0 01 00 00"
 memory = "code"
 values.map_vtable = { at = 3, rip_relative = 7 }
 values.map = { at = 10, size = 4 }
 note = "list box definition constructor: nested definitions in a map at +0x1B0"
 
+[symbol.listbox_definition_map.build."eu4-1.37.5-steam-win64"]
+rva = 0x15EAC7D
+bytes = "48 8D 05 7C 2F 7A 00 48 89 87 B0 01 00 00"
+
+[symbol.listbox_definition_map.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x15E179D
+bytes = "48 8D 05 EC 49 79 00 48 89 87 B0 01 00 00"
+
 [symbol.container_definition]
-rva = 0x15EC1FE
-bytes = "4C 8D 15 6B 29 7B 00 4C 89 11 48 8D 05 F1 19 7A 00"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 values.map_vtable = { at = 13, rip_relative = 17 }
 note = "containerWindowType definition constructor 0x15EC1F0: its vtable, and the map vtable it stores at +0x260 below"
 
+[symbol.container_definition.build."eu4-1.37.5-steam-win64"]
+rva = 0x15EC1FE
+bytes = "4C 8D 15 6B 29 7B 00 4C 89 11 48 8D 05 F1 19 7A 00"
+
+[symbol.container_definition.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x15E2D1E
+bytes = "4C 8D 15 F3 41 7A 00 4C 89 11 48 8D 05 61 34 79 00"
+
 [symbol.container_definition_map]
-rva = 0x15EC35F
 bytes = "48 89 81 60 02 00 00"
 memory = "code"
 values.map = { at = 3, size = 4 }
 note = "containerWindowType definition constructor: nested definitions in a map at +0x260"
+build."eu4-1.37.5-steam-win64" = { rva = 0x15EC35F }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x15E2E7F }
 
 [symbol.scrollbar_definition]
-rva = 0x15E8480
-bytes = "48 8D 05 59 61 7B 00 48 89 01"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "scrollbarType definition constructor 0x15E8460: its vtable"
 
+[symbol.scrollbar_definition.build."eu4-1.37.5-steam-win64"]
+rva = 0x15E8480
+bytes = "48 8D 05 59 61 7B 00 48 89 01"
+
+[symbol.scrollbar_definition.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x15DEFA0
+bytes = "48 8D 05 E9 79 7A 00 48 89 01"
+
 [symbol.scrollbar_definition_map]
-rva = 0x15E85A9
-bytes = "48 8D 05 50 56 7A 00 48 89 87 08 02 00 00"
 memory = "code"
 values.map_vtable = { at = 3, rip_relative = 7 }
 values.map = { at = 10, size = 4 }
 note = "scrollbarType definition constructor: its buttons' definitions in a map at +0x208 (read by 0x15E9930)"
 
+[symbol.scrollbar_definition_map.build."eu4-1.37.5-steam-win64"]
+rva = 0x15E85A9
+bytes = "48 8D 05 50 56 7A 00 48 89 87 08 02 00 00"
+
+[symbol.scrollbar_definition_map.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x15DF0C9
+bytes = "48 8D 05 C0 70 79 00 48 89 87 08 02 00 00"
+
 [symbol.extended_scrollbar_definition]
-rva = 0x15EED5A
-bytes = """
-48 8D 05 AF FF 7A 00 48 8B D9 48 89 01 8B FA
-48 8B 89 38 01 00 00 48 85 C9 74 0A 48 8B 01 BA 01 00 00 00 FF 10
-48 8B 8B 40 01 00 00 48 85 C9 74 0A 48 8B 01 BA 01 00 00 00 FF 10
-48 8B 8B 48 01 00 00 48 85 C9 74 0A 48 8B 01 BA 01 00 00 00 FF 10
-48 8B 8B 50 01 00 00 48 85 C9 74 0A 48 8B 01 BA 01 00 00 00 FF 10
-48 8B 8B 58 01 00 00
-"""
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 values.background = { at = 18, size = 4 }
@@ -481,175 +688,232 @@ values.increase = { at = 84, size = 4 }
 values.decrease = { at = 106, size = 4 }
 note = "extendedScrollbarType definition destructor 0x15EED50 (constructor 0x15EEC40): deletes the button definitions its keyword handler 0x15EEE20 stores in plain pointer fields (background, track, slider, increaseButton, decreaseButton)"
 
+[symbol.extended_scrollbar_definition.build."eu4-1.37.5-steam-win64"]
+rva = 0x15EED5A
+bytes = """
+48 8D 05 AF FF 7A 00 48 8B D9 48 89 01 8B FA
+48 8B 89 38 01 00 00 48 85 C9 74 0A 48 8B 01 BA 01 00 00 00 FF 10
+48 8B 8B 40 01 00 00 48 85 C9 74 0A 48 8B 01 BA 01 00 00 00 FF 10
+48 8B 8B 48 01 00 00 48 85 C9 74 0A 48 8B 01 BA 01 00 00 00 FF 10
+48 8B 8B 50 01 00 00 48 85 C9 74 0A 48 8B 01 BA 01 00 00 00 FF 10
+48 8B 8B 58 01 00 00
+"""
+
+[symbol.extended_scrollbar_definition.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x15E587A
+bytes = """
+48 8D 05 3F 18 7A 00 48 8B D9 48 89 01 8B FA
+48 8B 89 38 01 00 00 48 85 C9 74 0A 48 8B 01 BA 01 00 00 00 FF 10
+48 8B 8B 40 01 00 00 48 85 C9 74 0A 48 8B 01 BA 01 00 00 00 FF 10
+48 8B 8B 48 01 00 00 48 85 C9 74 0A 48 8B 01 BA 01 00 00 00 FF 10
+48 8B 8B 50 01 00 00 48 85 C9 74 0A 48 8B 01 BA 01 00 00 00 FF 10
+48 8B 8B 58 01 00 00
+"""
+
 [symbol.button_definition]
-rva = 0x15B1803
-bytes = "48 8D 05 A6 8F 7E 00 48 89 01"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "buttonType definition constructor 0x15B17E0 (0x3F0 bytes): its vtable"
 
+[symbol.button_definition.build."eu4-1.37.5-steam-win64"]
+rva = 0x15B1803
+bytes = "48 8D 05 A6 8F 7E 00 48 89 01"
+
+[symbol.button_definition.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x15A8323
+bytes = "48 8D 05 56 A8 7D 00 48 89 01"
+
 [symbol.container_background]
+memory = "code"
+values.background = { at = 49, size = 4 }
+note = "containerWindowType keyword handler 0x15EC770, background: a buttonType definition stored once at +0x3A0; the container's destructor (0x15EC5B0) never frees it"
+
+[symbol.container_background.build."eu4-1.37.5-steam-win64"]
 rva = 0x15ED4C9
 bytes = """
 4C 39 A7 A0 03 00 00 75 4C B9 F0 03 00 00 E8 F8 5D 44 00 48 89 45 78
 4C 8B 87 98 03 00 00 48 8B 97 90 03 00 00 48 8B C8 E8 EA 42 FC FF 90
 48 89 87 A0 03 00 00
 """
-memory = "code"
-values.background = { at = 49, size = 4 }
-note = "containerWindowType keyword handler 0x15EC770, background: a buttonType definition stored once at +0x3A0; the container's destructor (0x15EC5B0) never frees it"
+
+[symbol.container_background.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x15E3FE9
+bytes = """
+4C 39 A7 A0 03 00 00 75 4C B9 F0 03 00 00 E8 58 8F 43 00 48 89 45 78
+4C 8B 87 98 03 00 00 48 8B 97 90 03 00 00 48 8B C8 E8 EA 42 FC FF 90
+48 89 87 A0 03 00 00
+"""
 
 [symbol.window_name_slot]
-rva = 0x154AD60
 bytes = "48 8D 81 28 0A 00 00 48 83 78 18 10 48 8B D0 72 03 48 8B 10 80 3A 00 75 0E 48 8B 89 B0 00 00 00 48 8B 01 48 FF 60 40 C3"
 memory = "code"
 values.override = { at = 3, size = 4 }
 values.definition = { at = 28, size = 4 }
 note = "windowType slot 0xA0: the window's own name at +0xA28 when set, else the name of the definition at +0xB0"
+build."eu4-1.37.5-steam-win64" = { rva = 0x154AD60 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1541C80 }
 
 [symbol.container_name_slot]
-rva = 0x16366A0
 bytes = "48 83 B9 08 06 00 00 00 75 0E 48 8B 89 B0 00 00 00 48 8B 01 48 FF 60 40 48 8D 81 F8 05 00 00 C3"
 memory = "code"
 values.override_size = { at = 3, size = 4 }
 values.definition = { at = 13, size = 4 }
 values.override = { at = 27, size = 4 }
 note = "containerWindowType slot 0xA0: the container's own name at +0x5F8 when its size (+0x608) is set, else the definition's name"
+build."eu4-1.37.5-steam-win64" = { rva = 0x16366A0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x162D150 }
 
 [symbol.guibounds_definition_file]
-rva = 0x6EC056
 bytes = "49 8B 96 B0 00 00 00 48 83 C2 30 48 83 7A 18 10 72 03 48 8B 12"
 memory = "code"
 values.definition = { at = 3, size = 4 }
 values.file = { at = 10, size = 1 }
 note = "guibounds (0x6EBD10) labels the hovered widget with its definition's source file: the std::string at definition+0x30, which the type factory (0x14EAC80) copies from the reader's stream, e.g. interface/topbar.gui"
+build."eu4-1.37.5-steam-win64" = { rva = 0x6EC056 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x6EBA16 }
 
 [symbol.guibounds_definition_line]
-rva = 0x6EC271
 bytes = "48 8B 80 B0 00 00 00 44 8B B8 A0 00 00 00"
 memory = "code"
 values.definition = { at = 3, size = 4 }
 values.line = { at = 10, size = 4 }
 note = "guibounds prints Line: %i from definition+0xA0, the reader's line counter that the type factory copies: the 1-based line of the { that opens the widget's block (Etch's pick mode checks, H2)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x6EC271 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x6EBC31 }
 
 # --- Widget positions: the render node each kind reads in its vtable slot 0xD8 ---
 
 [symbol.window_position]
-rva = 0x10A1030
 bytes = "40 53 48 83 EC 20 48 8B 41 D0 48 83 C1 D0 48 8B DA 48 8D 54 24 30 FF 90 68 01 00 00"
 memory = "code"
 note = "windowType slot 0xD8: the full object's slot 0x168"
+build."eu4-1.37.5-steam-win64" = { rva = 0x10A1030 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x109F830 }
 
 [symbol.window_render_node]
-rva = 0x154A7C0
 bytes = "4C 8B 81 30 0A 00 00 F3 41 0F 2C 80 DC 00 00 00"
 memory = "code"
 values.node = { at = 3, size = 4 }
 note = "windowType full slot 0x168: render node at full+0xA30"
+build."eu4-1.37.5-steam-win64" = { rva = 0x154A7C0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x15416E0 }
 
 [symbol.container_render_node]
-rva = 0x1632EE0
 bytes = "4C 8B 81 50 0A 00 00 F3 41 0F 2C 80 DC 00 00 00"
 memory = "code"
 values.node = { at = 3, size = 4 }
 note = "containerWindowType slot 0xD8: render node at +0xA50"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1632EE0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1629990 }
 
 [symbol.button_render_node]
-rva = 0x15AEDE0
 bytes = "40 53 48 83 EC 20 48 8B 89 90 02 00 00 48 8B DA"
 memory = "code"
 values.node = { at = 9, size = 4 }
 note = "button slot 0xD8: render node at +0x290"
+build."eu4-1.37.5-steam-win64" = { rva = 0x15AEDE0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x15A5900 }
 
 [symbol.slider_render_node]
-rva = 0x1572160
 bytes = "48 89 5C 24 18 57 48 83 EC 30 48 8B D9 0F 29 74 24 20 48 8B 89 68 01 00 00 48 8B FA"
 memory = "code"
 values.node = { at = 21, size = 4 }
 note = "scroll bar slider slot 0xD8: render node at +0x168"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1572160 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1568C80 }
 
 [symbol.track_render_node]
-rva = 0x15F7500
 bytes = "48 89 5C 24 18 57 48 83 EC 30 48 8B D9 0F 29 74 24 20 48 8B 89 80 01 00 00 48 8B FA"
 memory = "code"
 values.node = { at = 21, size = 4 }
 note = "scroll bar track slot 0xD8: render node at +0x180"
+build."eu4-1.37.5-steam-win64" = { rva = 0x15F7500 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x15EDFB0 }
 
 [symbol.icon_render_node]
-rva = 0x15861E0
 bytes = "40 53 48 83 EC 20 48 8B 89 68 01 00 00 48 8B DA"
 memory = "code"
 values.node = { at = 9, size = 4 }
 note = "icon slot 0xD8: render node at +0x168"
+build."eu4-1.37.5-steam-win64" = { rva = 0x15861E0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x157CD00 }
 
 [symbol.instant_text_render_node]
-rva = 0x152B060
 bytes = "40 53 48 83 EC 20 48 8B 89 18 01 00 00 48 8B DA"
 memory = "code"
 values.node = { at = 9, size = 4 }
 note = "instant text box slot 0xD8: render node at +0x118"
+build."eu4-1.37.5-steam-win64" = { rva = 0x152B060 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1521F60 }
 
 [symbol.text_box_render_node]
-rva = 0x15A12D0
 bytes = "48 89 5C 24 18 57 48 83 EC 30 48 8B D9 0F 29 74 24 20 48 8B 89 D0 00 00 00 48 8B FA"
 memory = "code"
 values.node = { at = 21, size = 4 }
 note = "textBoxType slot 0xD8: render node at +0xD0"
+build."eu4-1.37.5-steam-win64" = { rva = 0x15A12D0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1597DF0 }
 
 [symbol.edit_box_render_node]
-rva = 0x15357A0
 bytes = "48 89 5C 24 18 57 48 83 EC 30 48 8B D9 0F 29 74 24 20 48 8B 89 E8 01 00 00 48 8B FA"
 memory = "code"
 values.node = { at = 21, size = 4 }
 note = "edit box slot 0xD8: render node at +0x1E8"
+build."eu4-1.37.5-steam-win64" = { rva = 0x15357A0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x152C6A0 }
 
 [symbol.checkbox_render_node]
-rva = 0x152D620
 bytes = "40 53 48 83 EC 20 48 8B 89 10 01 00 00 48 8B DA"
 memory = "code"
 values.node = { at = 9, size = 4 }
 note = "checkbox slot 0xD8: render node at +0x110"
+build."eu4-1.37.5-steam-win64" = { rva = 0x152D620 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1524520 }
 
 [symbol.listbox_render_node]
-rva = 0x152FB20
 bytes = "4C 8B 81 80 01 00 00 F3 41 0F 2C 80 DC 00 00 00"
 memory = "code"
 values.node = { at = 3, size = 4 }
 note = "listboxType slot 0xD8: render node at +0x180"
+build."eu4-1.37.5-steam-win64" = { rva = 0x152FB20 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1526A20 }
 
 [symbol.smooth_listbox_render_node]
-rva = 0x1582A90
 bytes = "4C 8B 81 18 02 00 00 F3 41 0F 2C 80 DC 00 00 00"
 memory = "code"
 values.node = { at = 3, size = 4 }
 note = "smoothListboxType slot 0xD8: render node at +0x218"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1582A90 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x15795B0 }
 
 [symbol.overlapping_box_render_node]
-rva = 0x163CBC0
 bytes = "4C 8B 81 68 01 00 00 F3 41 0F 2C 80 DC 00 00 00"
 memory = "code"
 values.node = { at = 3, size = 4 }
 note = "OverlappingElementsBoxType slot 0xD8: render node at +0x168"
+build."eu4-1.37.5-steam-win64" = { rva = 0x163CBC0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1633670 }
 
 [symbol.grid_box_render_node]
-rva = 0x1590F50
 bytes = "4C 8B 81 30 01 00 00 F3 41 0F 2C 80 DC 00 00 00"
 memory = "code"
 values.node = { at = 3, size = 4 }
 note = "gridBoxType slot 0xD8: render node at +0x130"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1590F50 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1587A70 }
 
 # --- Widget sizes (vtable slot 0xE0) that differ from what is drawn ---
 
 [symbol.button_size]
-rva = 0x15AEB90
 bytes = "40 53 48 83 EC 20 48 8B 89 90 02 00 00 48 8B DA 48 8B 01 FF 90 80 01 00 00"
 memory = "code"
 values.node = { at = 9, size = 4 }
 values.size_slot = { at = 21, size = 4 }
 note = "button slot 0x2D0 (its slot 0xE0 calls it): the render node's slot 0x180"
+build."eu4-1.37.5-steam-win64" = { rva = 0x15AEB90 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x15A56B0 }
 
 [symbol.sprite_node_size]
-rva = 0x15BD8B0
 bytes = """
 40 53 48 83 EC 50 0F 29 74 24 40 0F 57 C0 0F 29 7C 24 30 48 8B DA 44 0F 29 44 24 20 F3 44 0F 10
 81 44 01 00 00 48 8B 89 B8 01 00 00
@@ -658,30 +922,38 @@ memory = "code"
 values.scale = { at = 33, size = 4 }
 values.sprite = { at = 40, size = 4 }
 note = "sprite render node slot 0x180: the sprite's size (its slot 0x78) divided by its frames, times the float scale at +0x144; the sprite at +0x1B8"
+build."eu4-1.37.5-steam-win64" = { rva = 0x15BD8B0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x15B43D0 }
 
 [symbol.masked_shield_vtable]
-rva = 0x12329EE
-bytes = "48 8D 05 0B 82 B3 00 48 89 06"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "maskedShieldType vtable: its frames belong to the overlay strip (textureFile3), not to the shield"
 
+[symbol.masked_shield_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x12329EE
+bytes = "48 8D 05 0B 82 B3 00 48 89 06"
+
+[symbol.masked_shield_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x122CD3E
+bytes = "48 8D 05 6B 65 B2 00 48 89 06"
+
 [symbol.masked_shield_size_slot]
-rva = 0x1D6AC78
 memory = "read"
-points_to = 0x1233DC0
 note = "slot 0x78 of the maskedShieldType vtable: masked_shield_size"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1D6AC78, points_to = 0x1233DC0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1D53328, points_to = 0x122E110 }
 
 [symbol.masked_shield_size]
-rva = 0x1233DC0
 bytes = "8B 81 1C 03 00 00 89 02 8B 81 20 03 00 00 89 42 04 48 8B C2 C3"
 memory = "code"
 values.width = { at = 2, size = 4 }
 values.height = { at = 10, size = 4 }
 note = "maskedShieldType slot 0x78: the shield's size at +0x31C, +0x320"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1233DC0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x122E110 }
 
 [symbol.listbox_shown_extent]
-rva = 0x1531A1B
 bytes = """
 48 8B 84 24 98 00 00 00 48 89 86 F0 01 00 00 E9 33 01 00 00 41 3B EF 7C 91 8B 8E 8C 02 00 00 41
 03 CF 3B E9 7D 84 80 BE DC 01 00 00 00
@@ -690,11 +962,12 @@ memory = "code"
 values.extent = { at = 11, size = 4 }
 values.vertical = { at = 40, size = 4 }
 note = "listboxType layout (0x1531850, from the list object at -8): the extent of the shown rows at +0x1F0 (two int32); rows go down when the byte at +0x1DC is set, else across"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1531A1B }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x152891B }
 
 # --- Displayed text ---
 
 [symbol.button_set_text]
-rva = 0x15ADFA0
 bytes = """
 48 89 5C 24 08 48 89 6C 24 18 48 89 54 24 10 56 57 41 54 41 56 41 57 48 83 EC 30 49 8B E8 48 8B
 FA 48 8B D9 4D 85 C0 75 09 48 8B A9 20 02 00 00 EB 07 4C 89 81 20 02 00 00 48 8D B1 00 02 00 00
@@ -702,309 +975,521 @@ FA 48 8B D9 4D 85 C0 75 09 48 8B A9 20 02 00 00 EB 07 4C 89 81 20 02 00 00 48 8D
 memory = "code"
 values.text = { at = 60, size = 4 }
 note = "button set text: label at +0x200"
+build."eu4-1.37.5-steam-win64" = { rva = 0x15ADFA0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x15A4AC0 }
 
 [symbol.instant_text_set_text]
-rva = 0x152AE10
 bytes = "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 48 8D B9 70 01 00 00"
 memory = "code"
 values.text = { at = 23, size = 4 }
 note = "instant text box set text: string at +0x170"
+build."eu4-1.37.5-steam-win64" = { rva = 0x152AE10 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1521D10 }
 
 [symbol.text_box_destructor]
-rva = 0x15A124F
-bytes = """
-48 8D 05 DA 7F 7F 00 48 89 01 48 8B 91 D0 00 00 00 48 8B 89 C8 00 00 00 E8 34 A4 F3 FF 48 8D 8F
-78 01 00 00 E8 E8 43 AF FE
-"""
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 values.text = { at = 32, size = 4 }
 note = "textBoxType destructor: its vtable, the text at +0x178"
 
+[symbol.text_box_destructor.build."eu4-1.37.5-steam-win64"]
+rva = 0x15A124F
+bytes = """
+48 8D 05 DA 7F 7F 00 48 89 01 48 8B 91 D0 00 00 00 48 8B 89 C8 00 00 00 E8 34 A4 F3 FF 48 8D 8F
+78 01 00 00 E8 E8 43 AF FE
+"""
+
+[symbol.text_box_destructor.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x1597D6F
+bytes = """
+48 8D 05 92 98 7E 00 48 89 01 48 8B 91 D0 00 00 00 48 8B 89 C8 00 00 00 E8 84 D4 F3 FF 48 8D 8F
+78 01 00 00 E8 F8 D8 AF FE
+"""
+
 # --- Vtables that tell the kinds apart (stored by their constructors) ---
 
 [symbol.window_vtable]
-rva = 0x1543FF4
-bytes = "48 8D 05 D5 E9 84 00 48 89 01"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "windowType vtable"
 
+[symbol.window_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x1543FF4
+bytes = "48 8D 05 D5 E9 84 00 48 89 01"
+
+[symbol.window_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x153AF14
+bytes = "48 8D 05 8D FE 83 00 48 89 01"
+
 [symbol.eu3dialog_vtable]
-rva = 0x10A1879
-bytes = "48 8D 05 90 5C CB 00 48 89 46 30"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 values.window_part = { at = 10, size = 1 }
 note = "eu3dialogtype vtable (widget part at +0x30)"
 
+[symbol.eu3dialog_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x10A1879
+bytes = "48 8D 05 90 5C CB 00 48 89 46 30"
+
+[symbol.eu3dialog_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x10A0079
+bytes = "48 8D 05 78 FF C9 00 48 89 46 30"
+
 [symbol.container_vtable]
-rva = 0x1630821
-bytes = "48 8D 05 68 38 77 00 48 89 01"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "containerWindowType vtable"
 
+[symbol.container_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x1630821
+bytes = "48 8D 05 68 38 77 00 48 89 01"
+
+[symbol.container_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x16272D1
+bytes = "48 8D 05 80 51 76 00 48 89 01"
+
 [symbol.gui_button_vtable]
-rva = 0x10B55FC
-bytes = "48 8D 05 15 2C CA 00 49 89 04 24"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "guiButtonType vtable"
 
+[symbol.gui_button_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x10B55FC
+bytes = "48 8D 05 15 2C CA 00 49 89 04 24"
+
+[symbol.gui_button_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x10B3DFC
+bytes = "48 8D 05 15 CE C8 00 49 89 04 24"
+
 [symbol.button_vtable]
-rva = 0x15AC6BB
-bytes = "48 8D 05 7E DC 7E 00 49 89 06"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "buttonType vtable"
 
+[symbol.button_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x15AC6BB
+bytes = "48 8D 05 7E DC 7E 00 49 89 06"
+
+[symbol.button_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x15A31DB
+bytes = "48 8D 05 AE F1 7D 00 49 89 06"
+
 [symbol.slider_vtable]
-rva = 0x1570EAA
-bytes = "48 8D 05 FF 45 82 00 48 89 07"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "scroll bar slider vtable"
 
+[symbol.slider_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x1570EAA
+bytes = "48 8D 05 FF 45 82 00 48 89 07"
+
+[symbol.slider_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x15679CA
+bytes = "48 8D 05 87 5E 81 00 48 89 07"
+
 [symbol.track_vtable]
-rva = 0x15F6B9B
-bytes = "48 8D 05 9E BD 7A 00 48 89 07"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "scroll bar track vtable"
 
+[symbol.track_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x15F6B9B
+bytes = "48 8D 05 9E BD 7A 00 48 89 07"
+
+[symbol.track_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x15ED64B
+bytes = "48 8D 05 9E D6 79 00 48 89 07"
+
 [symbol.icon_type_vtable]
-rva = 0x10B5823
-bytes = "48 8D 05 9E 2D CA 00"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "iconType vtable"
 
+[symbol.icon_type_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x10B5823
+bytes = "48 8D 05 9E 2D CA 00"
+
+[symbol.icon_type_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x10B4023
+bytes = "48 8D 05 9E CF C8 00"
+
 [symbol.icon_vtable]
-rva = 0x15857FC
-bytes = "48 8D 05 FD 14 81 00 48 89 07"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "icon vtable"
 
+[symbol.icon_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x15857FC
+bytes = "48 8D 05 FD 14 81 00 48 89 07"
+
+[symbol.icon_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x157C31C
+bytes = "48 8D 05 6D 2D 80 00 48 89 07"
+
 [symbol.instant_text_vtable]
-rva = 0x1529D66
-bytes = "48 8D 0D A3 5F 86 00 48 89 0E"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "instantTextBoxType vtable"
 
+[symbol.instant_text_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x1529D66
+bytes = "48 8D 0D A3 5F 86 00 48 89 0E"
+
+[symbol.instant_text_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x1520C66
+bytes = "48 8D 0D 5B 74 85 00 48 89 0E"
+
 [symbol.edit_box_vtable]
-rva = 0x15333D7
-bytes = "48 8D 05 7A DF 85 00 49 89 06"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "editBoxType vtable"
 
+[symbol.edit_box_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x15333D7
+bytes = "48 8D 05 7A DF 85 00 49 89 06"
+
+[symbol.edit_box_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x152A2D7
+bytes = "48 8D 05 52 F4 84 00 49 89 06"
+
 [symbol.checkbox_vtable]
-rva = 0x152B9A7
-bytes = "48 8D 05 1A 46 86 00 48 89 01"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "checkboxType vtable"
 
+[symbol.checkbox_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x152B9A7
+bytes = "48 8D 05 1A 46 86 00 48 89 01"
+
+[symbol.checkbox_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x15228A7
+bytes = "48 8D 05 02 5B 85 00 48 89 01"
+
 [symbol.listbox_vtable]
-rva = 0x152E2C6
-bytes = "48 8D 05 0B 2D 86 00 49 89 46 08"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "listboxType vtable"
 
+[symbol.listbox_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x152E2C6
+bytes = "48 8D 05 0B 2D 86 00 49 89 46 08"
+
+[symbol.listbox_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x15251C6
+bytes = "48 8D 05 13 3B 85 00 49 89 46 08"
+
 [symbol.smooth_listbox_vtable]
-rva = 0x1583116
-bytes = "48 8D 05 5B 34 81 00 49 89 07"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "smoothListboxType vtable"
 
+[symbol.smooth_listbox_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x1583116
+bytes = "48 8D 05 5B 34 81 00 49 89 07"
+
+[symbol.smooth_listbox_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x1579C36
+bytes = "48 8D 05 2B 50 80 00 49 89 07"
+
 [symbol.grid_box_vtable]
-rva = 0x15907EF
-bytes = "48 8D 05 FA 76 80 00 49 89 06"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "gridBoxType vtable"
 
+[symbol.grid_box_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x15907EF
+bytes = "48 8D 05 FA 76 80 00 49 89 06"
+
+[symbol.grid_box_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x158730F
+bytes = "48 8D 05 42 8D 7F 00 49 89 06"
+
 [symbol.overlapping_box_vtable]
-rva = 0x163CD07
-bytes = "48 8D 05 02 7C 76 00 48 89 06"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "OverlappingElementsBoxType vtable"
 
+[symbol.overlapping_box_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x163CD07
+bytes = "48 8D 05 02 7C 76 00 48 89 06"
+
+[symbol.overlapping_box_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x16337B7
+bytes = "48 8D 05 42 92 75 00 48 89 06"
+
 [symbol.scrollbar_vtable]
-rva = 0x1552BFC
-bytes = "48 8D 05 45 0B 84 00 48 89 01"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 note = "scrollbarType vtable"
 
+[symbol.scrollbar_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x1552BFC
+bytes = "48 8D 05 45 0B 84 00 48 89 01"
+
+[symbol.scrollbar_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x1549B1C
+bytes = "48 8D 05 45 1F 83 00 48 89 01"
+
 # --- Hovering and clicking widgets ---
 
 [symbol.hover_callback]
-rva = 0x15528D0
 bytes = "48 89 5C 24 08 57 48 83 EC 20 48 8B 01 8B FA 48 8B D9 FF 10 84 C0 74 2F 8B 4B 60 83 F9 FF 74 12 3B F9 0F 9E C0 88 83 8F 00 00 00 83 F9 FE 7E 17 EB 07 C6 83 8F 00 00 00 01 48 8B 83 B8 00 00 00 48 89 98 30 01 00 00"
 memory = "code"
 values.hovered = { at = 67, size = 4 }
 note = "GuiObject hover callback: +0x8F hovered this frame, manager+0x130 = this (manager at +0xB8)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x15528D0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x15497F0 }
 
 [symbol.hover_order]
-rva = 0x14DEFFA
 bytes = "48 8B 5E 08 48 2B 1E 48 C1 FB 04 83 EB 01 78 34 48 89 7C 24 30 48 63 FB 48 C1 E7 04 66 66 0F 1F 84 00 00 00 00 00 48 8B 06 8B D3 48 8B 4C 07 08 48 8B 01 FF 50 08 83 EB 01 48 8D 7F F0 79 E7"
 memory = "code"
 note = "hover: picked owners called from the last to the first, so the topmost (first) stays in manager+0x130"
+build."eu4-1.37.5-steam-win64" = { rva = 0x14DEFFA }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x14D8B6A }
 
 # --- Events (docs/design.md, "Events") ---
 # Session lists are {head, tail, count}, their nodes {value, prev, next, being-removed byte}.
 
 [symbol.event_popup]
-rva = 0x828C20
-bytes = "48 8B 05 51 72 B1 01 80 B8 E0 74 00 00 00 74 30 B9 E8 03 00 00 E8 9A A6 20 01 48 89 44 24 30 89 7C 24 20 4C 8B CE 4C 8B C5 48 8B D3 48 8B C8 E8 FC 0D 89 00 90 48 8B D0 48 8B CB E8 80 3E EC FF"
 memory = "code"
 note = "session slot 0x108: a new event controller, appended to the session pop-up list"
 
-[symbol.popup_list_append]
-rva = 0x6ECB39
-bytes = "48 8B 9E 80 00 00 00 B9 20 00 00 00 E8 8A 67 34 01 48 89 38 48 89 58 08 48 C7 40 10 00 00 00 00 C6 40 18 00"
+[symbol.event_popup.build."eu4-1.37.5-steam-win64"]
+rva = 0x828C20
+bytes = "48 8B 05 51 72 B1 01 80 B8 E0 74 00 00 00 74 30 B9 E8 03 00 00 E8 9A A6 20 01 48 89 44 24 30 89 7C 24 20 4C 8B CE 4C 8B C5 48 8B D3 48 8B C8 E8 FC 0D 89 00 90 48 8B D0 48 8B CB E8 80 3E EC FF"
+
+[symbol.event_popup.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x827F80
+bytes = "48 8B 05 71 BD AF 01 80 B8 E0 74 00 00 00 74 30 B9 E8 03 00 00 E8 BA 4F 1F 01 48 89 44 24 30 89 7C 24 20 4C 8B CE 4C 8B C5 48 8B D3 48 8B C8 E8 9C 02 89 00 90 48 8B D0 48 8B CB E8 E0 44 EC FF"
+
+[symbol.popup_list_tail]
 memory = "code"
-values.tail = { at = 3, size = 4 }
-values.node_next = { at = 27, size = 1 }
-values.node_removed = { at = 34, size = 1 }
-note = "pop-up list append: the list's tail at session+0x80, node {popup, prev, next +0x10, flag +0x18}"
+values.tail = { at = 3, size = 1 }
+note = "pop-up list append: the list's tail at session+0x80 (Steam, disp32 80 00 00 00) or +0x78 (GOG, disp8): one byte at the same place in both"
+
+[symbol.popup_list_tail.build."eu4-1.37.5-steam-win64"]
+rva = 0x6ECB39
+bytes = "48 8B 9E 80 00 00 00"   # mov rbx,[rsi+80h]
+
+[symbol.popup_list_tail.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x6EC4F9
+bytes = "48 8B 5E 78"            # mov rbx,[rsi+78h]
+
+[symbol.popup_list_append]
+memory = "code"
+values.node_next = { at = 20, size = 1 }
+values.node_removed = { at = 27, size = 1 }
+note = "pop-up list append, after popup_list_tail: node {popup, prev, next +0x10, flag +0x18}"
+
+[symbol.popup_list_append.build."eu4-1.37.5-steam-win64"]
+rva = 0x6ECB40
+bytes = "B9 20 00 00 00 E8 8A 67 34 01 48 89 38 48 89 58 08 48 C7 40 10 00 00 00 00 C6 40 18 00"
+
+[symbol.popup_list_append.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x6EC4FD
+bytes = "B9 20 00 00 00 E8 4D 0A 33 01 48 89 38 48 89 58 08 48 C7 40 10 00 00 00 00 C6 40 18 00"
 
 [symbol.event_controller]
-rva = 0x10B9B3B
-bytes = "48 8D 05 B6 F5 C9 00 48 89 03 48 8D 05 94 F5 C9 00 48 89 43 08 C7 43 30 FF FF FF FF 33 F6 48 89 73 38 48 89 7B 40 4C 89 7B 48"
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
 values.window = { at = 33, size = 1 }
 values.event = { at = 41, size = 1 }
 note = "event controller ctor: vtable, +0x30 = -1, window +0x38, session +0x40, event +0x48"
 
+[symbol.event_controller.build."eu4-1.37.5-steam-win64"]
+rva = 0x10B9B3B
+bytes = "48 8D 05 B6 F5 C9 00 48 89 03 48 8D 05 94 F5 C9 00 48 89 43 08 C7 43 30 FF FF FF FF 33 F6 48 89 73 38 48 89 7B 40 4C 89 7B 48"
+
+[symbol.event_controller.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x10B833B
+bytes = "48 8D 05 A6 98 C8 00 48 89 03 48 8D 05 84 98 C8 00 48 89 43 08 C7 43 30 FF FF FF FF 33 F6 48 89 73 38 48 89 7B 40 4C 89 7B 48"
+
 [symbol.event_window_store]
-rva = 0x10BA234
 bytes = "48 8D 54 24 50 41 FF D0 49 89 47 38"
 memory = "code"
 note = "event fill: created EventWindow stored at controller+0x38"
+build."eu4-1.37.5-steam-win64" = { rva = 0x10BA234 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x10B8A34 }
 
 [symbol.event_options]
-rva = 0x10BB593
 bytes = "49 8B 47 48 48 8B 88 90 07 00 00 48 8B 80 98 07 00 00"
 memory = "code"
 values.options = { at = 7, size = 4 }
 note = "event fill: options vector at event+0x790/+0x798"
+build."eu4-1.37.5-steam-win64" = { rva = 0x10BB593 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x10B9D93 }
 
 [symbol.event_numeric_id]
-rva = 0x10BB74C
-bytes = "49 8B 4F 48 8B 51 14 48 8D 4D 68 E8 A4 82 64 00"
 memory = "code"
 values.numeric_id = { at = 6, size = 1 }
 note = "event fill: numeric event id at event+0x14 for the button string"
 
+[symbol.event_numeric_id.build."eu4-1.37.5-steam-win64"]
+rva = 0x10BB74C
+bytes = "49 8B 4F 48 8B 51 14 48 8D 4D 68 E8 A4 82 64 00"
+
+[symbol.event_numeric_id.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x10B9F4C
+bytes = "49 8B 4F 48 8B 51 14 48 8D 4D 68 E8 74 38 63 00"
+
 [symbol.event_button_scope]
-rva = 0x10BB7A8
 bytes = "49 8B 04 24 48 8D 54 24 70 49 8B CC FF 90 18 01 00 00 49 8D 47 50 49 89 44 24 10"
 memory = "code"
 note = "event fill: button slot 0x118 gets '<id>_<index>', button+0x10 = controller+0x50"
+build."eu4-1.37.5-steam-win64" = { rva = 0x10BB7A8 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x10B9FA8 }
 
 [symbol.event_button_append]
-rva = 0x10BB81F
-bytes = "49 8D 8F 08 02 00 00 48 8D 95 18 01 00 00 E8 EE 38 02 FF"
 memory = "code"
 values.buttons = { at = 3, size = 4 }
 note = "event fill: append option button to controller+0x208"
 
+[symbol.event_button_append.build."eu4-1.37.5-steam-win64"]
+rva = 0x10BB81F
+bytes = "49 8D 8F 08 02 00 00 48 8D 95 18 01 00 00 E8 EE 38 02 FF"
+
+[symbol.event_button_append.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x10BA01F
+bytes = "49 8D 8F 08 02 00 00 48 8D 95 18 01 00 00 E8 1E 51 02 FF"
+
 [symbol.event_window_register]
-rva = 0x10BBAE8
-bytes = "48 8B 05 89 43 28 01 48 8B 88 00 1E 00 00 48 8B 01 4D 8B 4F 38 4D 8B C4 49 8B 57 48"
 memory = "code"
 note = "event fill: session slot 0x2F0 gets (event, scope, window)"
 
+[symbol.event_window_register.build."eu4-1.37.5-steam-win64"]
+rva = 0x10BBAE8
+bytes = "48 8B 05 89 43 28 01 48 8B 88 00 1E 00 00 48 8B 01 4D 8B 4F 38 4D 8B C4 49 8B 57 48"
+
+[symbol.event_window_register.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x10BA2E8
+bytes = "48 8B 05 09 9A 26 01 48 8B 88 00 1E 00 00 48 8B 01 4D 8B 4F 38 4D 8B C4 49 8B 57 48"
+
 [symbol.event_window_list]
-rva = 0x82B055
-bytes = "48 89 18 48 89 78 08 48 89 70 10 48 8B 9D A0 04 00 00"
 memory = "code"
 values.window = { at = 10, size = 1 }
 values.tail = { at = 14, size = 4 }
 note = "session slot 0x2F0: entry {event, scope, window}, the event window list's tail at session+0x4A0"
 
+[symbol.event_window_list.build."eu4-1.37.5-steam-win64"]
+rva = 0x82B055
+bytes = "48 89 18 48 89 78 08 48 89 70 10 48 8B 9D A0 04 00 00"
+
+[symbol.event_window_list.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x82A3B5
+bytes = "48 89 18 48 89 78 08 48 89 70 10 48 8B 9D 90 04 00 00"
+
 [symbol.event_window_count]
-rva = 0x82B07F
-bytes = "8B 95 A8 04 00 00 48 89 85 A0 04 00 00 8D 4A 01 89 8D A8 04 00 00"
 memory = "code"
 values.count = { at = 2, size = 4 }
 note = "session slot 0x2F0: event window list count at session+0x4A8"
 
+[symbol.event_window_count.build."eu4-1.37.5-steam-win64"]
+rva = 0x82B07F
+bytes = "8B 95 A8 04 00 00 48 89 85 A0 04 00 00 8D 4A 01 89 8D A8 04 00 00"
+
+[symbol.event_window_count.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x82A3DF
+bytes = "8B 95 98 04 00 00 48 89 85 90 04 00 00 8D 4A 01 89 8D 98 04 00 00"
+
 [symbol.gui_object_assign_string]
-rva = 0x1552930
-bytes = "48 83 7A 18 10 72 03 48 8B 12 49 C7 C0 FF FF FF FF 49 FF C0 42 80 3C 02 00 75 F6 48 83 C1 38 E9 BC 27 B4 FE"
 memory = "code"
 values.text = { at = 30, size = 1 }
 note = "GuiObject slot 0x118: assign string at +0x38"
 
+[symbol.gui_object_assign_string.build."eu4-1.37.5-steam-win64"]
+rva = 0x1552930
+bytes = "48 83 7A 18 10 72 03 48 8B 12 49 C7 C0 FF FF FF FF 49 FF C0 42 80 3C 02 00 75 F6 48 83 C1 38 E9 BC 27 B4 FE"
+
+[symbol.gui_object_assign_string.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x1549850
+bytes = "48 83 7A 18 10 72 03 48 8B 12 49 C7 C0 FF FF FF FF 49 FF C0 42 80 3C 02 00 75 F6 48 83 C1 38 E9 CC B8 B4 FE"
+
 [symbol.option_click]
-rva = 0x10BC220
 bytes = "40 57 48 83 EC 40 80 B9 24 01 00 00 00 48 8B F9 0F 84 92 00 00 00 4C 8B 81 08 02 00 00 4D 85 C0 0F 84 82 00 00 00 49 39 10 4D 8B 40 10 74 0B 4D 85 C0 75 F2 48 83 C4 40 5F C3 48 85 D2 74 69 48 8D 4A 38 41 B0 5F"
 memory = "code"
 values.waiting = { at = 8, size = 4 }
 note = "option click: +0x124 active, button in +0x208 list, split button+0x38 at '_'"
+build."eu4-1.37.5-steam-win64" = { rva = 0x10BC220 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x10BAA20 }
 
 [symbol.event_id_parser]
-rva = 0x6EEC19
-bytes = "4C 8D 61 20 49 8B D6 49 8B CC E8 E8 64 9A FF 49 8B CE E8 A8 A3 35 01 44 8B E8 41 BF 04 00 00 00 3D A0 86 01 00"
 memory = "code"
 values.script_id = { at = 3, size = 1 }
 note = "event parser, token id: text to event+0x20, atoi, limit 100000"
 
+[symbol.event_id_parser.build."eu4-1.37.5-steam-win64"]
+rva = 0x6EEC19
+bytes = "4C 8D 61 20 49 8B D6 49 8B CC E8 E8 64 9A FF 49 8B CE E8 A8 A3 35 01 44 8B E8 41 BF 04 00 00 00 3D A0 86 01 00"
+
+[symbol.event_id_parser.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x6EDF09
+bytes = "4C 8D 61 20 49 8B D6 49 8B CC E8 28 72 9A FF 49 8B CE E8 38 4D 34 01 44 8B E8 41 BF 04 00 00 00 3D A0 86 01 00"
+
 [symbol.option_name_parser]
-rva = 0x6F6C5F
-bytes = "48 81 C2 44 04 00 00 49 C7 C0 FF FF FF FF 0F 1F 00 49 FF C0 42 80 3C 02 00 75 F6 48 81 C1 88 00 00 00 48 83 C4 20 5F E9 85 E4 99 FF"
 memory = "code"
 values.name = { at = 30, size = 4 }
 note = "option parser, token name: text to option+0x88"
 
+[symbol.option_name_parser.build."eu4-1.37.5-steam-win64"]
+rva = 0x6F6C5F
+bytes = "48 81 C2 44 04 00 00 49 C7 C0 FF FF FF FF 0F 1F 00 49 FF C0 42 80 3C 02 00 75 F6 48 81 C1 88 00 00 00 48 83 C4 20 5F E9 85 E4 99 FF"
+
+[symbol.option_name_parser.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x6F5F4F
+bytes = "48 81 C2 44 04 00 00 49 C7 C0 FF FF FF FF 0F 1F 00 49 FF C0 42 80 3C 02 00 75 F6 48 81 C1 88 00 00 00 48 83 C4 20 5F E9 C5 F1 99 FF"
+
 [symbol.option_delay]
-rva = 0x10BBEE1
-bytes = "48 8B 9E 08 02 00 00 F2 0F 5C 86 20 02 00 00 F3 0F 10 0D 5C 29 28 01 0F 5A C9 66 0F 2F C8 76 29"
 memory = "code"
 values.delay = { at = 19, rip_relative = 23 }
 note = "event update: option buttons stay disabled while less than this float define has passed since +0x220"
 
+[symbol.option_delay.build."eu4-1.37.5-steam-win64"]
+rva = 0x10BBEE1
+bytes = "48 8B 9E 08 02 00 00 F2 0F 5C 86 20 02 00 00 F3 0F 10 0D 5C 29 28 01 0F 5A C9 66 0F 2F C8 76 29"
+
+[symbol.option_delay.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x10BA6E1
+bytes = "48 8B 9E 08 02 00 00 F2 0F 5C 86 20 02 00 00 F3 0F 10 0D C4 7F 26 01 0F 5A C9 66 0F 2F C8 76 29"
+
 # --- Game calls (docs/design.md, "Game calls (0.7.0)"; ADR 0001) ---
 
 [symbol.console_dispatch]
-rva = 0x1721320
 bytes = "48 89 5C 24 10 48 89 4C 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 D0 48 81 EC 30 01 00 00 49 8B F0 48 8B FA 4C 8B E1"
 memory = "code"
 signature = "void* (void* manager, void* result, void* tokens)"
 note = "console dispatcher: (manager, result, tokens) -> result; runs one tokenised line"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1721320 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x170AFA0 }
 
 [symbol.console_dispatch_gates]
-rva = 0x172136E
 bytes = "41 B0 01 48 8B 16 E8 87 FC FF FF 48 89 85 80 00 00 00 48 85 C0 0F 84 39 06 00 00 38 18 75 61 41 38 5C 24 18 74 5A"
 memory = "code"
 values.developer_lock = { at = 35, size = 1 }
 note = "console dispatcher: lookup 0x1721000, entry+0x00 release byte, manager+0x18 developer gate"
+build."eu4-1.37.5-steam-win64" = { rva = 0x172136E }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x170AFEE }
 
 [symbol.console_mode_gate]
-rva = 0x1721463
 bytes = "41 80 7C 24 19 00"
 memory = "code"
 values.mode_lock = { at = 4, size = 1 }
 note = "console dispatcher: manager+0x19 multiplayer/ironman gate"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1721463 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x170B0E3 }
 
 [symbol.console_pre_command]
-rva = 0x172174E
-bytes = "48 8B 05 FB 63 C3 00 48 85 C0 74 02 FF D0 49 8B 47 38 4D 8B 47 40 48 8D 54 24 28 48 8D 4D 08 FF D0"
 memory = "code"
 note = "console dispatcher: pre-command hook 0x2357B50, then entry+0x38(result, args, entry+0x40)"
 
+[symbol.console_pre_command.build."eu4-1.37.5-steam-win64"]
+rva = 0x172174E
+bytes = "48 8B 05 FB 63 C3 00 48 85 C0 74 02 FF D0 49 8B 47 38 4D 8B 47 40 48 8D 54 24 28 48 8D 4D 08 FF D0"
+
+[symbol.console_pre_command.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x170B3CE
+bytes = "48 8B 05 F3 05 C3 00 48 85 C0 74 02 FF D0 49 8B 47 38 4D 8B 47 40 48 8D 54 24 28 48 8D 4D 08 FF D0"
+
 [symbol.console_lookup]
-rva = 0x1721066
 bytes = "48 69 E8 A8 00 00 00 48 03 E9 48 83 7B 18 10 72 03 48 8B 13 48 8B 4D 08 E8 9D 6F 32 00 85 C0 74 6A 33 FF 39 7D 10 7E 28 48 8D 75 18"
 memory = "code"
 values.entry_size = { at = 3, size = 4 }
@@ -1012,49 +1497,69 @@ values.name = { at = 23, size = 1 }
 values.alias_count = { at = 37, size = 1 }
 values.aliases = { at = 43, size = 1 }
 note = "console lookup: entries of 0xA8 bytes, name at +0x08, alias count at +0x10, aliases from +0x18"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1721066 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x170ACE6 }
 
 [symbol.console_manager_get]
-rva = 0x6E74C0
-bytes = "48 83 EC 28 48 8B 05 8D 06 C7 01 48 85 C0 75 3D"
 memory = "code"
 values.manager = { at = 7, rip_relative = 11 }
 note = "console manager getter: the singleton pointer"
 
+[symbol.console_manager_get.build."eu4-1.37.5-steam-win64"]
+rva = 0x6E74C0
+bytes = "48 83 EC 28 48 8B 05 8D 06 C7 01 48 85 C0 75 3D"
+
+[symbol.console_manager_get.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x6E6F50
+bytes = "48 83 EC 28 48 8B 05 75 4A C5 01 48 85 C0 75 3D"
+
 [symbol.string_free]
-rva = 0x95660
 bytes = "40 53 48 83 EC 20 48 8B 51 18 48 8B D9 48 83 FA 10 72 2C 48 8B 09"
 memory = "code"
 signature = "void (void* text)"
 note = "the game's std::string destructor, to free the result text"
+build."eu4-1.37.5-steam-win64" = { rva = 0x95660 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x95690 }
 
 [symbol.console_registration]
-rva = 0x6E9128
-bytes = "48 8B 0D 49 6D C5 01 C6 40 18 01 48 8B 89 00 1E 00 00 E8 D1 18 00 00 48 8B 0D 32 6D C5 01 0F B6 D8 0F B6 B9 D0 24 00 00"
 memory = "code"
 values.ironman = { at = 36, size = 4 }
 note = "console registration: the multiplayer/ironman gate reads is_multiplayer(session) and the root byte +0x24D0 (ironman)"
 
+[symbol.console_registration.build."eu4-1.37.5-steam-win64"]
+rva = 0x6E9128
+bytes = "48 8B 0D 49 6D C5 01 C6 40 18 01 48 8B 89 00 1E 00 00 E8 D1 18 00 00 48 8B 0D 32 6D C5 01 0F B6 D8 0F B6 B9 D0 24 00 00"
+
+[symbol.console_registration.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x6E8B08
+bytes = "48 8B 0D E9 B1 C3 01 C6 40 18 01 48 8B 89 00 1E 00 00 E8 B1 18 00 00 48 8B 0D D2 B1 C3 01 0F B6 D8 0F B6 B9 D0 24 00 00"
+
 [symbol.console_mode_store]
-rva = 0x6E9150
-bytes = "E8 6B E3 FF FF 84 DB 75 09 40 84 FF 75 04 33 C9 EB 02 B1 01 88 48 19"
 memory = "code"
 values.mode_lock = { at = 22, size = 1 }
 note = "console registration: manager+0x19 = multiplayer or ironman"
 
+[symbol.console_mode_store.build."eu4-1.37.5-steam-win64"]
+rva = 0x6E9150
+bytes = "E8 6B E3 FF FF 84 DB 75 09 40 84 FF 75 04 33 C9 EB 02 B1 01 88 48 19"
+
+[symbol.console_mode_store.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x6E8B30
+bytes = "E8 1B E4 FF FF 84 DB 75 09 40 84 FF 75 04 33 C9 EB 02 B1 01 88 48 19"
+
 [symbol.is_multiplayer]
-rva = 0x6EAA10
 bytes = "48 89 5C 24 08 57 48 83 EC 20 48 8B 01 48 8B F9 FF 90 18 03 00 00"
 memory = "code"
 signature = "bool (void* session)"
 note = "multiplayer check through session vtable slot 0x318"
+build."eu4-1.37.5-steam-win64" = { rva = 0x6EAA10 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x6EA3D0 }
 
 # --- World reads (docs/design.md, "World reads (0.20.0)") ---
 # Provinces are one array indexed by ID; root+0x1C90 is a vector of pointers to
 # every entry, entry 0 (a dummy) included, so a valid ID is 1 <= id < its length.
 
 [symbol.province_count]
-rva = 0xE8674D
-bytes = "48 8B 05 24 97 4B 01 48 8B 88 98 1C 00 00 48 2B 88 90 1C 00 00 48 C1 F9 03"
 memory = "code"
 values.root = { at = 3, rip_relative = 7 }
 values.provinces_end = { at = 10, size = 4 }
@@ -1062,9 +1567,15 @@ values.provinces = { at = 17, size = 4 }
 values.pointer_shift = { at = 24, size = 1 }
 note = "debug_name: (root+0x1C98 - root+0x1C90) >> 3 provinces, the dummy entry 0 included"
 
+[symbol.province_count.build."eu4-1.37.5-steam-win64"]
+rva = 0xE8674D
+bytes = "48 8B 05 24 97 4B 01 48 8B 88 98 1C 00 00 48 2B 88 90 1C 00 00 48 C1 F9 03"
+
+[symbol.province_count.build."eu4-1.37.5.2-gog-win64"]
+rva = 0xE84E9D
+bytes = "48 8B 05 54 EE 49 01 48 8B 88 98 1C 00 00 48 2B 88 90 1C 00 00 48 C1 F9 03"
+
 [symbol.province_is_sea]
-rva = 0xC467BD
-bytes = "48 69 D0 10 2E 00 00 48 8B 05 AD 96 6F 01 48 8B 88 A8 1C 00 00 48 8B 44 0A 28 0F B6 88 28 02 00 00 C0 E9 03 F6 D1 80 E1 01"
 memory = "code"
 values.province_size = { at = 3, size = 4 }
 values.root = { at = 10, rip_relative = 14 }
@@ -1074,9 +1585,15 @@ values.land_flags = { at = 29, size = 4 }
 values.land_bit = { at = 35, size = 1 }
 note = "is_sea trigger: province = root+0x1CA8 + id*0x2E10; sea or lake when bit 3 of static(+0x28)+0x228 is clear"
 
+[symbol.province_is_sea.build."eu4-1.37.5-steam-win64"]
+rva = 0xC467BD
+bytes = "48 69 D0 10 2E 00 00 48 8B 05 AD 96 6F 01 48 8B 88 A8 1C 00 00 48 8B 44 0A 28 0F B6 88 28 02 00 00 C0 E9 03 F6 D1 80 E1 01"
+
+[symbol.province_is_sea.build."eu4-1.37.5.2-gog-win64"]
+rva = 0xC44F6D
+bytes = "48 69 D0 10 2E 00 00 48 8B 05 7D ED 6D 01 48 8B 88 A8 1C 00 00 48 8B 44 0A 28 0F B6 88 28 02 00 00 C0 E9 03 F6 D1 80 E1 01"
+
 [symbol.province_is_wasteland]
-rva = 0xC400BD
-bytes = "48 69 D0 10 2E 00 00 48 8B 05 AD FD 6F 01 48 8B 88 A8 1C 00 00 48 8B 44 0A 28 0F B6 88 29 02 00 00 C0 E9 03 80 E1 01"
 memory = "code"
 values.province_size = { at = 3, size = 4 }
 values.root = { at = 10, rip_relative = 14 }
@@ -1086,14 +1603,15 @@ values.wasteland_flags = { at = 29, size = 4 }
 values.wasteland_bit = { at = 35, size = 1 }
 note = "is_wasteland trigger: bit 3 of static+0x229"
 
+[symbol.province_is_wasteland.build."eu4-1.37.5-steam-win64"]
+rva = 0xC400BD
+bytes = "48 69 D0 10 2E 00 00 48 8B 05 AD FD 6F 01 48 8B 88 A8 1C 00 00 48 8B 44 0A 28 0F B6 88 29 02 00 00 C0 E9 03 80 E1 01"
+
+[symbol.province_is_wasteland.build."eu4-1.37.5.2-gog-win64"]
+rva = 0xC3E86D
+bytes = "48 69 D0 10 2E 00 00 48 8B 05 7D 54 6E 01 48 8B 88 A8 1C 00 00 48 8B 44 0A 28 0F B6 88 29 02 00 00 C0 E9 03 80 E1 01"
+
 [symbol.province_base_tax]
-rva = 0x6DE7A0
-bytes = """
-4C 8B CA 49 8B 88 68 04 00 00 48 8B 05 1F F1 C5 01 48 C1 E9 20 48 0F BF C9
-48 8B 80 18 01 00 00 48 8B 14 C8 48 8B 8A 78 9A 00 00 48 85 C9 74 26
-41 8B 40 20 39 82 B8 14 00 00 75 1A B8 D3 4D 62 10 F7 69 1C C1 FA 06 8B C2
-C1 E8 1F 03 D0 69 C2 E8 03 00 00 EB 02 33 C0 41 8B 90 E4 03 00 00
-"""
 memory = "code"
 values.owner = { at = 6, size = 4 }
 values.countries_db = { at = 13, rip_relative = 17 }
@@ -1104,50 +1622,67 @@ values.capital = { at = 54, size = 4 }
 values.base_tax = { at = 91, size = 4 }
 note = "script value base_tax: owner tag +0x468, country = (db+0x118)[tag >> 32], capital +0x14B8, base tax +0x3E4 (x 1000)"
 
+[symbol.province_base_tax.build."eu4-1.37.5-steam-win64"]
+rva = 0x6DE7A0
+bytes = """
+4C 8B CA 49 8B 88 68 04 00 00 48 8B 05 1F F1 C5 01 48 C1 E9 20 48 0F BF C9
+48 8B 80 18 01 00 00 48 8B 14 C8 48 8B 8A 78 9A 00 00 48 85 C9 74 26
+41 8B 40 20 39 82 B8 14 00 00 75 1A B8 D3 4D 62 10 F7 69 1C C1 FA 06 8B C2
+C1 E8 1F 03 D0 69 C2 E8 03 00 00 EB 02 33 C0 41 8B 90 E4 03 00 00
+"""
+
+[symbol.province_base_tax.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x6DE270
+bytes = """
+4C 8B CA 49 8B 88 68 04 00 00 48 8B 05 CF 34 C4 01 48 C1 E9 20 48 0F BF C9
+48 8B 80 18 01 00 00 48 8B 14 C8 48 8B 8A 78 9A 00 00 48 85 C9 74 26
+41 8B 40 20 39 82 B8 14 00 00 75 1A B8 D3 4D 62 10 F7 69 1C C1 FA 06 8B C2
+C1 E8 1F 03 D0 69 C2 E8 03 00 00 EB 02 33 C0 41 8B 90 E4 03 00 00
+"""
+
 [symbol.province_base_production]
-rva = 0x6DE86C
 bytes = "B8 D3 4D 62 10 F7 69 20 C1 FA 06 8B C2 C1 E8 1F 03 D0 69 C2 E8 03 00 00 EB 02 33 C0 41 8B 90 E8 03 00 00"
 memory = "code"
 values.base_production = { at = 31, size = 4 }
 note = "script value base_production: +0x3E8"
+build."eu4-1.37.5-steam-win64" = { rva = 0x6DE86C }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x6DE33C }
 
 [symbol.province_base_manpower]
-rva = 0x6DE8FC
 bytes = "B8 D3 4D 62 10 F7 69 24 C1 FA 06 8B C2 C1 E8 1F 03 D0 69 C2 E8 03 00 00 EB 02 33 C0 41 8B 90 E0 03 00 00"
 memory = "code"
 values.base_manpower = { at = 31, size = 4 }
 note = "script value base_manpower: +0x3E0"
+build."eu4-1.37.5-steam-win64" = { rva = 0x6DE8FC }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x6DE3CC }
 
 [symbol.province_controller]
-rva = 0xA01AC6
 bytes = "48 8B 85 B8 01 00 00 48 89 86 70 04 00 00"
 memory = "code"
 values.controller = { at = 10, size = 4 }
 note = "controller setter 0xA015C0 stores the new controller tag"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA01AC6 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA00AA6 }
 
 [symbol.province_cores]
-rva = 0xA0579E
 bytes = "48 8D B1 90 04 00 00 48 8B 46 08 4C 8B 16 4C 3B D0 74 28 48 C1 EA 20"
 memory = "code"
 values.cores = { at = 3, size = 4 }
 values.cores_end = { at = 10, size = 1 }
 note = "core adder 0xA05770: std::vector of 8-byte tags at +0x490 (begin, end)"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA0579E }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA0477E }
 
 [symbol.province_name]
-rva = 0xE31A26
 bytes = "48 8B 8F 60 05 00 00 45 33 C0 48 8B 51 28 48 8B C8 48 83 C2 10"
 memory = "code"
 values.static_part = { at = 13, size = 1 }
 values.name = { at = 20, size = 1 }
 note = "province view label province_name: the displayed name, a std::string at static(+0x28)+0x10"
+build."eu4-1.37.5-steam-win64" = { rva = 0xE31A26 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xE30176 }
 
 [symbol.player_country]
-rva = 0x874133
-bytes = """
-80 B8 66 1E 00 00 07 C6 05 97 E2 74 01 00 75 1B 80 B8 6F 1E 00 00 00 74 12
-48 8B 88 68 1E 00 00 EB 10 48 8B 05 1C BD AC 01 EB D5 48 8B 88 60 1E 00 00
-48 8B 05 64 97 AC 01 48 C1 E9 20 48 0F BF D1 48 8B 88 18 01 00 00 48 8B 04 D1
-"""
 memory = "code"
 values.player_kind = { at = 2, size = 4 }
 values.observer_kind = { at = 6, size = 1 }
@@ -1158,8 +1693,23 @@ values.countries_db = { at = 53, rip_relative = 57 }
 values.countries = { at = 68, size = 4 }
 note = "pre-command hook: player = root+0x1E68 if the kind byte of root+0x1E60 (+6) is 7 and the valid byte of root+0x1E68 (+7) is set, else root+0x1E60"
 
+[symbol.player_country.build."eu4-1.37.5-steam-win64"]
+rva = 0x874133
+bytes = """
+80 B8 66 1E 00 00 07 C6 05 97 E2 74 01 00 75 1B 80 B8 6F 1E 00 00 00 74 12
+48 8B 88 68 1E 00 00 EB 10 48 8B 05 1C BD AC 01 EB D5 48 8B 88 60 1E 00 00
+48 8B 05 64 97 AC 01 48 C1 E9 20 48 0F BF D1 48 8B 88 18 01 00 00 48 8B 04 D1
+"""
+
+[symbol.player_country.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x873423
+bytes = """
+80 B8 66 1E 00 00 07 C6 05 A7 2F 73 01 00 75 1B 80 B8 6F 1E 00 00 00 74 12
+48 8B 88 68 1E 00 00 EB 10 48 8B 05 AC 08 AB 01 EB D5 48 8B 88 60 1E 00 00
+48 8B 05 F4 E2 AA 01 48 C1 E9 20 48 0F BF D1 48 8B 88 18 01 00 00 48 8B 04 D1
+"""
+
 [symbol.tag_buckets]
-rva = 0x2861A4
 bytes = """
 25 3F 00 00 80 7D 07 FF C8 83 C8 C0 FF C0 48 98 33 ED 48 89 5C 24 50
 48 8D 0C 40 4D 8D 3C CA 4D 63 B7 54 01 00 00 4D 85 F6 7E 45 8B DD 49 8B 87 48 01 00 00
@@ -1171,10 +1721,10 @@ values.bucket_count = { at = 34, size = 4 }
 values.buckets = { at = 48, size = 4 }
 values.compared = { at = 54, size = 4 }
 note = "tag lookup 0x286120: the upper-cased first three characters summed, & 0x3F; bucket = db + 0x18*n (lea rcx,[rax+rax*2]; lea r15,[r10+rcx*8]), 8-byte tags at +0x148, count +0x154, compared by _strnicmp over 3 characters"
+build."eu4-1.37.5-steam-win64" = { rva = 0x2861A4 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x286154 }
 
 [symbol.country_exists]
-rva = 0x75B78A
-bytes = "48 8B 15 3F 21 BE 01 49 8B 46 20 48 C1 E8 20 48 0F BF C8 48 8B 82 18 01 00 00 48 8B 14 C8 83 BA 44 13 00 00 00 75 0A 80 7A 26 07"
 memory = "code"
 values.countries_db = { at = 3, rip_relative = 7 }
 values.countries = { at = 22, size = 4 }
@@ -1183,66 +1733,89 @@ values.kind = { at = 41, size = 1 }
 values.observer_kind = { at = 42, size = 1 }
 note = "AI loop: a country with no provinces (+0x1344 == 0) is skipped unless the kind byte of its own tag (+0x20, kind at +0x26) is 7"
 
+[symbol.country_exists.build."eu4-1.37.5-steam-win64"]
+rva = 0x75B78A
+bytes = "48 8B 15 3F 21 BE 01 49 8B 46 20 48 C1 E8 20 48 0F BF C8 48 8B 82 18 01 00 00 48 8B 14 C8 83 BA 44 13 00 00 00 75 0A 80 7A 26 07"
+
+[symbol.country_exists.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x75A94A
+bytes = "48 8B 15 FF 6D BC 01 49 8B 46 20 48 C1 E8 20 48 0F BF C8 48 8B 82 18 01 00 00 48 8B 14 C8 83 BA 44 13 00 00 00 75 0A 80 7A 26 07"
+
 [symbol.country_provinces]
-rva = 0x779429
 bytes = "48 8B B1 38 13 00 00 48 63 81 44 13 00 00 4C 8D 24 86"
 memory = "code"
 values.owned = { at = 3, size = 4 }
 values.owned_count = { at = 10, size = 4 }
 note = "tag switch: the country's province IDs (int32) at +0x1338, count +0x1344 (0 = no provinces)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x779429 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x778729 }
 
 [symbol.selection_holder]
-rva = 0xE31D05
-bytes = "48 8B 86 50 05 00 00 48 8B 96 60 05 00 00 48 8B 88 20 12 00 00 E8 11 AB 56 00"
 memory = "code"
 values.holder = { at = 17, size = 4 }
 note = "province view: select(*(session+0x1220), province); the selection object keeps the selected province at +0"
 
+[symbol.selection_holder.build."eu4-1.37.5-steam-win64"]
+rva = 0xE31D05
+bytes = "48 8B 86 50 05 00 00 48 8B 96 60 05 00 00 48 8B 88 20 12 00 00 E8 11 AB 56 00"
+
+[symbol.selection_holder.build."eu4-1.37.5.2-gog-win64"]
+rva = 0xE30455
+bytes = "48 8B 86 50 05 00 00 48 8B 96 60 05 00 00 48 8B 88 10 12 00 00 E8 21 65 56 00"
+
 [symbol.selected_province]
-rva = 0x139C860
-bytes = "41 83 79 2C 25 48 89 74 24 38 8B F5 49 0F 45 F2 48 89 33 49 8B 89 A0 5B 00 00 E8 41 82 0D 00 48 85 F6 0F 84 8F 02 00 00 39 6E 20"
 memory = "code"
 values.province_id = { at = 42, size = 1 }
 note = "province selection 0x139C830: selection+0 = the province (mov [rbx],rsi) unless session+0x2C == 0x25"
 
+[symbol.selected_province.build."eu4-1.37.5-steam-win64"]
+rva = 0x139C860
+bytes = "41 83 79 2C 25 48 89 74 24 38 8B F5 49 0F 45 F2 48 89 33 49 8B 89 A0 5B 00 00 E8 41 82 0D 00 48 85 F6 0F 84 8F 02 00 00 39 6E 20"
+
+[symbol.selected_province.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x13969C0
+bytes = "41 83 79 24 25 48 89 74 24 38 8B F5 49 0F 45 F2 48 89 33 49 8B 89 90 5B 00 00 E8 61 7F 0D 00 48 85 F6 0F 84 8F 02 00 00 39 6E 20"
+
 [symbol.selection_view]
-rva = 0x139CA67
 bytes = "48 8B 4B 10 41 B0 01 48 8B D6 E8 DA AF FA FF"
 memory = "code"
 values.view = { at = 3, size = 1 }
 note = "province selection 0x139C830: shows the province in the province view at selection+0x10 (0x1347A50)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x139CA67 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1396BC7 }
 
 [symbol.view_window]
-rva = 0x139CA7F
 bytes = "48 8B 4B 10 48 8B 01 FF 50 40 84 C0 74 0B 48 8B 43 10 48 8B A8 A0 00 00 00"
 memory = "code"
 values.view = { at = 3, size = 1 }
 values.window = { at = 21, size = 4 }
 note = "province selection 0x139C830: the province view is a controller; its window (the provinceview widget's full object) is at +0xA0"
+build."eu4-1.37.5-steam-win64" = { rva = 0x139CA7F }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1396BDF }
 
 [symbol.province_view_colonisation]
-rva = 0x13482F1
 bytes = "48 8B 8F F0 02 00 00 48 8B 81 58 05 00 00 48 85 C0 74 09 80 B8 F5 00 00 00 00"
 memory = "code"
 values.panel = { at = 3, size = 4 }
 values.window = { at = 10, size = 4 }
 values.shown = { at = 21, size = 4 }
 note = "province view 0x1347A50: the colonisation panel (view+0x2F0, built for colonisationpanel); while its window (+0x558, a full window object) is shown, the view does not show its own"
+build."eu4-1.37.5-steam-win64" = { rva = 0x13482F1 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1342451 }
 
 [symbol.province_view_province]
-rva = 0x1347A89
 bytes = "48 39 91 58 09 00 00 0F 84 3E 01 00 00"
 memory = "code"
 values.shown = { at = 3, size = 4 }
 note = "province view 0x1347A50: the displayed province at +0x958"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1347A89 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1341BE9 }
 
 # --- Navigation (docs/design.md, "Navigation (0.21.0)") ---
 # Client calls (ADR 0003): the camera and the province selection, as the game's
 # province links call them (tongs#96, tongs#101).
 
 [symbol.camera_to_province_id]
-rva = 0x80FD30
-bytes = "4C 8B 05 41 01 B3 01 85 D2 7E 2C 49 8B 80 98 1C 00 00 49 2B 80 90 1C 00 00 48 C1 F8 03 3B D0 7D 16 48 63 C2 48 69 D0 10 2E 00 00 49 03 90 A8 1C 00 00 E9 B9 00 00 00"
 memory = "code"
 signature = "void (void* session, int province)"
 values.root = { at = 3, rip_relative = 7 }
@@ -1252,19 +1825,21 @@ values.province_size = { at = 39, size = 4 }
 values.province_array = { at = 46, size = 4 }
 note = "session slot 0x278, camera to province by ID: 0 < id < the province count, then camera_to_province"
 
+[symbol.camera_to_province_id.build."eu4-1.37.5-steam-win64"]
+rva = 0x80FD30
+bytes = "4C 8B 05 41 01 B3 01 85 D2 7E 2C 49 8B 80 98 1C 00 00 49 2B 80 90 1C 00 00 48 C1 F8 03 3B D0 7D 16 48 63 C2 48 69 D0 10 2E 00 00 49 03 90 A8 1C 00 00 E9 B9 00 00 00"
+
+[symbol.camera_to_province_id.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x80F090
+bytes = "4C 8B 05 61 4C B1 01 85 D2 7E 2C 49 8B 80 98 1C 00 00 49 2B 80 90 1C 00 00 48 C1 F8 03 3B D0 7D 16 48 63 C2 48 69 D0 10 2E 00 00 49 03 90 A8 1C 00 00 E9 B9 00 00 00"
+
 [symbol.session_camera_slot]
-rva = 0x1CB86D8
 memory = "read"
-points_to = 0x80FD30
 note = "slot 0x278 of the game session's vtable: camera_to_province_id, the call of the game's alert links"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1CB86D8, points_to = 0x80FD30 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1CA1300, points_to = 0x80F090 }
 
 [symbol.camera_to_province]
-rva = 0x80FE20
-bytes = """
-48 83 EC 38 83 7A 20 00 0F 8E A9 00 00 00 48 8B 42 28 4C 8B 89 00 12 00 00 8B 50 7C
-8B C2 C1 E8 10 41 80 B9 78 07 00 00 00 44 0F BF D8 44 0F BF C2 74 4C
-48 8B 05 7E 00 B3 01 F3 41 0F 10 89 7C 06 00 00 66 41 0F 6E C0 0F 5B C0 44 8B 50 28
-"""
 memory = "code"
 values.province_id = { at = 6, size = 1 }
 values.map_part = { at = 17, size = 1 }
@@ -1276,8 +1851,23 @@ values.current_x = { at = 63, size = 4 }
 values.map_width = { at = 78, size = 1 }
 note = "session slot 0x280: the camera (session+0x1200) targets the province's map position (int16 x, y at map part +0x7C), height kept; with the wrap flag +0x778 the x nearest the current one, the map (0x233FED8) being +0x28 wide"
 
+[symbol.camera_to_province.build."eu4-1.37.5-steam-win64"]
+rva = 0x80FE20
+bytes = """
+48 83 EC 38 83 7A 20 00 0F 8E A9 00 00 00 48 8B 42 28 4C 8B 89 00 12 00 00 8B 50 7C
+8B C2 C1 E8 10 41 80 B9 78 07 00 00 00 44 0F BF D8 44 0F BF C2 74 4C
+48 8B 05 7E 00 B3 01 F3 41 0F 10 89 7C 06 00 00 66 41 0F 6E C0 0F 5B C0 44 8B 50 28
+"""
+
+[symbol.camera_to_province.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x80F180
+bytes = """
+48 83 EC 38 83 7A 20 00 0F 8E A9 00 00 00 48 8B 42 28 4C 8B 89 F0 11 00 00 8B 50 7C
+8B C2 C1 E8 10 41 80 B9 78 07 00 00 00 44 0F BF D8 44 0F BF C2 74 4C
+48 8B 05 9E 4B B1 01 F3 41 0F 10 89 7C 06 00 00 66 41 0F 6E C0 0F 5B C0 44 8B 50 28
+"""
+
 [symbol.camera_set_target]
-rva = 0x109D140
 bytes = "80 B9 58 07 00 00 00 75 6B 8B 02 89 81 94 06 00 00 8B 42 04 89 81 98 06 00 00 8B 42 08 89 81 9C 06 00 00"
 memory = "code"
 values.lock = { at = 2, size = 4 }
@@ -1285,9 +1875,10 @@ values.target_x = { at = 13, size = 4 }
 values.target_height = { at = 22, size = 4 }
 values.target_z = { at = 31, size = 4 }
 note = "camera: nothing while the debug_lockcamera byte +0x758 is set, else the target position +0x694/+0x698/+0x69C (x, height, z)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x109D140 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x109B940 }
 
 [symbol.camera_snap]
-rva = 0x109CD8A
 bytes = "8B 81 94 06 00 00 48 8B F9 89 81 7C 06 00 00 8B 81 98 06 00 00 89 81 80 06 00 00 8B 81 9C 06 00 00 89 81 84 06 00 00"
 memory = "code"
 values.target_x = { at = 2, size = 4 }
@@ -1297,24 +1888,36 @@ values.current_height = { at = 23, size = 4 }
 values.target_z = { at = 29, size = 4 }
 values.current_z = { at = 35, size = 4 }
 note = "camera: copies the target position into the current one (+0x67C/+0x680/+0x684)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x109CD8A }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x109B58A }
 
 [symbol.views_open]
-rva = 0x8208A0
-bytes = "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B 81 18 11 00 00 48 8B F1 48 2B 81 10 11 00 00"
 memory = "code"
 signature = "bool (void* session)"
 note = "session: whether one of the views in session+0x1110 is shown"
 
+[symbol.views_open.build."eu4-1.37.5-steam-win64"]
+rva = 0x8208A0
+bytes = "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B 81 18 11 00 00 48 8B F1 48 2B 81 10 11 00 00"
+
+[symbol.views_open.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x81FC00
+bytes = "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B 81 08 11 00 00 48 8B F1 48 2B 81 00 11 00 00"
+
 [symbol.close_views]
-rva = 0x8205E0
-bytes = "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 40 48 8B D9 48 8B 81 F0 12 00 00"
 memory = "code"
 signature = "void (void* session)"
 note = "session: closes the views and side panels, as the religion view's province link does before it selects"
 
+[symbol.close_views.build."eu4-1.37.5-steam-win64"]
+rva = 0x8205E0
+bytes = "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 40 48 8B D9 48 8B 81 F0 12 00 00"
+
+[symbol.close_views.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x81F940
+bytes = "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 40 48 8B D9 48 8B 81 E0 12 00 00"
+
 [symbol.select_province]
-rva = 0x139C830
-bytes = "40 53 48 83 EC 20 4C 8B 49 08 48 8B D9 4C 8B D2 49 8B 89 40 14 00 00 48 85 C9 74 0D E8 AF 08 07 00 84 C0 0F 85 C8 02 00 00 48 89 6C 24 30 33 ED 41 83 79 2C 25"
 memory = "code"
 signature = "void (void* selection, void* province)"
 values.session = { at = 9, size = 1 }
@@ -1323,15 +1926,23 @@ values.session_mode = { at = 51, size = 1 }
 values.blocked_mode = { at = 52, size = 1 }
 note = "selects a province and shows it in the province view; nothing in session mode 0x25 or while tutorial_blocks"
 
+[symbol.select_province.build."eu4-1.37.5-steam-win64"]
+rva = 0x139C830
+bytes = "40 53 48 83 EC 20 4C 8B 49 08 48 8B D9 4C 8B D2 49 8B 89 40 14 00 00 48 85 C9 74 0D E8 AF 08 07 00 84 C0 0F 85 C8 02 00 00 48 89 6C 24 30 33 ED 41 83 79 2C 25"
+
+[symbol.select_province.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x1396990
+bytes = "40 53 48 83 EC 20 4C 8B 49 08 48 8B D9 4C 8B D2 49 8B 89 30 14 00 00 48 85 C9 74 0D E8 EF 06 07 00 84 C0 0F 85 C8 02 00 00 48 89 6C 24 30 33 ED 41 83 79 24 25"
+
 [symbol.tutorial_blocks]
-rva = 0x140D100
 bytes = "48 8B C1 8B 49 60 85 C9 78 45 48 8B 40 30 48 8B 0C C8 48 8B 91 F8 00 00 00 48 85 D2 74 31"
 memory = "code"
 signature = "bool (void* tutorial)"
 note = "select_province's guard: a tutorial step of type 0xE is active (reads only)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x140D100 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x14070A0 }
 
 [symbol.terra_incognita_check]
-rva = 0xFF63B8
 bytes = "F6 85 59 09 00 00 10 74 24 84 D2 74 20 80 F9 07 74 1B 0F BF C8 48 8B 85 E0 05 00 00 8B D1 83 E1 1F 48 C1 EA 05 8B 04 90 0F A3 C8"
 memory = "code"
 values.ti_flags = { at = 2, size = 4 }
@@ -1339,9 +1950,10 @@ values.ti_bit = { at = 6, size = 1 }
 values.discovered_by = { at = 24, size = 4 }
 values.word_shift = { at = 36, size = 1 }
 note = "religion view province link: acts only if bit 0x10 of province+0x959 is clear, the player is an observer or has no tag, or the player's bit is set in the bitset at province+0x5E0"
+build."eu4-1.37.5-steam-win64" = { rva = 0xFF63B8 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xFF4BC8 }
 
 [symbol.province_view_layout]
-rva = 0x1348097
 bytes = "80 BA 6F 04 00 00 00 0F 84 44 02 00 00 83 BA F8 03 00 00 00 7E 0D F6 82 58 09 00 00 10 0F 84 37 02 00 00"
 memory = "code"
 values.owner_valid = { at = 2, size = 4 }
@@ -1349,9 +1961,10 @@ values.layout_count = { at = 15, size = 4 }
 values.layout_flags = { at = 24, size = 4 }
 values.layout_bit = { at = 28, size = 1 }
 note = "province view 0x1347A50: an owned province with +0x3F8 < 1 or bit 0x10 of +0x958 takes the layout that may post the discover command"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1348097 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x13421F7 }
 
 [symbol.province_view_discover]
-rva = 0x1348194
 bytes = """
 4C 8B 91 B0 14 00 00 41 80 F9 07 75 13 41 80 B8 6F 1E 00 00 00 74 09 49 8B 80 68 1E 00 00 EB 07
 49 8B 80 60 1E 00 00 41 F6 82 59 09 00 00 10 0F 84 7A 01 00 00
@@ -1361,107 +1974,156 @@ values.capital_province = { at = 3, size = 4 }
 values.ti_flags = { at = 42, size = 4 }
 values.ti_bit = { at = 46, size = 1 }
 note = "province view: for a foreign owner, its capital province (country+0x14B0); with bit 0x10 of its +0x959 set and not discovered by the player, the view posts the discover command"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1348194 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x13422F4 }
 
 [symbol.province_view_discover_command]
-rva = 0x13482B9
-bytes = "41 C7 41 44 8E 2C 00 00 49 C7 41 48 FF FF 00 00 48 8D 0D 88 D6 90 00 49 89 09 49 89 41 50 41 89 51 58 49 8B D1 48 8B CB E8 EA 1F 18 00"
 memory = "code"
 values.command_type = { at = 4, size = 4 }
 note = "province view: posts the discover-capital command (type 0x2C8E) through the command manager; a build that moves it changes what province open may do"
+
+[symbol.province_view_discover_command.build."eu4-1.37.5-steam-win64"]
+rva = 0x13482B9
+bytes = "41 C7 41 44 8E 2C 00 00 49 C7 41 48 FF FF 00 00 48 8D 0D 88 D6 90 00 49 89 09 49 89 41 50 41 89 51 58 49 8B D1 48 8B CB E8 EA 1F 18 00"
+
+[symbol.province_view_discover_command.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x1342419
+bytes = "41 C7 41 44 8E 2C 00 00 49 C7 41 48 FF FF 00 00 48 8D 0D 50 C3 8F 00 49 89 09 49 89 41 50 41 89 51 58 49 8B D1 48 8B CB E8 FA 19 18 00"
 
 # --- Loading a save (docs/design.md, "Loading a save (0.22.0)") ---
 # A game call (ADR 0001): the in-game Load dialog's own load function with a
 # request Tongs builds as the dialog's accept does (tongs#97, tongs#102).
 
 [symbol.load_save]
-rva = 0x5D0580
 bytes = "40 53 56 57 41 54 41 55 41 56 41 57 48 81 EC E0 04 00 00 48 8B F1 33 FF 89 BC 24 30 05 00 00 4C 8B 71 38"
 memory = "code"
 signature = "int (void* request)"
 values.session = { at = 34, size = 1 }
 note = "remotefile.cpp: loads save games/<name>.eu4 for the request (its session at +0x38); 0 loaded, 1 empty name, 2 no such file, 3 metadata rejected"
+build."eu4-1.37.5-steam-win64" = { rva = 0x5D0580 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x5D0050 }
 
 [symbol.load_request_session]
-rva = 0x117605A
 bytes = "48 8B 41 38 48 89 44 24 58 83 79 28 01 0F 94 44 24 60"
 memory = "code"
 values.session = { at = 8, size = 1 }
 values.cloud = { at = 17, size = 1 }
 note = "Load dialog accept 0x1176020: the request's session (rsp+0x58) and cloud flag (rsp+0x60)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x117605A }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x11703BA }
 
 [symbol.load_request_helper]
-rva = 0x117608E
-bytes = "E8 CD 90 74 FF 48 89 44 24 68 48 8D 93 C0 03 00 00"
 memory = "code"
 values.helper = { at = 9, size = 1 }
 note = "Load dialog accept: the request's helper object (rsp+0x68) from load_helper; the name from the view's +0x3C0"
 
+[symbol.load_request_helper.build."eu4-1.37.5-steam-win64"]
+rva = 0x117608E
+bytes = "E8 CD 90 74 FF 48 89 44 24 68 48 8D 93 C0 03 00 00"
+
+[symbol.load_request_helper.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x11703EE
+bytes = "E8 9D DF 74 FF 48 89 44 24 68 48 8D 93 C0 03 00 00"
+
 [symbol.load_request_call]
-rva = 0x11760C4
-bytes = "48 8D 4C 24 20 E8 B2 A4 45 FF 48 8B 4B 38 E8 39 E7 6A FF"
 memory = "code"
 values.request = { at = 4, size = 1 }
 note = "Load dialog accept: load_save(rsp+0x20), then close_ingame_windows(session)"
 
+[symbol.load_request_call.build."eu4-1.37.5-steam-win64"]
+rva = 0x11760C4
+bytes = "48 8D 4C 24 20 E8 B2 A4 45 FF 48 8B 4B 38 E8 39 E7 6A FF"
+
+[symbol.load_request_call.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x1170424
+bytes = "48 8D 4C 24 20 E8 22 FC 45 FF 48 8B 4B 38 E8 39 37 6B FF"
+
 [symbol.load_helper]
-rva = 0x8BF160
-bytes = "48 89 5C 24 10 57 48 83 EC 20 48 8B 05 87 CB B6 01 48 85 C0 0F 85 8A 00 00 00"
 memory = "code"
 signature = "void* ()"
 note = "the load request's helper: a global the game creates on first use"
 
+[symbol.load_helper.build."eu4-1.37.5-steam-win64"]
+rva = 0x8BF160
+bytes = "48 89 5C 24 10 57 48 83 EC 20 48 8B 05 87 CB B6 01 48 85 C0 0F 85 8A 00 00 00"
+
+[symbol.load_helper.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x8BE390
+bytes = "48 89 5C 24 10 57 48 83 EC 20 48 8B 05 CF 17 B5 01 48 85 C0 0F 85 8A 00 00 00"
+
 [symbol.close_ingame_windows]
-rva = 0x824810
-bytes = "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 40 48 8B F9 48 8B 99 20 12 00 00"
 memory = "code"
 signature = "void (void* session)"
 note = "closes the in-game windows, as the Load dialog does after a load"
 
+[symbol.close_ingame_windows.build."eu4-1.37.5-steam-win64"]
+rva = 0x824810
+bytes = "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 40 48 8B F9 48 8B 99 20 12 00 00"
+
+[symbol.close_ingame_windows.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x823B70
+bytes = "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 40 48 8B F9 48 8B 99 10 12 00 00"
+
 [symbol.string_assign]
-rva = 0x95110
 bytes = "48 89 5C 24 10 48 89 6C 24 18 56 57 41 57 48 83 EC 20 48 8B 69 18 49 8B F0"
 memory = "code"
 signature = "void* (void* text, const char* chars, size_t size)"
 note = "the game's std::string assign: the load request's name is built and freed (string_free) with the game's own heap"
+build."eu4-1.37.5-steam-win64" = { rva = 0x95110 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x95140 }
 
 [symbol.session_loading]
-rva = 0x5D0A22
-bytes = "C6 80 60 04 00 00 01 B2 01 48 8B 4E 38"
 memory = "code"
 values.loading = { at = 2, size = 4 }
 note = "load_save: the session's loading flag (+0x460) set while the gamestate is read"
 
+[symbol.session_loading.build."eu4-1.37.5-steam-win64"]
+rva = 0x5D0A22
+bytes = "C6 80 60 04 00 00 01 B2 01 48 8B 4E 38"
+
+[symbol.session_loading.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x5D04F2
+bytes = "C6 80 50 04 00 00 01 B2 01 48 8B 4E 38"
+
 [symbol.meta_date_token]
-rva = 0x5D02D9
 bytes = "3D 4D 28 00 00 0F 85 A7 00 00 00"
 memory = "code"
 values.token = { at = 1, size = 2 }
 note = "the save metadata reader 0x5D01B0: the token of `date`"
+build."eu4-1.37.5-steam-win64" = { rva = 0x5D02D9 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x5CFDA9 }
 
 [symbol.meta_player_token]
-rva = 0x5D0353
 bytes = "3D 38 2A 00 00 0F 84 A6 00 00 00"
 memory = "code"
 values.token = { at = 1, size = 2 }
 note = "the save metadata reader: the token of `player`"
+build."eu4-1.37.5-steam-win64" = { rva = 0x5D0353 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x5CFE23 }
 
 [symbol.meta_ironman_tokens]
-rva = 0x5D0528
 bytes = "3D 18 2E 00 00 74 07 3D 89 35 00 00 75 33"
 memory = "code"
 values.token_alt = { at = 1, size = 2 }
 values.token = { at = 8, size = 2 }
 note = "the save metadata reader: the two ironman tokens, before 'Loading ironman in modded game'"
+build."eu4-1.37.5-steam-win64" = { rva = 0x5D0528 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x5CFFF8 }
 
 [symbol.running_version_app]
-rva = 0xB29CD6
-bytes = "48 8B 3D 73 22 90 01"
 memory = "code"
 values.app = { at = 3, rip_relative = 7 }
 note = "save version check 0xB29CA0: the application object"
 
+[symbol.running_version_app.build."eu4-1.37.5-steam-win64"]
+rva = 0xB29CD6
+bytes = "48 8B 3D 73 22 90 01"
+
+[symbol.running_version_app.build."eu4-1.37.5.2-gog-win64"]
+rva = 0xB286E6
+bytes = "48 8B 3D 9B 76 8E 01"
+
 [symbol.running_version]
-rva = 0xB29D38
 bytes = """
 8B 87 00 04 00 00 39 44 24 30 75 24 8B 87 04 04 00 00 39 44 24 34 75 18
 8B 87 08 04 00 00 39 44 24 38 75 0C 8B 87 0C 04 00 00 39 44 24 3C
@@ -1472,12 +2134,15 @@ values.minor = { at = 14, size = 4 }
 values.patch = { at = 26, size = 4 }
 values.build = { at = 38, size = 4 }
 note = "save version check: a save is from this version when its savegame_versions lists app+0x400..0x40C"
+build."eu4-1.37.5-steam-win64" = { rva = 0xB29D38 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xB28748 }
 
 [symbol.save_extension]
-rva = 0x1FD2F68
 bytes = "2E 65 75 34 00"
 memory = "write"
 note = "the std::string \".eu4\" the loader appends to the request's name"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1FD2F68 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1FB6F68 }
 
 # --- Files (docs/design.md, "Notifications") ---
 

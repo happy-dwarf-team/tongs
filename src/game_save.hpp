@@ -14,15 +14,15 @@ namespace tongs {
 // its accept builds (0x1176020), the session's loading flag, the running
 // version and the tokens of the game's metadata reader.
 struct SaveLayout {
-    std::uint32_t root_rva = U32(sym::root_and_date.root);
+    std::uint32_t root_rva = Value(sym::root_and_date, "root");
     std::uint32_t session = U32(sym::session_of_root.session);  // root: the session
-    std::uint32_t loading = U32(sym::session_loading.loading);  // session: byte, set while a save loads
+    std::uint32_t loading = Value(sym::session_loading, "loading");  // session: byte, set while a save loads
     // The request, from the accept's stack frame: the name (std::string) at +0,
     // the subfolders (std::vector<std::string>) at +0x20, then these.
     std::uint32_t request_session = U32(sym::load_request_session.session - sym::load_request_call.request);
     std::uint32_t request_cloud = U32(sym::load_request_session.cloud - sym::load_request_call.request);
     std::uint32_t request_helper = U32(sym::load_request_helper.helper - sym::load_request_call.request);
-    std::uint32_t app_rva = U32(sym::running_version_app.app);  // pointer to the application object
+    std::uint32_t app_rva = Value(sym::running_version_app, "app");  // pointer to the application object
     std::array<std::uint32_t, 4> version = {U32(sym::running_version.major), U32(sym::running_version.minor),
                                             U32(sym::running_version.patch), U32(sym::running_version.build)};
     SaveTokens tokens = {static_cast<std::uint16_t>(sym::meta_date_token.token),

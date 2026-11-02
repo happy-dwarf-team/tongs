@@ -110,8 +110,9 @@ struct Tongs : anvil::Plugin {
         handlers.take_screenshot = [folder = data_dir / "screenshots"](std::string_view name) {
             return tongs::TakeScreenshot(folder, name);
         };
-        handlers.read_threads = [image_base] {
-            return tongs::ReadThreads(image_base, tongs::ThreadsLayout{}, tongs::ReadGameWindow().thread_id);
+        const tongs::ThreadsLayout threads_layout;
+        handlers.read_threads = [image_base, threads_layout] {
+            return tongs::ReadThreads(image_base, threads_layout, tongs::ReadGameWindow().thread_id);
         };
         handlers.sleep_ms = [](int ms) { Sleep(static_cast<DWORD>(ms)); };
         handlers.now_ms = [] {  // steady_clock is QueryPerformanceCounter: 1 ms, not GetTickCount64's ~16 ms
@@ -143,7 +144,7 @@ struct Tongs : anvil::Plugin {
                 return tongs::CountEventWindows(image_base, event_layout);
             };
             // World reads (docs/design.md, "World reads (0.20.0)"): reads like ui, whatever the settings.
-            const tongs::WorldLayout world;
+            const tongs::WorldLayout world = tongs::WorldLayout::Load();
             handlers.read_province = [image_base, world](std::int32_t id, tongs::ProvinceRaw& out) {
                 return tongs::ReadProvince(image_base, world, id, out);
             };
@@ -204,8 +205,9 @@ struct Tongs : anvil::Plugin {
             };
         }
         if (config.input) {
-            handlers.send_input = [image_base](const std::vector<tongs::InputEvent>& events) {
-                return tongs::PushInput(image_base, tongs::InputLayout{}, events);
+            const tongs::InputLayout input_layout;
+            handlers.send_input = [image_base, input_layout](const std::vector<tongs::InputEvent>& events) {
+                return tongs::PushInput(image_base, input_layout, events);
             };
             if (const std::string error = tongs::InstallCursorHook(); error.empty()) {
                 handlers.set_cursor = [](int x, int y) { tongs::SetVirtualCursor(x, y); };

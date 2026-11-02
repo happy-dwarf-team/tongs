@@ -10,8 +10,8 @@
 #                                of a local Anvil checkout.
 #
 # A newer Anvil release: change both values below.
-set(TONGS_ANVIL_VERSION 1.0.0)
-set(TONGS_ANVIL_SDK_SHA256 e8ca738da4ead81f17e8e548447057c8f2b1df0529c7b00185a2f531d4ea89fe)
+set(TONGS_ANVIL_VERSION 1.7.0)
+set(TONGS_ANVIL_SDK_SHA256 bb81951f0f70d8805b3206f4d73d9c821b9cca8c3dcd58bc74cbbf2fee99f9ee)
 
 set(TONGS_ANVIL_SDK "" CACHE PATH "An unpacked Anvil SDK; empty downloads the SDK archive of the pinned release")
 

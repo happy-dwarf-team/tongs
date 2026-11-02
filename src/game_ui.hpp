@@ -17,7 +17,7 @@ namespace tongs {
 // window_part before it (the whole window object). The base holds what places
 // widgets in the tree (ui_structure.hpp); this adds what describes them.
 struct UiLayout : UiStructureLayout {
-    unsigned manager_rva = U32(sym::gui_manager_store.manager);  // GUI manager pointer
+    unsigned manager_rva = Value(sym::gui_manager_store, "manager");  // GUI manager pointer
     unsigned shown = U32(sym::render_pick.shown);                 // byte: visible (children of a hidden window may keep it)
     unsigned slot_position = 0xD8;  // not in symbols.toml: vtable slots writing two int32, position in client pixels
     unsigned slot_size = 0xE0;      // not in symbols.toml: and size
@@ -36,29 +36,26 @@ struct UiLayout : UiStructureLayout {
         U32(sym::type_tree_node.lower),
         U32(sym::type_tree_node.higher),
         U32(sym::type_tree_node.next),
-        U32(sym::window_type_definition.map_vtable),
-        {{U32(sym::window_type_definition.vtable), U32(sym::window_type_definition.map)},
-         {U32(sym::eu3dialog_definition.vtable), U32(sym::window_type_definition.map)},
-         {U32(sym::listbox_definition.vtable), U32(sym::listbox_definition_map.map)},
-         {U32(sym::container_definition.vtable), U32(sym::container_definition_map.map)},
-         {U32(sym::scrollbar_definition.vtable), U32(sym::scrollbar_definition_map.map)}},
+        Value(sym::window_type_definition, "map_vtable"),
+        {{Value(sym::window_type_definition, "vtable"), U32(sym::window_type_definition.map)},
+         {Value(sym::eu3dialog_definition, "vtable"), U32(sym::window_type_definition.map)},
+         {Value(sym::listbox_definition, "vtable"), U32(sym::listbox_definition_map.map)},
+         {Value(sym::container_definition, "vtable"), U32(sym::container_definition_map.map)},
+         {Value(sym::scrollbar_definition, "vtable"), U32(sym::scrollbar_definition_map.map)}},
         // Button definitions an extended scroll bar owns (its destructor deletes
         // them) and a container's background (never freed).
-        {{U32(sym::extended_scrollbar_definition.vtable), U32(sym::extended_scrollbar_definition.background),
-          U32(sym::button_definition.vtable)},
-         {U32(sym::extended_scrollbar_definition.vtable), U32(sym::extended_scrollbar_definition.track),
-          U32(sym::button_definition.vtable)},
-         {U32(sym::extended_scrollbar_definition.vtable), U32(sym::extended_scrollbar_definition.slider),
-          U32(sym::button_definition.vtable)},
-         {U32(sym::extended_scrollbar_definition.vtable), U32(sym::extended_scrollbar_definition.increase),
-          U32(sym::button_definition.vtable)},
-         {U32(sym::extended_scrollbar_definition.vtable), U32(sym::extended_scrollbar_definition.decrease),
-          U32(sym::button_definition.vtable)},
-         {U32(sym::container_definition.vtable), U32(sym::container_background.background),
-          U32(sym::button_definition.vtable)}}};
-    static_assert(sym::window_type_definition.map_vtable == sym::listbox_definition_map.map_vtable &&
-                  sym::window_type_definition.map_vtable == sym::container_definition.map_vtable &&
-                  sym::window_type_definition.map_vtable == sym::scrollbar_definition_map.map_vtable);
+        {{Value(sym::extended_scrollbar_definition, "vtable"), U32(sym::extended_scrollbar_definition.background),
+          Value(sym::button_definition, "vtable")},
+         {Value(sym::extended_scrollbar_definition, "vtable"), U32(sym::extended_scrollbar_definition.track),
+          Value(sym::button_definition, "vtable")},
+         {Value(sym::extended_scrollbar_definition, "vtable"), U32(sym::extended_scrollbar_definition.slider),
+          Value(sym::button_definition, "vtable")},
+         {Value(sym::extended_scrollbar_definition, "vtable"), U32(sym::extended_scrollbar_definition.increase),
+          Value(sym::button_definition, "vtable")},
+         {Value(sym::extended_scrollbar_definition, "vtable"), U32(sym::extended_scrollbar_definition.decrease),
+          Value(sym::button_definition, "vtable")},
+         {Value(sym::container_definition, "vtable"), U32(sym::container_background.background),
+          Value(sym::button_definition, "vtable")}}};
     unsigned definition = U32(sym::window_name_slot.definition);  // the definition the widget was built from
     static_assert(sym::window_name_slot.definition == sym::container_name_slot.definition &&
                   sym::window_name_slot.definition == sym::widget_name_slot.definition);
@@ -93,7 +90,7 @@ struct UiLayout : UiStructureLayout {
     std::uint32_t sprite_node_size_rva = 0;  // RvaOf(sym::sprite_node_size), set when loading
     unsigned sprite_node_scale = U32(sym::sprite_node_size.scale);    // float
     unsigned sprite_node_sprite = U32(sym::sprite_node_size.sprite);  // the sprite
-    unsigned masked_shield_vtable = U32(sym::masked_shield_vtable.vtable);  // RVA
+    unsigned masked_shield_vtable = Value(sym::masked_shield_vtable, "vtable");  // RVA
     unsigned masked_shield_size = U32(sym::masked_shield_size.width);       // two int32
     static_assert(sym::masked_shield_size.height == sym::masked_shield_size.width + 4);
 
@@ -153,44 +150,49 @@ struct UiLayout : UiStructureLayout {
         // The vtables, from each class's constructor, and where each class keeps
         // its render node (read by its slot 0xD8) and its text.
         kinds = {
-            {U32(sym::window_vtable.vtable), UiType::Window, U32(sym::window_render_node.node) - window_part, 0, false,
+            {Value(sym::window_vtable, "vtable"), UiType::Window, U32(sym::window_render_node.node) - window_part, 0, false,
              UiKind::Children::Window},
-            {U32(sym::eu3dialog_vtable.vtable), UiType::Window, U32(sym::window_render_node.node) - window_part, 0,
+            {Value(sym::eu3dialog_vtable, "vtable"), UiType::Window, U32(sym::window_render_node.node) - window_part, 0,
              false, UiKind::Children::Window},
-            {U32(sym::container_vtable.vtable), UiType::Window, U32(sym::container_render_node.node), 0, false,
+            {Value(sym::container_vtable, "vtable"), UiType::Window, U32(sym::container_render_node.node), 0, false,
              UiKind::Children::Container},
-            {U32(sym::gui_button_vtable.vtable), UiType::Button, U32(sym::button_render_node.node),
+            {Value(sym::gui_button_vtable, "vtable"), UiType::Button, U32(sym::button_render_node.node),
              U32(sym::button_set_text.text), true},
-            {U32(sym::button_vtable.vtable), UiType::Button, U32(sym::button_render_node.node),
+            {Value(sym::button_vtable, "vtable"), UiType::Button, U32(sym::button_render_node.node),
              U32(sym::button_set_text.text), true},
-            {U32(sym::slider_vtable.vtable), UiType::Button, U32(sym::slider_render_node.node)},
-            {U32(sym::track_vtable.vtable), UiType::Button, U32(sym::track_render_node.node)},
-            {U32(sym::icon_type_vtable.vtable), UiType::Icon, U32(sym::icon_render_node.node)},
-            {U32(sym::icon_vtable.vtable), UiType::Icon, U32(sym::icon_render_node.node)},
-            {U32(sym::instant_text_vtable.vtable), UiType::Text, U32(sym::instant_text_render_node.node),
+            {Value(sym::slider_vtable, "vtable"), UiType::Button, U32(sym::slider_render_node.node)},
+            {Value(sym::track_vtable, "vtable"), UiType::Button, U32(sym::track_render_node.node)},
+            {Value(sym::icon_type_vtable, "vtable"), UiType::Icon, U32(sym::icon_render_node.node)},
+            {Value(sym::icon_vtable, "vtable"), UiType::Icon, U32(sym::icon_render_node.node)},
+            {Value(sym::instant_text_vtable, "vtable"), UiType::Text, U32(sym::instant_text_render_node.node),
              U32(sym::instant_text_set_text.text)},
-            {U32(sym::text_box_destructor.vtable), UiType::Text, U32(sym::text_box_render_node.node),
+            {Value(sym::text_box_destructor, "vtable"), UiType::Text, U32(sym::text_box_render_node.node),
              U32(sym::text_box_destructor.text)},
             // The edit box's text at +0xF8 is not in symbols.toml.
-            {U32(sym::edit_box_vtable.vtable), UiType::Editbox, U32(sym::edit_box_render_node.node), 0xF8},
+            {Value(sym::edit_box_vtable, "vtable"), UiType::Editbox, U32(sym::edit_box_render_node.node), 0xF8},
             // The check box's ticked byte at +0x100 is not in symbols.toml.
-            {U32(sym::checkbox_vtable.vtable), UiType::Checkbox, U32(sym::checkbox_render_node.node), 0, false,
+            {Value(sym::checkbox_vtable, "vtable"), UiType::Checkbox, U32(sym::checkbox_render_node.node), 0, false,
              UiKind::Children::None, 0x100},
-            {U32(sym::listbox_vtable.vtable), UiType::Listbox, U32(sym::listbox_render_node.node), 0, false,
+            {Value(sym::listbox_vtable, "vtable"), UiType::Listbox, U32(sym::listbox_render_node.node), 0, false,
              UiKind::Children::Listbox},
-            {U32(sym::smooth_listbox_vtable.vtable), UiType::Listbox, U32(sym::smooth_listbox_render_node.node), 0,
+            {Value(sym::smooth_listbox_vtable, "vtable"), UiType::Listbox, U32(sym::smooth_listbox_render_node.node), 0,
              false, UiKind::Children::SmoothListbox},
-            {U32(sym::overlapping_box_vtable.vtable), UiType::Listbox, U32(sym::overlapping_box_render_node.node), 0,
+            {Value(sym::overlapping_box_vtable, "vtable"), UiType::Listbox, U32(sym::overlapping_box_render_node.node), 0,
              false, UiKind::Children::Overlapping},
-            {U32(sym::grid_box_vtable.vtable), UiType::Listbox, U32(sym::grid_box_render_node.node), 0, false,
+            {Value(sym::grid_box_vtable, "vtable"), UiType::Listbox, U32(sym::grid_box_render_node.node), 0, false,
              UiKind::Children::Grid},
-            {U32(sym::scrollbar_vtable.vtable), UiType::Other, 0, 0, false, UiKind::Children::Scrollbar},
+            {Value(sym::scrollbar_vtable, "vtable"), UiType::Other, 0, 0, false, UiKind::Children::Scrollbar},
         };
     }
 
     // The members only Anvil knows: call when the plugin is loading.
     static UiLayout Load() {
         UiLayout l;
+        const std::uint32_t map_vtable = Value(sym::window_type_definition, "map_vtable");
+        Require(Value(sym::listbox_definition_map, "map_vtable") == map_vtable &&
+                    Value(sym::container_definition, "map_vtable") == map_vtable &&
+                    Value(sym::scrollbar_definition_map, "map_vtable") == map_vtable,
+                "the definition maps' vtable");
         l.sprite_node_size_rva = RvaOf(sym::sprite_node_size);
         l.widget_name_slot_rva = RvaOf(sym::widget_name_slot);
         l.window_name_slot_rva = RvaOf(sym::window_name_slot);

@@ -12,7 +12,7 @@ namespace tongs {
 // The console of EU4 1.37.5 (docs/design.md, "Game calls (0.7.0)"), from
 // plugin/symbols.toml. RVAs are relative to eu4.exe.
 struct ConsoleLayout {
-    unsigned manager_rva = U32(sym::console_manager_get.manager);  // pointer to the console manager; null before its first use
+    unsigned manager_rva = Value(sym::console_manager_get, "manager");  // pointer to the console manager; null before its first use
     unsigned dispatch_rva = 0;      // RvaOf(sym::console_dispatch): (manager, result, tokens) -> result, one tokenised line
     unsigned string_free_rva = 0;   // RvaOf(sym::string_free): the game's std::string destructor, for the result text
     unsigned entries = 0x00;        // not in symbols.toml: manager, vector of command entries (begin, end)
@@ -22,7 +22,7 @@ struct ConsoleLayout {
     unsigned entry_aliases = U32(sym::console_lookup.aliases);          // const char*[3]
     unsigned developer_lock = U32(sym::console_dispatch_gates.developer_lock);  // manager byte: developer commands locked
     unsigned mode_lock = U32(sym::console_mode_gate.mode_lock);  // manager byte: multiplayer/ironman lock, set at registration
-    unsigned root_rva = U32(sym::root_and_date.root);
+    unsigned root_rva = Value(sym::root_and_date, "root");
     unsigned session = U32(sym::session_of_root.session);  // root: the session
     unsigned session_vtable_rva = 0;                        // SessionVtableRva(), set when loading
     unsigned ironman = U32(sym::console_registration.ironman);  // root byte: ironman, as the registration reads it
