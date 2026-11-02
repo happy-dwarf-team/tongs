@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.1](https://github.com/happy-dwarf-team/tongs/compare/v0.25.0...v0.25.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **input:** pause, resume and speed press the speed buttons, also in multiplayer ([#134](https://github.com/happy-dwarf-team/tongs/issues/134)) ([e2b0c05](https://github.com/happy-dwarf-team/tongs/commit/e2b0c0540fdb4ca1d4db904635b5252fe0b81bee))
+
 ## [0.25.0](https://github.com/happy-dwarf-team/tongs/compare/v0.24.0...v0.25.0) (2026-11-01)
 
 
