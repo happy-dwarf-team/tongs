@@ -87,7 +87,7 @@ jobs:
           mv "$dir/package/tongs" workshop/anvil/tongs
           find workshop -type f | sort
 
-      - uses: happy-dwarf-team/paradox-workshop-publish@v0.2.3
+      - uses: happy-dwarf-team/paradox-workshop-publish@v0.3.0
         id: workshop
         with:
           steam-username: ${{ secrets.STEAM_USERNAME }}
