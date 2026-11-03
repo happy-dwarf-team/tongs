@@ -8,15 +8,78 @@ Tongs is for mod testers, tool makers and anyone who wants a program or an AI ag
 - **Ready clients:** PowerShell, Python and an MCP server, so Claude Code and other AI agents can use Tongs as a set of tools.
 - **Safe by default:** reading changes nothing, keyboard, mouse and console commands each need their own switch, and in ironman and multiplayer Anvil keeps Tongs asleep unless you allow it. No game files change, so ironman achievements stay available.
 
-## You need
-- **[Anvil](https://anvil.happydwarf.dev/) 1.7 or newer** in the game folder. Download it once from its website: the Workshop can't install it for you.
-- **EU4 1.37.5** on Steam (Windows). The GOG build 1.37.5.2 works too, with Tongs from GitHub.
-- After subscribing, start the game, approve Tongs in Anvil (Ctrl+Shift+F12, then Mods), switch it on there and restart. Anvil asks again after every update.
+Other Anvil plugins can read the game's interface through Tongs too, and open a province's view, even while its pipe is switched off.
 
 ![](https://i.imgur.com/Uf8Z21n.png)
 
-**More:** [plugin page and settings](https://anvil.happydwarf.dev/plugins/tongs/) · [GitHub: commands, clients, MCP server](https://github.com/happy-dwarf-team/tongs)
+## Before you subscribe
+- **[Anvil](https://anvil.happydwarf.dev/) 1.7 or newer** must be installed in the game folder. Get it from [anvil.happydwarf.dev](https://anvil.happydwarf.dev/) and press Download. The Workshop can't install it for you: a dwarf has to carry it in by hand, once.
+- **EU4 1.37.5** (Steam, Windows). On any other version Tongs stays out of the way and the game starts as usual.
+- **Playing on GOG?** The GOG build 1.37.5.2 works too, but GOG has no Workshop: see the FAQ below.
+- **Something to talk to it:** a script or an agent. The [GitHub page](https://github.com/happy-dwarf-team/tongs) has ready clients for PowerShell and Python and an MCP server, which lets Claude Code and other AI agents use Tongs as a set of tools.
 
-**More from Happy Dwarf Team:** [Anvil](https://anvil.happydwarf.dev/) · [Bellows, faster restarts for your test loops](https://steamcommunity.com/sharedfiles/filedetails/?id=3823747170) · [Etch, .gui previews in VS Code](https://etch.happydwarf.dev/) · [happydwarf.dev](https://happydwarf.dev/)
+![](https://i.imgur.com/Uf8Z21n.png)
 
-**Credits:** Anvil for letting a dwarf into the forge, and every test agent that clicked the wrong button a thousand times so yours doesn't have to. The little dwarf head on the thumbnail? The repository belongs to Happy Dwarf Team, and I am, in fact, a happy dwarf myself.
+## Getting it running
+1. Subscribe and enable Tongs in your playset.
+2. Start the game. Anvil will tell you a new plugin is waiting.
+3. Press **Ctrl+Shift+F12**, open **Mods** and approve Tongs. You can also approve it before playing, in Anvil Manager.
+4. Switch Tongs on in the same panel or in Anvil Manager (it starts switched off), and allow keyboard and mouse if your script needs them.
+5. Restart.
+
+Anvil asks again after every update. Until you approve, the version you trusted before keeps working.
+
+![](https://i.imgur.com/Uf8Z21n.png)
+
+## What it doesn't touch
+- No game files: the files the game checks stay the same, so ironman achievements stay available.
+- Reading the game changes nothing. Keyboard, mouse and console commands do change your game, exactly as if you had pressed the keys yourself, and each of them needs its own switch.
+- Navigation moves your camera and opens province views, as the game's own province links do. For your scripts it is switched on together with keyboard and mouse; another plugin you installed (such as Etch's live game) can ask for it even when they are off, and never gets more than a province link would do.
+- Loading a save by name is a console-level command: it discards the running game without saving it, as the game's own Load dialog does, and never saves for you.
+- In ironman and multiplayer Anvil keeps Tongs asleep unless you allow it there yourself.
+- Unsubscribe and it's gone. Nothing is left in your saves.
+
+![](https://i.imgur.com/Uf8Z21n.png)
+
+## More from Happy Dwarf Team
+- **[Anvil](https://anvil.happydwarf.dev/)**: the plugin loader Tongs runs on. Without it, Tongs is just a folder; with it, you see which plugins load and switch each one on or off in Anvil Manager.
+- **[Bellows](https://steamcommunity.com/sharedfiles/filedetails/?id=3823747170)**: test loops restart the game often; Bellows cuts each start from about 41 to about 13 seconds on our test machine.
+- **[Etch](https://etch.happydwarf.dev/)**: for interface modders, see your `.gui` window as the game draws it, right in VS Code.
+- Everything we make: [happydwarf.dev](https://happydwarf.dev/)
+
+![](https://i.imgur.com/Uf8Z21n.png)
+
+### Alternative download
+[GitHub](https://github.com/happy-dwarf-team/tongs), also for the GOG build. Commands, clients and settings: [anvil.happydwarf.dev/plugins/tongs](https://anvil.happydwarf.dev/plugins/tongs/).
+
+![](https://i.imgur.com/Uf8Z21n.png)
+
+## FAQ
+
+### Why do I have to approve it?
+Tongs is a real program running inside your game, not just a pile of text files. Anvil makes sure nothing like that runs without your nod. Trust, but verify. Dwarf law.
+
+### I subscribed and nothing happens.
+That is on purpose: Tongs starts switched off. Turn it on in Anvil's panel or in Anvil Manager and restart the game. Then point your script at it; the GitHub page shows how.
+
+### Can someone on the internet control my game?
+No. Tongs only answers programs running on your own computer under your own Windows user. The front gate stays shut, and the dwarf keeps the key.
+
+### Does it work with my mods?
+It reads the interface the game is actually showing, so interface mods should not get in its way. The game itself has to be 1.37.5 (or GOG's 1.37.5.2).
+
+### I play on GOG. Can I use it?
+Yes, on the GOG build 1.37.5.2. GOG has no Workshop, so install Tongs from the **Catalog** tab in Anvil Manager (Anvil 1.9 or newer), or from the release zip on [GitHub](https://github.com/happy-dwarf-team/tongs/releases). The tongs fit either hand.
+
+### What is that little dwarf head on the thumbnail?
+If you check the mod's GitHub page, you will notice the repository belongs to Happy Dwarf Team.
+
+I like dwarves.
+I like being happy.
+I am, in fact, a happy dwarf myself.
+
+![](https://i.imgur.com/Uf8Z21n.png)
+
+## Credits
+**Anvil** for letting a dwarf into the forge.
+**Every test agent that clicked the wrong button a thousand times** so yours doesn't have to.
