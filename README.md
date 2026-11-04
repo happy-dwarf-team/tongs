@@ -182,14 +182,16 @@ player discover a capital is refused. Header:
 
 ## Install / uninstall
 
-Install [Anvil](https://github.com/happy-dwarf-team/anvil#install--uninstall)
-1.7.0 or newer first, with its standard plugin `anvil-game` (part of Anvil's
-package). Then download `tongs-windows-x64.zip` from the
+[Install Anvil](https://anvil.happydwarf.dev/docs/install/) 1.7.0 or newer
+first, with its standard plugin `anvil-game` (part of Anvil's package). Then
+click **Install** next to Tongs on the **Catalog** tab of Anvil Manager (Anvil
+1.9 or newer), or download `tongs-windows-x64.zip` from the
 [latest release](https://github.com/happy-dwarf-team/tongs/releases/latest)
 and extract it into `<EU4>/anvil/plugins/`; it contains the `tongs` folder
-(`SHA256SUMS.txt` next to the archive holds its checksum). Turn it on in
-`anvil/data/tongs/settings.toml` (see "Settings") and start the game. Delete
-the `tongs` folder to uninstall.
+(`SHA256SUMS.txt` next to the archive holds its checksum). Turn it on on the
+Manager's **Settings** tab or in `anvil/data/tongs/settings.toml` (see
+"Settings") and start the game. To uninstall, click **Remove** on the
+**Plugins** tab, or delete the `tongs` folder.
 
 Tongs can also come from its Steam Workshop mod
 (see [Steam Workshop](#steam-workshop)): Anvil loads it from the enabled mod
