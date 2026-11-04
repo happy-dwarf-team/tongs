@@ -12,22 +12,16 @@ Other Anvil plugins can read the game's interface through Tongs too, and open a 
 
 ![](https://i.imgur.com/Uf8Z21n.png)
 
-## Before you subscribe
-- **[Anvil](https://anvil.happydwarf.dev/) 1.7 or newer** must be installed in the game folder. Get it from [anvil.happydwarf.dev](https://anvil.happydwarf.dev/) and press Download. The Workshop can't install it for you: a dwarf has to carry it in by hand, once.
-- **EU4 1.37.5** (Steam, Windows). On any other version Tongs stays out of the way and the game starts as usual.
-- **Playing on GOG?** The GOG build 1.37.5.2 works too, but GOG has no Workshop: see the FAQ below.
-- **Something to talk to it:** a script or an agent. The [GitHub page](https://github.com/happy-dwarf-team/tongs) has ready clients for PowerShell and Python and an MCP server, which lets Claude Code and other AI agents use Tongs as a set of tools.
+## Install
+Tongs runs on EU4 1.37.5 (Steam, Windows; the GOG build 1.37.5.2 too, see the FAQ). On any other version it stays out of the way and the game starts as usual. You also need something to talk to it, a script or an agent: the [GitHub page](https://github.com/happy-dwarf-team/tongs) has ready clients for PowerShell and Python and an MCP server, which lets Claude Code and other AI agents use Tongs as a set of tools.
 
-![](https://i.imgur.com/Uf8Z21n.png)
+1. **Install [Anvil](https://anvil.happydwarf.dev/) 1.7 or newer.** Download it, run it and click **Install Anvil**. If Windows warns, choose **More info**, then **Run anyway**. You do this once; the Workshop can't do it for you.
+2. **Subscribe** and enable Tongs in your playset.
+3. **Start the game.** Anvil says a plugin is waiting: press **Ctrl+Shift+F12**, open **Mods** and approve Tongs.
+4. **Switch Tongs on** in the same panel (it starts switched off), and allow keyboard and mouse if your script needs them.
+5. **Restart the game.**
 
-## Getting it running
-1. Subscribe and enable Tongs in your playset.
-2. Start the game. Anvil will tell you a new plugin is waiting.
-3. Press **Ctrl+Shift+F12**, open **Mods** and approve Tongs. You can also approve it before playing, in Anvil Manager.
-4. Switch Tongs on in the same panel or in Anvil Manager (it starts switched off), and allow keyboard and mouse if your script needs them.
-5. Restart.
-
-Anvil asks again after every update. Until you approve, the version you trusted before keeps working.
+Anvil asks again after an update; the version you approved keeps working until then.
 
 ![](https://i.imgur.com/Uf8Z21n.png)
 
@@ -44,6 +38,7 @@ Anvil asks again after every update. Until you approve, the version you trusted 
 ## More from Happy Dwarf Team
 - **[Anvil](https://anvil.happydwarf.dev/)**: the plugin loader Tongs runs on. Without it, Tongs is just a folder; with it, you see which plugins load and switch each one on or off in Anvil Manager.
 - **[Bellows](https://steamcommunity.com/sharedfiles/filedetails/?id=3823747170)**: test loops restart the game often; Bellows cuts each start from about 41 to about 13 seconds on our test machine.
+- **[Mei](https://steamcommunity.com/sharedfiles/filedetails/?id=3832685486)**: Chinese, Japanese and Korean text in EU4, for the translation mod of your choice.
 - **[Etch](https://etch.happydwarf.dev/)**: for interface modders, see your `.gui` window as the game draws it, right in VS Code.
 - Everything we make: [happydwarf.dev](https://happydwarf.dev/)
 
