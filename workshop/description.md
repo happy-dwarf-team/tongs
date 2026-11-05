@@ -1,55 +1,22 @@
-**Let your scripts and AI agents play EU4 through the front door, not through screenshots. A smith never holds hot iron bare-handed.**
+![](https://anvil.happydwarf.dev/workshop/tongs-hero.png)
 
-Tongs is for mod testers, tool makers and anyone who wants a program or an AI agent to watch a game of EU4 and press its buttons. On its own it does nothing you can see: it starts switched off and only listens to programs on your own computer.
+Tongs is for mod testers, tool makers and anyone who wants a program or an AI agent to watch a game of EU4 and press its buttons. On its own it does nothing you can see.
 
-## What you get
-- **See the game:** the date, the speed, the open windows and events, and screenshots.
-- **Play it, if you allow it:** pause, change speed, press keys and click buttons by name, just as a player would.
-- **Ready clients:** PowerShell, Python and an MCP server, so Claude Code and other AI agents can use Tongs as a set of tools.
-- **Safe by default:** reading changes nothing, keyboard, mouse and console commands each need their own switch, and in ironman and multiplayer Anvil keeps Tongs asleep unless you allow it. No game files change, so ironman achievements stay available.
+![](https://anvil.happydwarf.dev/workshop/tongs-install.png)
 
-Other Anvil plugins can read the game's interface through Tongs too, and open a province's view, even while its pipe is switched off.
+![](https://anvil.happydwarf.dev/workshop/tongs-steps.png)
 
-![](https://i.imgur.com/Uf8Z21n.png)
+Needs [Anvil](https://anvil.happydwarf.dev/) 1.7 or newer, EU4 1.37.5 (Steam; the GOG build 1.37.5.2 too, see the FAQ) and something to talk to it: the [GitHub page](https://github.com/happy-dwarf-team/tongs) has clients for PowerShell and Python and an MCP server. If Windows warns about Anvil, choose **More info**, then **Run anyway**.
 
-## Install
-Tongs runs on EU4 1.37.5 (Steam, Windows; the GOG build 1.37.5.2 too, see the FAQ). On any other version it stays out of the way and the game starts as usual. You also need something to talk to it, a script or an agent: the [GitHub page](https://github.com/happy-dwarf-team/tongs) has ready clients for PowerShell and Python and an MCP server, which lets Claude Code and other AI agents use Tongs as a set of tools.
+![](https://anvil.happydwarf.dev/workshop/tongs-tiles-title.png)
 
-1. **Install [Anvil](https://anvil.happydwarf.dev/) 1.7 or newer.** Download it, run it and click **Install Anvil**. If Windows warns, choose **More info**, then **Run anyway**. You do this once; the Workshop can't do it for you.
-2. **Subscribe** and enable Tongs in your playset.
-3. **Start the game.** Anvil says a plugin is waiting: press **Ctrl+Shift+F12**, open **Mods** and approve Tongs.
-4. **Switch Tongs on** in the same panel (it starts switched off), and allow keyboard and mouse if your script needs them.
-5. **Restart the game.**
+![](https://anvil.happydwarf.dev/workshop/tongs-tiles.png)
 
-Anvil asks again after an update; the version you approved keeps working until then.
+Keyboard, mouse and console commands change your game exactly as if you had pressed the keys yourself. Loading a save by name discards the running game without saving it. In ironman and multiplayer Anvil keeps Tongs asleep unless you allow it there.
 
-![](https://i.imgur.com/Uf8Z21n.png)
+[![](https://anvil.happydwarf.dev/workshop/tongs-docs.png)](https://anvil.happydwarf.dev/plugins/tongs/) [![](https://anvil.happydwarf.dev/workshop/tongs-github.png)](https://github.com/happy-dwarf-team/tongs)
 
-## What it doesn't touch
-- No game files: the files the game checks stay the same, so ironman achievements stay available.
-- Reading the game changes nothing. Keyboard, mouse and console commands do change your game, exactly as if you had pressed the keys yourself, and each of them needs its own switch.
-- Navigation moves your camera and opens province views, as the game's own province links do. For your scripts it is switched on together with keyboard and mouse; another plugin you installed (such as Etch's live game) can ask for it even when they are off, and never gets more than a province link would do.
-- Loading a save by name is a console-level command: it discards the running game without saving it, as the game's own Load dialog does, and never saves for you.
-- In ironman and multiplayer Anvil keeps Tongs asleep unless you allow it there yourself.
-- Unsubscribe and it's gone. Nothing is left in your saves.
-
-![](https://i.imgur.com/Uf8Z21n.png)
-
-## More from Happy Dwarf Team
-- **[Anvil](https://anvil.happydwarf.dev/)**: the plugin loader Tongs runs on. Without it, Tongs is just a folder; with it, you see which plugins load and switch each one on or off in Anvil Manager.
-- **[Bellows](https://steamcommunity.com/sharedfiles/filedetails/?id=3823747170)**: test loops restart the game often; Bellows cuts each start from about 41 to about 13 seconds on our test machine.
-- **[Mei](https://steamcommunity.com/sharedfiles/filedetails/?id=3832685486)**: Chinese, Japanese and Korean text in EU4, for the translation mod of your choice.
-- **[Etch](https://etch.happydwarf.dev/)**: for interface modders, see your `.gui` window as the game draws it, right in VS Code.
-- Everything we make: [happydwarf.dev](https://happydwarf.dev/)
-
-![](https://i.imgur.com/Uf8Z21n.png)
-
-### Alternative download
-[GitHub](https://github.com/happy-dwarf-team/tongs), also for the GOG build. Commands, clients and settings: [anvil.happydwarf.dev/plugins/tongs](https://anvil.happydwarf.dev/plugins/tongs/).
-
-![](https://i.imgur.com/Uf8Z21n.png)
-
-## FAQ
+![](https://anvil.happydwarf.dev/workshop/tongs-faq.png)
 
 ### Why do I have to approve it?
 Tongs is a real program running inside your game, not just a pile of text files. Anvil makes sure nothing like that runs without your nod. Trust, but verify. Dwarf law.
@@ -73,8 +40,9 @@ I like dwarves.
 I like being happy.
 I am, in fact, a happy dwarf myself.
 
-![](https://i.imgur.com/Uf8Z21n.png)
+![](https://anvil.happydwarf.dev/workshop/tongs-credits.png)
 
-## Credits
 **Anvil** for letting a dwarf into the forge.
 **Every test agent that clicked the wrong button a thousand times** so yours doesn't have to.
+
+[![](https://anvil.happydwarf.dev/workshop/collection-en.png)](https://steamcommunity.com/sharedfiles/filedetails/?id=3833899418)
