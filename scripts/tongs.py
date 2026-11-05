@@ -175,6 +175,47 @@ def send_cancel(timeout_s=LATE_ANSWER_S):
 # --- the connection ----------------------------------------------------------
 
 
+class PipeOwnerError(OSError):
+    """The pipe's name is taken by a process of another Windows user: it is not the game."""
+
+
+def _pipe_owner_is_ours(handle):
+    """Whether the object behind `handle` belongs to this Windows user or, for a game run as
+    administrator, to the Administrators group. Pipe names are shared by all users of a computer,
+    so on one with several accounts another user can create this one before the game does."""
+    import ctypes
+    from ctypes import wintypes
+
+    advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    advapi.GetSecurityInfo.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.DWORD] + [ctypes.c_void_p] * 5
+    advapi.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p]
+    advapi.EqualSid.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    advapi.IsWellKnownSid.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    kernel.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel.LocalFree.restype = ctypes.c_void_p
+
+    SE_KERNEL_OBJECT, OWNER_SECURITY_INFORMATION, TOKEN_USER = 6, 1, 1
+    WIN_BUILTIN_ADMINISTRATORS_SID = 26
+    current_process_token = wintypes.HANDLE(-4)  # GetCurrentProcessToken()
+
+    owner = ctypes.c_void_p()
+    descriptor = ctypes.c_void_p()
+    if advapi.GetSecurityInfo(handle, SE_KERNEL_OBJECT, OWNER_SECURITY_INFORMATION, ctypes.byref(owner), None, None, None,
+                              ctypes.byref(descriptor)) != 0:
+        return False
+    try:
+        user = ctypes.create_string_buffer(256)
+        size = wintypes.DWORD()
+        if not advapi.GetTokenInformation(current_process_token, TOKEN_USER, user, len(user), ctypes.byref(size)):
+            return False
+        sid = ctypes.cast(user, ctypes.POINTER(ctypes.c_void_p))[0]  # TOKEN_USER.User.Sid
+        return bool(advapi.EqualSid(owner, sid) or advapi.IsWellKnownSid(owner, WIN_BUILTIN_ADMINISTRATORS_SID))
+    finally:
+        kernel.LocalFree(descriptor)
+
+
+
 class Tongs:
     def __init__(self, timeout_s=2.0, expect_pid=None, expect_start_ms=None, read_timeout_s=None):
         """Opens the pipe, retrying for `timeout_s` (the pipe has 8 instances, and it is not there
@@ -190,6 +231,9 @@ class Tongs:
                 if time.monotonic() >= deadline:
                     raise
                 time.sleep(0.05)
+        if not _pipe_owner_is_ours(msvcrt.get_osfhandle(self._pipe.fileno())):
+            self._pipe.close()
+            raise PipeOwnerError(f"{PIPE} belongs to another Windows user: it is not the game")
         self._buffer = b""
         self._notes = collections.deque()  # notifications read while waiting for an answer
         self.expect_pid = expect_pid
