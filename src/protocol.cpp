@@ -1498,6 +1498,14 @@ std::string WorldCommand(const Handlers& h, std::string_view command, std::strin
 
 constexpr std::size_t kLogText = 200;  // characters of a game call's text in the log
 
+// `mode` in a game call's answer (ADR 0001): with a switch on, once the main
+// thread has read the mode; a refusal before that has none.
+std::string ModeMembers(const GameCallPolicy& policy, const ConsoleRaw& raw) {
+    if ((!policy.ironman && !policy.multiplayer) || raw.session == 0) return {};
+    return std::string(",\"mode\":{\"ironman\":") + Bool(raw.ironman) + ",\"multiplayer\":" + Bool(raw.multiplayer) +
+           ",\"game_calls_ironman\":" + Bool(policy.ironman) + ",\"game_calls_multiplayer\":" + Bool(policy.multiplayer) + "}";
+}
+
 // Game calls: one console line run on the main thread (ADR 0001).
 class ConsoleCall {
 public:
@@ -1616,12 +1624,7 @@ private:
         if (!ok) out += ",\"error\":" + Quoted(error) + ",\"detail\":" + Quoted(detail);
         out += ",\"command\":\"console\",\"line\":" + Quoted(line_);
         if (!name_.empty()) out += ",\"name\":" + Quoted(name_);
-        // Only once the main thread has read the mode; a refusal before that has none.
-        if ((h_.game_calls.ironman || h_.game_calls.multiplayer) && raw_.session != 0) {
-            out += std::string(",\"mode\":{\"ironman\":") + Bool(raw_.ironman) + ",\"multiplayer\":" + Bool(raw_.multiplayer) +
-                   ",\"game_calls_ironman\":" + Bool(h_.game_calls.ironman) +
-                   ",\"game_calls_multiplayer\":" + Bool(h_.game_calls.multiplayer) + "}";
-        }
+        out += ModeMembers(h_.game_calls, raw_);
         if (raw_.manager) {
             out += ",\"console\":{\"commands\":" + std::to_string(raw_.entries.size()) +
                    ",\"developer_lock\":" + std::to_string(raw_.developer_lock) +
@@ -1688,6 +1691,7 @@ std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
     WorldFailure refusal;
     StateSnapshot before;
     bool promoted = false;
+    std::string mode;  // of a promoted call
     bool faulted = false;
     unsigned long fault_code = 0;
     CameraRaw set;  // the camera right after the call: the target it set
@@ -1715,8 +1719,9 @@ std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
                     ConsoleRaw raw;
                     if (std::string error = h.read_console(raw); !error.empty()) {
                         refusal = {"console_unavailable", error};
-                    } else if (ConsoleRefusal r = CheckConsoleMode(h.game_calls, raw); r.refused()) {
-                        refusal = {r.error, r.detail};
+                    } else {
+                        mode = ModeMembers(h.game_calls, raw);
+                        if (ConsoleRefusal r = CheckConsoleMode(h.game_calls, raw); r.refused()) refusal = {r.error, r.detail};
                     }
                 }
             }
@@ -1733,7 +1738,7 @@ std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
     if (!o.ran) return refuse(o.error, "no outer frame came within the timeout; nothing was called");
     if (refusal.failed()) {
         log(promoted ? kLogWarning : kLogInfo, "refused: " + refusal.error + " (" + refusal.detail + ")");
-        return refuse(refusal.error, refusal.detail);
+        return refuse(refusal.error, refusal.detail, mode);
     }
     // Counted once: a client call, or a game call when it posts a command.
     std::string counts;
@@ -1742,7 +1747,7 @@ std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
         const std::uint64_t total = AddTotalCall(g_game_total, before);
         PublishActivity(h, ",\"what\":\"game_call\",\"command\":" + Quote(command) + ",\"game_calls\":" + std::to_string(calls));
         log(kLogWarning, "made as a game call: the player discovers the owner's capital");
-        counts = ",\"game_call\":true,\"game_calls_total\":" + std::to_string(total);
+        counts = ",\"game_call\":true,\"game_calls_total\":" + std::to_string(total) + mode;
     } else {
         counts = ",\"client_calls_total\":" + std::to_string(CountClientCall(h, command, before));
     }
@@ -1926,6 +1931,7 @@ std::string SaveLoad(const Handlers& h, std::string_view argument, int client) {
         bool abandoned = false;  // the answer went out at the timeout: the thread counts the call
         Dispatcher::Outcome outcome;
         std::string refusal, refusal_detail;
+        std::string mode;  // read before the call, so not in the answer at the timeout
         StateSnapshot before;
         LoadCall load;
         std::uint64_t load_ms = 0;
@@ -1933,7 +1939,9 @@ std::string SaveLoad(const Handlers& h, std::string_view argument, int client) {
     };
     auto call = std::make_shared<Call>();
     const Handlers handlers = h;  // the thread may outlive this request
-    std::thread([call, handlers, name, timeout_s] {
+    const std::string activity = ",\"what\":\"game_call\",\"command\":\"save load\",\"name\":\"save load\",\"save\":" + Quote(name);
+    std::thread([call, handlers, name, timeout_s, activity, client] {
+        t_client = client;
         const Handlers& hh = handlers;
         Dispatcher::Outcome o = hh.dispatcher->Run(
             Dispatcher::Kind::GameCall,
@@ -1950,6 +1958,7 @@ std::string SaveLoad(const Handlers& h, std::string_view argument, int client) {
                 if (hh.read_console) {
                     ConsoleRaw raw;
                     if (std::string error = hh.read_console(raw); !error.empty()) return refused("console_unavailable", error);
+                    call->mode = ModeMembers(hh.game_calls, raw);
                     if (ConsoleRefusal r = CheckConsoleMode(hh.game_calls, raw); r.refused()) {
                         call->refusal = r.error;
                         call->refusal_detail = r.detail;
@@ -1976,8 +1985,9 @@ std::string SaveLoad(const Handlers& h, std::string_view argument, int client) {
         call->done = true;
         if (call->abandoned && call->called) {
             // Nobody waits for this load any more; it is still one game call.
-            g_game_calls.fetch_add(1);
+            const std::uint64_t calls = g_game_calls.fetch_add(1) + 1;
             AddTotalCall(g_game_total, hh.read_state());
+            PublishActivity(hh, activity + ",\"game_calls\":" + std::to_string(calls));
         }
         call->done_cv.notify_all();
     }).detach();
@@ -1994,19 +2004,20 @@ std::string SaveLoad(const Handlers& h, std::string_view argument, int client) {
         }
     }
     if (!call->outcome.ran) return refuse(call->outcome.error, "no outer frame came within the timeout; nothing was called");
-    if (!call->refusal.empty()) return refuse(call->refusal, call->refusal_detail, meta_members);
+    if (!call->refusal.empty()) return refuse(call->refusal, call->refusal_detail, meta_members + call->mode);
 
     // Called: one game call, counted in the session it made (game_calls_total is 1 afterwards).
     const std::uint64_t calls = g_game_calls.fetch_add(1) + 1;
-    PublishActivity(h, ",\"what\":\"game_call\",\"command\":\"save load\",\"name\":\"save load\",\"save\":" + Quote(name) +
-                           ",\"game_calls\":" + std::to_string(calls));
-    const std::string called = ",\"called\":true,\"load_ms\":" + std::to_string(call->load_ms) + meta_members;
+    PublishActivity(h, activity + ",\"game_calls\":" + std::to_string(calls));
+    const std::string called = ",\"called\":true,\"load_ms\":" + std::to_string(call->load_ms) + meta_members + call->mode;
     if (call->load.faulted) {
         char code[16];
         std::snprintf(code, sizeof code, "0x%08lX", call->load.fault_code);
         log(kLogError, std::string("faulted (exception ") + code + ")");
+        const StateSnapshot after = h.read_state();
+        const std::uint64_t total = AddTotalCall(g_game_total, after.in_game ? after : call->before);
         return refuse("faulted", std::string("exception ") + code + " in the game's loader; game calls are off until the game exits",
-                      called);
+                      called + ",\"game_calls_total\":" + std::to_string(total));
     }
     if (call->load.result != 0) {
         const int r = call->load.result;

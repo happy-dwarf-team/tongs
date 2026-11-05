@@ -3809,6 +3809,19 @@ static void TestNavigationCommands() {
     out = HandleRequest("province open 151", h);
     assert(Contains(out, "\"ok\":true") && Contains(out, "\"game_call\":true,\"game_calls_total\":1") &&
            !Contains(out, "client_calls_total"));
+
+    // In ironman with the switch on, the answer says so (ADR 0001).
+    ConsoleRaw console;
+    console.ironman = true;
+    console.session = 1;
+    Handlers ironman = h;
+    ironman.game_calls.ironman = true;
+    ironman.read_console = [&console](ConsoleRaw& raw) {
+        raw = console;
+        return std::string();
+    };
+    out = HandleRequest("province open 151", ironman);
+    assert(Contains(out, "\"game_call\":true") && Contains(out, "\"mode\":{\"ironman\":true,\"multiplayer\":false,"));
     facts.discover = false;
 
     // A view that does not show the province: not_shown, still counted.
@@ -3894,7 +3907,7 @@ static void TestSaveMeta() {
            m.ironman && m.versions == std::vector<std::string>{"1.37.4.0"});
 }
 
-static void TestSaveLoadCommand() {
+static void TestSaveLoadCommand(bool fault = false) {
     Handlers h;
     h.now_ms = SteadyMs;
     h.sleep_ms = SleepMs;
@@ -3968,6 +3981,21 @@ static void TestSaveLoadCommand() {
     h.log = [&logged](int, const std::string& message) { logged.push_back(message); };
     FakeMainThread main(d);
 
+    // In the game's code, so it counts like any other call, in the total too (ADR 0001).
+    if (fault) {
+        h.call_load = [](const std::string&) {
+            LoadCall c;
+            c.faulted = true;
+            c.fault_code = 0xC0000005;
+            return c;
+        };
+        out = HandleRequest("save load x", h);
+        assert(Contains(out, "\"error\":\"faulted\"") && Contains(out, "\"called\":true") && Contains(out, "\"game_calls_total\":1"));
+        assert(Contains(HandleRequest("state", h), "\"game_calls_total\":1"));
+        assert(Contains(HandleRequest("save load x", h), "\"error\":\"game_calls_tripped\""));
+        return;
+    }
+
     assert(Contains(HandleRequest("save load missing", h), "\"error\":\"no_such_save\""));
     file = "PNG";
     assert(Contains(HandleRequest("save load x", h), "\"error\":\"unreadable_save\""));
@@ -4010,14 +4038,40 @@ static void TestSaveLoadCommand() {
     std::fprintf(stderr, "%s\n", out.c_str());
     assert(Contains(out, "\"error\":\"not_loaded\"") && Contains(out, "\"seen\":{\"in_game\":true,\"loading\":false,\"date\":\"1720.1.1\",\"player\":\"RUS\"}"));
 
-    // A load longer than the timeout: the answer comes at the timeout, the effect unknown.
+    // Ironman: the console's refusal; with the switch on, the answer says so (ADR 0001).
+    ConsoleRaw console;
+    console.ironman = true;
+    console.session = game.session;
+    h.read_console = [&console](ConsoleRaw& raw) {
+        raw = console;
+        return std::string();
+    };
+    assert(Contains(HandleRequest("save load x", h), "\"error\":\"ironman\""));
+    Handlers ironman = h;
+    ironman.game_calls.ironman = true;
+    out = HandleRequest("save load x", ironman);
+    assert(Contains(out, "\"called\":true") && Contains(out, "\"mode\":{\"ironman\":true,\"multiplayer\":false,"));
+    h.read_console = nullptr;
+
+    // A load longer than the timeout: the answer comes at the timeout, the effect unknown; the
+    // load is still a game call, and shows as one when it ends.
     h.call_load = [&](const std::string&) {
         SleepMs(2500);
         return LoadCall{};
     };
-    out = HandleRequest("save load x timeout=1", h);
+    std::uint64_t clock = 0;
+    NotificationHub hub([&clock] { return clock; });
+    SubscribeRequest activity;
+    activity.kinds = Bit(NotificationKind::Activity);
+    const auto subscription = hub.Subscribe(activity);
+    h.notifications = &hub;
+    out = HandleRequest("save load x timeout=1", h, 3);
     assert(Contains(out, "\"error\":\"timeout\"") && Contains(out, "\"started\":true"));
     SleepMs(2000);  // let the load finish before the fake main thread goes
+    const std::vector<std::string> lines = Lines(subscription->Take(0));
+    assert(lines.size() == 1 && Contains(lines[0], "\"what\":\"game_call\"") && Contains(lines[0], "\"save\":\"x\"") &&
+           Contains(lines[0], "\"client\":3"));
+    hub.Unsubscribe(subscription);
 
     assert(!logged.empty());
 }
@@ -4168,7 +4222,13 @@ static void TestNavigationServiceTripped() {
     assert(service.ProvinceView(&view) == ANVIL_OK);
 }
 
-int main() {
+int main(int argc, char** argv) {
+    // A process of its own: a fault trips game calls for the rest of the process.
+    if (argc > 1 && std::string_view(argv[1]) == "save-load-fault") {
+        TestSaveLoadCommand(true);
+        std::puts("ok");
+        return 0;
+    }
     TestWorldParsing();
     TestWorldAnswers();
     TestWorldCommands();
