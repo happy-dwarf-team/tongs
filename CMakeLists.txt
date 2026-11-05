@@ -54,6 +54,7 @@ if(TONGS_BUILD_TESTS)
         target_compile_options(test_core PRIVATE /UNDEBUG)
     endif()
     add_test(NAME core COMMAND test_core)
+    add_test(NAME core_save_load_fault COMMAND test_core save-load-fault)
     # symbols.lock matches symbols.toml and says "ok" (anvil check without the game).
     add_test(NAME anvil_check COMMAND "${ANVIL_SDK_TOOL}" check "${CMAKE_CURRENT_SOURCE_DIR}/plugin")
 endif()

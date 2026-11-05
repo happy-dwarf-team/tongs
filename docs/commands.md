@@ -263,7 +263,7 @@ multiplayer they follow input: Anvil's allow lists apply.
   `game_calls = true` it refuses `needs_game_calls`; with it, the call counts
   as one game call only (in `game_calls`, not `client_calls`), takes the
   console's ironman and multiplayer refusals, and the answer carries
-  `"game_call": true`.
+  `"game_call": true` (and `mode`, with one of their switches on).
 - **Refusals before calling** (nothing called, nothing counted; they go to
   the Anvil log):
 
@@ -512,7 +512,8 @@ when Tongs called the game's loader. A run with it is a marked run.
 - **`timeout=S`**: default 120 s, up to 600, for the whole command. When no
   frame comes before it, nothing was called (`main thread busy`). When the load
   is still running at the timeout, the answer is `timeout` with
-  `started: true`, and its effect is unknown.
+  `started: true`, and its effect is unknown; the load counts, and its
+  `activity` notification comes, when it ends.
 - **Refusals before calling** (nothing called or counted): `bad_name`,
   `no_such_save`, `unreadable_save` (Tongs could not read the metadata),
   `ironman_save`, `not_in_game`, `not_paused`, `game_calls_disabled`,
@@ -521,6 +522,8 @@ when Tongs called the game's loader. A run with it is a marked run.
   call): `bad_name`, `no_such_save` or `rejected` for the loader's return codes
   1, 2 and 3 (3: the metadata was rejected, such as an ironman save in a
   modded game), `not_loaded` (with what the frame showed, `seen`), `faulted`.
+  With `game_calls_ironman` or `game_calls_multiplayer` on, these answers and
+  the console's refusals carry `mode`.
 - **Afterwards** the client waits for input with the ready wait for the new
   `session` (see [Sessions](#sessions-and-the-ready-wait)); the `state`
   notification `entered_game` says `loaded_by: "tongs"`, and `null` after a
