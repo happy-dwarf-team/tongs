@@ -145,7 +145,11 @@ discover a capital is refused. Header:
   province views) also need `input = true`, and console commands need
   `game_calls = true` (see [Settings](#settings)).
 - Local clients of the Windows user running the game only (pipe DACL, remote
-  clients rejected). No network listener.
+  clients rejected). No network listener. The Python client and the MCP server
+  also refuse a pipe that another Windows user created under this name.
+- Text from the game and its mods reaches a client as it is. An agent should
+  treat it as data, not instructions: the MCP server says so in its
+  instructions.
 - **Game state can change** with `game_calls = true`: `console` runs the
   game's own console commands, which change the simulation. Tongs refuses some
   commands always and others unless allowed (see [Console](docs/commands.md#console)), refuses every

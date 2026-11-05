@@ -142,6 +142,22 @@ def test_a_late_answer_is_returned_with_the_timeout(serve):
 
 
 @windows
+@windows
+def test_a_pipe_of_this_user_is_accepted(serve):
+    serve(lambda line: {"ok": True})
+    with Tongs(timeout_s=2) as client:
+        assert client.call("ping")["ok"] is True
+
+
+@windows
+def test_a_pipe_of_another_user_is_refused(serve, monkeypatch):
+    monkeypatch.setattr(tongs, "_pipe_owner_is_ours", lambda handle: False)
+    server = serve(lambda line: {"ok": True})
+    with pytest.raises(tongs.PipeOwnerError):
+        Tongs(timeout_s=2)
+    assert server.lines == []
+
+
 def test_no_answer_closes_the_connection(serve, monkeypatch):
     monkeypatch.setattr(tongs, "LATE_ANSWER_S", 0.2)
     server = serve(lambda line: None if line == "key a" else game(line))
