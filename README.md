@@ -5,34 +5,34 @@
 [![Steam Workshop](https://img.shields.io/badge/Steam%20Workshop-Tongs-1b2838?logo=steam)](https://steamcommunity.com/sharedfiles/filedetails/?id=3826695093)
 [![License: MIT](https://img.shields.io/github/license/happy-dwarf-team/tongs)](LICENSE)
 
-**Control Europa Universalis IV from scripts and agents.** An
-[Anvil](https://github.com/happy-dwarf-team/anvil) plugin that lets test agents
-and scripts talk to a running game through a local named pipe, instead of
-reading pixels from screenshots. Like a smith's tongs, it holds the work from
-outside the forge.
+**Control Europa Universalis IV from scripts and agents.** Tongs is an
+[Anvil](https://github.com/happy-dwarf-team/anvil) plugin. Test agents and
+scripts talk to a running game through a local named pipe, instead of reading
+pixels from screenshots. Like a smith's tongs, it holds the work from outside
+the forge.
 
 **Install guide:
 [anvil.happydwarf.dev/plugins/tongs](https://anvil.happydwarf.dev/plugins/tongs/).**
 
-> Status: early. It reads game state, the interface's widget tree and the open
-> events, takes screenshots and, when you allow it, uses the keyboard and mouse
-> in the game (pause, speed, run to a date, keys, text, clicks on points or on
-> widgets by name, event choices) through the game's own SDL input, so the
-> window does not need focus. With `game_calls = true` it also runs console
-> commands, which change game state; without it, it never does. A connection
-> can also subscribe to notifications: state and date changes, events opening
-> and closing, new `error.log` lines and other clients' input and game calls.
-> Other Anvil plugins can read the widget tree through the service `tongs.ui`
-> and select a province through `tongs.navigation`
-> (see [For other plugins](#for-other-plugins-tongsui)).
-> Supported game builds: EU4 1.37.5
-> (Steam, Windows 64-bit) and EU4 1.37.5.2 (GOG, Windows 64-bit); Anvil skips
-> it on other builds. It needs Anvil 1.7 or newer with its standard plugin
-> `anvil-game` (Tongs 0.25 and older: Anvil 1.0, Steam only). From 0.16.0 it is also
-> published as a Steam Workshop mod (see
-> [Steam Workshop](#steam-workshop)). Design and the
-> addresses it relies on: [docs/design.md](docs/design.md) and
-> [plugin/symbols.toml](plugin/symbols.toml).
+Status: early. Everything is off until you turn it on (see [Safety](#safety)).
+
+- **Reads:** game state, the interface's widget tree, open events, provinces
+  and countries, and screenshots.
+- **Keyboard and mouse,** with `input = true`: pause, speed, run to a date,
+  keys, text, clicks on points or on widgets by name, and event choices. They
+  go through the game's own SDL input, so the window does not need focus.
+- **Console commands,** with `game_calls = true`. These change game state.
+  Without that setting Tongs never does.
+- **Notifications:** a connection can subscribe to state and date changes,
+  events opening and closing, new `error.log` lines and other clients' input
+  and game calls.
+- **Other plugins** can read the widget tree and select a province (see
+  [For other plugins](#for-other-plugins-tongsui)).
+
+It needs EU4 1.37.5 (Steam, Windows 64-bit) or 1.37.5.2 (GOG, Windows 64-bit),
+and Anvil 1.7 or newer with its standard plugin `anvil-game`. Anvil skips Tongs
+on other builds. Design and the addresses it relies on:
+[docs/design.md](docs/design.md) and [plugin/symbols.toml](plugin/symbols.toml).
 
 ## Quick start
 
@@ -76,8 +76,8 @@ touched run.
 
 - `scripts/tongs.ps1 CMD [CMD ...] [-AsObject] [-StopOnError] [-Subscribe KINDS [-Seconds S] [-Count N]]`:
   sends the commands over one connection and prints one answer line per
-  command; with `-Subscribe`, then prints notifications for `-Seconds` (60 by
-  default) or until `-Count` of them, and unsubscribes.
+  command. With `-Subscribe` it then prints notifications for `-Seconds` (60 by
+  default) or until `-Count` of them.
 - `scripts/tongs.py` (Python 3, standard library), the public client: the
   same from the command line (`python tongs.py pause "speed 5"`), or as a
   module:
@@ -101,52 +101,49 @@ touched run.
       watch.unsubscribe()
   ```
 
-  Every call has a read timeout (30 s, or the command's own `timeout=` and a
-  margin). A wait that times out or is interrupted with Ctrl+C is ended with
-  `cancel` on a second connection, and the error says whether its answer still
-  came (`answered_late`) or not (`unknown`). With `expect_pid` /
-  `expect_start_ms`, an answer from another game process raises
-  `ProcessMismatch`. The typed steps (`state`, `wait_until`, `run_until`,
-  `ready`, the world reads `province`, `country`, `player`, `selection`, and
-  the navigation `open_province`, `goto_province`, and `load_save`)
+  Every call has a read timeout: 30 s, or the command's own `timeout=` and a
+  margin. A wait that times out or is stopped with Ctrl+C is ended with `cancel`
+  on a second connection, and the error says whether its answer still came
+  (`answered_late`) or not (`unknown`). With `expect_pid` / `expect_start_ms`, an
+  answer from another game process raises `ProcessMismatch`. The typed methods
   return the plugin's answer unchanged and raise on `"ok": false`.
-  From the command line, `python tongs.py "subscribe all" --seconds 30`
-  prints the stream (`subscribe` comes last), and
-  `python tongs.py --ready --session 1 --speed 5` waits for a started game.
+
+  From the command line, `python tongs.py "subscribe all" --seconds 30` prints
+  the stream, and `python tongs.py --ready --session 1 --speed 5` waits for a
+  started game.
 - [`mcp/`](mcp/README.md): an MCP server (stdio) with one tool per command
   family, for agents such as Claude Code:
   `claude mcp add --transport stdio tongs -- uv run --frozen --directory C:\path\to\tongs\mcp tongs-mcp`.
 
 ## For other plugins: `tongs.ui`
 
-Another Anvil plugin in the game's process can read the widget tree without
-the pipe, through the service `tongs.ui` version 1: `find` (a selector, as
-`ui find`) and `hovered` (the widget under the game's pointer and its
-ancestors). Its header is [include/tongs/tongs_ui.h](include/tongs/tongs_ui.h),
-also in the release zip (`tongs/include/`); vendor it, declare a dependency on
-`tongs` and call it on the game's main thread, from `anvil-game.frame`. The
-service only reads, and Tongs registers it on every load, also with
-`enabled = false` (no pipe then). Design:
-[docs/design.md](docs/design.md#the-tongsui-service), decision:
-[ADR 0002](docs/adr/0002-widget-tree-as-in-process-service.md).
+Another Anvil plugin in the game's process can use two services, without the
+pipe. Both also work with `enabled = false`.
 
-From 0.24.0 the service `tongs.navigation` version 1 gives other plugins the
-province selection: `province_view` (the selected province, the one the
-province view shows, and whether the view, the colonisation panel or a view of
-the session is on screen) and `open_province`, the client call of
-`province open` with its refusals, also with `enabled = false` and
-`input = false`. It never makes a game call: the case that would make the
-player discover a capital is refused. Header:
-[include/tongs/tongs_navigation.h](include/tongs/tongs_navigation.h); design:
+**`tongs.ui` version 1** reads the widget tree: `find` takes a selector, as
+`ui find` does, and `hovered` gives the widget under the game's pointer and its
+ancestors. It only reads. Call it on the game's main thread, from
+`anvil-game.frame`. Header: [include/tongs/tongs_ui.h](include/tongs/tongs_ui.h),
+also in the release zip (`tongs/include/`). Vendor it and declare a dependency
+on `tongs`. Design: [docs/design.md](docs/design.md#the-tongsui-service),
+decision: [ADR 0002](docs/adr/0002-widget-tree-as-in-process-service.md).
+
+**`tongs.navigation` version 1** (from 0.24.0) gives the province selection:
+`province_view` says which province is selected, which one the province view
+shows, and whether the view, the colonisation panel or a view of the session is
+on screen. `open_province` is the client call of `province open`, with its
+refusals, also with `input = false`. It never makes a game call: the case that would make the player
+discover a capital is refused. Header:
+[include/tongs/tongs_navigation.h](include/tongs/tongs_navigation.h), design:
 [docs/design.md](docs/design.md#the-tongsnavigation-service-0240), decision:
 [ADR 0004](docs/adr/0004-navigation-as-in-process-service.md).
 
 ## Safety
 
 - Off by default. The pipe opens only with `enabled = true` in
-  `anvil/data/tongs/settings.toml`, accepts keyboard and mouse input and
-  navigation (camera and province views) only with `input = true` as well, and runs console commands only with
-  `game_calls = true` (see "Settings").
+  `anvil/data/tongs/settings.toml`. Keyboard, mouse and navigation (camera and
+  province views) also need `input = true`, and console commands need
+  `game_calls = true` (see [Settings](#settings)).
 - Local clients of the Windows user running the game only (pipe DACL, remote
   clients rejected). No network listener.
 - **Game state can change** with `game_calls = true`: `console` runs the
@@ -184,18 +181,22 @@ player discover a capital is refused. Header:
 
 [Install Anvil](https://anvil.happydwarf.dev/docs/install/) 1.7.0 or newer
 first, with its standard plugin `anvil-game` (part of Anvil's package). Then
-click **Install** next to Tongs on the **Catalog** tab of Anvil Manager (Anvil
-1.9 or newer), or download `tongs-windows-x64.zip` from the
-[latest release](https://github.com/happy-dwarf-team/tongs/releases/latest)
-and extract it into `<EU4>/anvil/plugins/`; it contains the `tongs` folder
-(`SHA256SUMS.txt` next to the archive holds its checksum). Turn it on on the
-Manager's **Settings** tab or in `anvil/data/tongs/settings.toml` (see
-"Settings") and start the game. To uninstall, click **Remove** on the
-**Plugins** tab, or delete the `tongs` folder.
+[install the plugin](https://anvil.happydwarf.dev/docs/install-plugins/) one of
+these ways:
 
-Tongs can also come from its Steam Workshop mod
-(see [Steam Workshop](#steam-workshop)): Anvil loads it from the enabled mod
-once you approve that version in its panel or in Anvil Manager.
+- click **Install** next to Tongs on the **Catalog** tab of Anvil Manager (Anvil
+  1.9 or newer);
+- subscribe to the
+  [Steam Workshop mod](https://steamcommunity.com/sharedfiles/filedetails/?id=3826695093)
+  and approve it, or
+- extract `tongs-windows-x64.zip` from the
+  [latest release](https://github.com/happy-dwarf-team/tongs/releases/latest)
+  into `<EU4>/anvil/plugins/`. `SHA256SUMS.txt` next to the archive holds its
+  checksum.
+
+Turn it on on the Manager's **Settings** tab or in
+`anvil/data/tongs/settings.toml`, and start the game. To uninstall, click
+**Remove** on the **Plugins** tab, or delete the `tongs` folder.
 
 ## Settings
 
@@ -213,17 +214,16 @@ game_calls_multiplayer = false  # game calls in multiplayer (likewise)
 ```
 
 Tongs reads them when the game starts. `ANVIL_TONGS_<NAME>` environment
-variables (e.g. `ANVIL_TONGS_ENABLED=true`) override a value for one start,
-without changing the file. An `anvil/data/tongs/config.toml` from Tongs 0.12
-or older is moved into `settings.toml` on the first start (and renamed to
-`config.toml.migrated`); its values apply already in that start.
+variables (for example `ANVIL_TONGS_ENABLED=true`) override a value for one
+start, without changing the file. An `anvil/data/tongs/config.toml` from Tongs
+0.12 or older is moved into `settings.toml` on the first start.
 
 ## Building
 
 Visual Studio 2022 (or Build Tools) with the C++ workload, CMake ≥ 3.25, Git.
 Tongs builds with the [Anvil SDK](https://github.com/happy-dwarf-team/anvil/blob/main/sdk/README.md)
 (`anvil_add_plugin`, `anvil gen`, `anvil check`). The first configure downloads
-the SDK archive of the Anvil release that `cmake/AnvilSdk.cmake` pins (1.0.0,
+the SDK archive of the Anvil release that `cmake/AnvilSdk.cmake` pins (1.7.0,
 checked against its SHA-256) into `build/_deps/anvil_sdk-src`;
 `-DTONGS_ANVIL_SDK=<sdk>` uses an unpacked SDK instead, for example one
 installed from a local Anvil checkout (`cmake --install <anvil build> --component sdk`).
@@ -250,86 +250,12 @@ Contributions, the commit convention and the release process: see
 
 ## Steam Workshop
 
-Tongs can also be published as a Steam Workshop mod; Anvil (since 1.3)
-loads plugins from enabled mods after the player approves each version.
-The mod is the `workshop/` folder ([`workshop.toml`](workshop.toml)):
-`descriptor.mod`, `thumbnail.png` and `anvil/tongs/`, the plugin folder of a
-release, which is not in Git. [`workshop/description.md`](workshop/description.md)
-is the item's description: every publish replaces the description on Steam with
-it. `checksum = "keep"` makes the publish fail if the mod would change the game's
-checksum.
-
-- Every pull request runs a dry run of
-  [paradox-workshop-publish](https://github.com/happy-dwarf-team/paradox-workshop-publish)
-  (`pdx-ws`) in `build.yml`: the job summary shows the files, the descriptor and
-  the rendered description. It needs no secrets.
-- [`workshop-publish.yml`](.github/workflows/workshop-publish.yml) runs when a
-  release is published. It downloads that release's `tongs-windows-x64.zip`,
-  checks its build attestation, unpacks `tongs/` into `workshop/anvil/tongs/`
-  and publishes the mod, with the release notes as the change note.
-- To update the Workshop page between releases, run it by hand on `main`
-  with the latest release:
-  `gh workflow run workshop-publish.yml --ref main -f tag=vX.Y.Z`. It publishes
-  that release's package again with `main`'s description; Steam keeps the
-  mod's version when the files are unchanged. The `steam-workshop` environment
-  must allow the branch `main` for this.
-
-Setting it up, once (maintainers):
-
-1. **Install `pdx-ws`** from its
-   [releases](https://github.com/happy-dwarf-team/paradox-workshop-publish/releases)
-   ([setup guide](https://github.com/happy-dwarf-team/paradox-workshop-publish/blob/main/docs/guide/setup.md)).
-2. **Create the Workshop item** on a computer with Steam running and logged in to
-   the account that owns EU4 and will own the item. Build the plugin package, put
-   its `tongs/` folder into the mod and check the plan first:
-
-   ```powershell
-   cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-   cmake --build build --config Release
-   cmake --install build --config Release --component plugin --prefix dist/package
-   Remove-Item workshop/anvil -Recurse -Force -ErrorAction Ignore
-   New-Item -ItemType Directory workshop/anvil -Force | Out-Null
-   Copy-Item dist/package/tongs workshop/anvil/tongs -Recurse
-   pdx-ws plan
-   pdx-ws init
-   ```
-
-   `pdx-ws init` (client mode, through the Steam client) creates a **private**
-   item with the descriptor's name and tags, the preview and the description,
-   uploads the mod and writes `remote_file_id` into `workshop/descriptor.mod`.
-   Commit that line through a pull request. Make the item public on Steam when it
-   is ready: publishing never changes its visibility.
-3. **Share the Steam session** with this repository. The session is kept once,
-   as the organization secrets `STEAM_SESSION` and `STEAM_USERNAME`, for the
-   Happy Dwarf Team repositories that publish to the Workshop (read the
-   [security notes](https://github.com/happy-dwarf-team/paradox-workshop-publish/blob/main/docs/guide/security.md)
-   and the [organization setup](https://github.com/happy-dwarf-team/paradox-workshop-publish/blob/main/docs/guide/setup.md#several-repositories-in-one-organization)
-   first). Add this repository to both secrets, and create a `steam-workshop`
-   environment without secrets of its own:
-
-   ```sh
-   id=$(gh api repos/happy-dwarf-team/tongs --jq .id)
-   gh api --method PUT orgs/happy-dwarf-team/actions/secrets/STEAM_SESSION/repositories/$id
-   gh api --method PUT orgs/happy-dwarf-team/actions/secrets/STEAM_USERNAME/repositories/$id
-   gh api --method PUT repos/happy-dwarf-team/tongs/environments/steam-workshop
-   ```
-
-   In **Settings → Environments → steam-workshop**, add a required reviewer and
-   allow only the tags `v*` and the branch `main`: the environment gates every
-   publish job.
-4. **Turn publishing on:** `gh variable set WORKSHOP_PUBLISH --body true`.
-
-From then on, publishing a release's draft (see
-[CONTRIBUTING.md](CONTRIBUTING.md#versions-and-releases)) also publishes the
-Workshop mod. When the Steam session expires, the job fails with exit code 3:
-export a new one into the organization secret, for every repository that uses
-it (Git Bash or PowerShell 7.4+, so the pipe passes the session unchanged):
-
-```sh
-pdx-ws session export --user my_steam_name | gh secret set STEAM_SESSION --org happy-dwarf-team --visibility selected --repos bellows,tongs,eu4-anbennar-widescreen-loading-screens
-```
+Tongs is also a Steam Workshop mod. Anvil 1.3 and newer loads plugins from
+enabled mods after the player approves each version. The mod is the `workshop/`
+folder, and a published release publishes it. How that works, and how to set it
+up: [docs/workshop.md](docs/workshop.md).
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Tongs is an unofficial community project, not affiliated
+MIT, see [LICENSE](LICENSE). Tongs is an unofficial community project, not affiliated
 with or endorsed by Paradox Interactive.
