@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.26.1](https://github.com/happy-dwarf-team/tongs/compare/v0.26.0...v0.26.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* **client:** refuse a pipe another Windows user created under this name ([#151](https://github.com/happy-dwarf-team/tongs/issues/151)) ([2939b42](https://github.com/happy-dwarf-team/tongs/commit/2939b42e49e1fadcc592ae52d82e781033e40219))
+* **pipe:** report every save load as a game call ([#149](https://github.com/happy-dwarf-team/tongs/issues/149)) ([3772845](https://github.com/happy-dwarf-team/tongs/commit/3772845b1b47022997373021c8a7f55b2c0c4731))
+
 ## [0.26.0](https://github.com/happy-dwarf-team/tongs/compare/v0.25.1...v0.26.0) (2026-11-02)
 
 
