@@ -74,6 +74,7 @@ jobs:
       - name: Workshop preview
         uses: happy-dwarf-team/paradox-workshop-publish@7366a4306b3c81157837bcdce7f138bc86e5d50b # v1.0.0
         with:
+          pdx-ws-version: v1.0.0
           dry-run: true
 
   # The MCP server in mcp/ (Python): unit tests against a fake pipe, no game needed.
