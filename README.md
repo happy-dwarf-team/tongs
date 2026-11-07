@@ -222,6 +222,16 @@ variables (for example `ANVIL_TONGS_ENABLED=true`) override a value for one
 start, without changing the file. An `anvil/data/tongs/config.toml` from Tongs
 0.12 or older is moved into `settings.toml` on the first start.
 
+## Help and bug reports
+
+Questions about Tongs, its clients or the MCP server go to the `#help-and-bugs`
+forum on the team's [Discord server](https://discord.happydwarf.dev/) (English;
+Tongs tag). Bugs go to an
+[issue](https://github.com/happy-dwarf-team/tongs/issues/new/choose) with
+`anvil/anvil.log` of that start and the commands that were sent; what the team
+confirms on Discord is tracked in an issue too. Security problems: report them
+privately, as [SECURITY.md](SECURITY.md) says.
+
 ## Building
 
 Visual Studio 2022 (or Build Tools) with the C++ workload, CMake ≥ 3.25, Git.
