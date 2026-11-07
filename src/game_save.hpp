@@ -32,7 +32,7 @@ struct SaveLayout {
                          0x314B};  // not in symbols.toml: savegame_versions, read from binary saves (no code compares it)
     std::uint32_t load_rva = 0;         // RvaOf(sym::load_save): int (request)
     std::uint32_t helper_rva = 0;       // RvaOf(sym::load_helper): void* ()
-    std::uint32_t close_rva = 0;        // RvaOf(sym::close_ingame_windows): void (session)
+    std::uint32_t hide_rva = 0;         // RvaOf(sym::hide_ingame_windows): void (session)
     std::uint32_t assign_rva = 0;       // RvaOf(sym::string_assign)
     std::uint32_t string_free_rva = 0;  // RvaOf(sym::string_free)
 
@@ -44,7 +44,7 @@ struct SaveLayout {
         SaveLayout l;
         l.load_rva = RvaOf(sym::load_save);
         l.helper_rva = RvaOf(sym::load_helper);
-        l.close_rva = RvaOf(sym::close_ingame_windows);
+        l.hide_rva = RvaOf(sym::hide_ingame_windows);
         l.assign_rva = RvaOf(sym::string_assign);
         l.string_free_rva = RvaOf(sym::string_free);
         return l;
@@ -65,8 +65,9 @@ std::string ReadSaveHead(const std::string& path, std::string& bytes);
 // the whole load. A structured exception is caught and reported.
 LoadCall CallLoad(std::uintptr_t image_base, const SaveLayout& layout, const std::string& name);
 
-// Main thread only: close the in-game windows, as the dialog does after a load.
-bool CloseWindows(std::uintptr_t image_base, const SaveLayout& layout, unsigned long& fault_code);
+// Main thread only: close the in-game menu and the views a load leaves on screen,
+// with the function the game resets a session with.
+bool HideWindows(std::uintptr_t image_base, const SaveLayout& layout, unsigned long& fault_code);
 
 // Main thread only: whether the session's loading flag is set; false when unreadable.
 bool ReadLoading(std::uintptr_t image_base, const SaveLayout& layout, bool& loading);
