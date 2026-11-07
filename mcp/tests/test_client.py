@@ -142,7 +142,6 @@ def test_a_late_answer_is_returned_with_the_timeout(serve):
 
 
 @windows
-@windows
 def test_a_pipe_of_this_user_is_accepted(serve):
     serve(lambda line: {"ok": True})
     with Tongs(timeout_s=2) as client:
@@ -158,6 +157,7 @@ def test_a_pipe_of_another_user_is_refused(serve, monkeypatch):
     assert server.lines == []
 
 
+@windows
 def test_no_answer_closes_the_connection(serve, monkeypatch):
     monkeypatch.setattr(tongs, "LATE_ANSWER_S", 0.2)
     server = serve(lambda line: None if line == "key a" else game(line))
