@@ -33,6 +33,9 @@ It reads the interface the game is actually showing, so interface mods should no
 ### I play on GOG. Can I use it?
 Yes, on the GOG build 1.37.5.2. GOG has no Workshop, so install Tongs from the **Catalog** tab in Anvil Manager (Anvil 1.9 or newer), or from the release zip on [GitHub](https://github.com/happy-dwarf-team/tongs/releases). The tongs fit either hand.
 
+### Something's wrong. Where do I ask?
+In **#help-and-bugs** on our [Discord server](https://discord.happydwarf.dev/) (pick the Tongs tag), or in a [GitHub issue](https://github.com/happy-dwarf-team/tongs/issues/new/choose). What we confirm on Discord goes to GitHub too.
+
 ### What is that little dwarf head on the thumbnail?
 If you check the mod's GitHub page, you will notice the repository belongs to Happy Dwarf Team.
 
