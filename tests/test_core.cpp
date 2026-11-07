@@ -591,7 +591,7 @@ static void TestProtocol() {
     assert(Contains(HandleRequest("state", h), "\"in_game\":false,\"reason\":\"\",\"pid\":1234,\"process_start_ms\":1792418572041"));
     snapshot.in_game = true;
     snapshot.date_raw = 58'860'240;
-    assert(Contains(HandleRequest("state", h), "\"paused_flag\":false,\"pid\":1234,\"process_start_ms\":1792418572041"));
+    assert(Contains(HandleRequest("state", h), "\"paused_flag\":false,\"out_of_sync\":false,\"paused_oos\":false,\"pid\":1234,\"process_start_ms\":1792418572041"));
     snapshot = StateSnapshot{};
     assert(Contains(HandleRequest("help", h), "\"state\""));
     assert(Contains(HandleRequest("", h), "\"ok\":false"));
@@ -614,7 +614,10 @@ static void TestProtocol() {
     assert(Contains(out, "\"paused\":true"));
     assert(!Contains(out, "\"session\""));  // not observed by LoadWatch
     snapshot.load = 3;
-    assert(Contains(HandleRequest("state", h), "\"paused_flag\":true,\"session\":3,"));
+    assert(Contains(HandleRequest("state", h), "\"paused_flag\":true,\"out_of_sync\":false,\"paused_oos\":false,\"session\":3,"));
+    snapshot.out_of_sync = snapshot.paused_oos = true;
+    assert(Contains(HandleRequest("state", h), "\"out_of_sync\":true,\"paused_oos\":true,\"session\":3,"));
+    snapshot.out_of_sync = snapshot.paused_oos = false;
     assert(Contains(HandleRequest("state", h), "\"game_calls_total\":0,\"client_calls_total\":0"));
 
     assert(JsonEscape("a\"b\\c\n\x01") == "a\\\"b\\\\c\\n\\u0001");
@@ -2122,6 +2125,15 @@ static void TestStateChanges() {
     c = StateChanges(running, game);
     assert(c.size() == 2 && Contains(c[0], "\"change\":\"paused\"") && Contains(c[1], "\"previous_speed\":5"));
 
+    StateSnapshot desynced = game;
+    desynced.out_of_sync = true;
+    c = StateChanges(game, desynced);
+    assert(c.size() == 1 && c[0] == ",\"change\":\"out_of_sync\",\"speed\":2,\"paused\":true,\"paused_flag\":true,\"out_of_sync\":true,\"paused_oos\":false");
+    desynced.paused_oos = true;
+    c = StateChanges(game, desynced);
+    assert(c.size() == 1 && Contains(c[0], "\"paused_oos\":true"));
+    assert(StateChanges(desynced, desynced).empty());
+
     c = StateChanges(game, menu);
     assert(c.size() == 1 && c[0] == ",\"change\":\"left_game\",\"reason\":\"session is null\"");
     // Another save in a session at another address: left, then entered.
@@ -2497,7 +2509,7 @@ static void TestSubscribeCommands() {
     std::string out = Subscribe("subscribe state,date", h, sub);
     assert(out == "{\"ok\":true,\"command\":\"subscribe\",\"kinds\":[\"state\",\"date\"],\"date_unit\":\"month\",\"queue\":1000,"
                   "\"in_game\":true,\"date\":\"1719.3.17\",\"date_raw\":58860240,\"hour\":0,\"speed\":2,\"speed_internal\":1,"
-                  "\"paused\":true,\"paused_flag\":true}");
+                  "\"paused\":true,\"paused_flag\":true,\"out_of_sync\":false,\"paused_oos\":false}");
     assert(sub && hub.subscriptions() == 1);
     assert(Contains(SubscribedRequest("ping", h, sub), "{\"ok\":true,\"command\":\"ping\",\"pong\":true"));
     out = SubscribedRequest("state", h, sub);

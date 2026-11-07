@@ -104,6 +104,16 @@ holds another class ("session object has an unexpected vtable").
 `plugin/symbols.toml` declares the code that holds these offsets and takes
 them from it as `values`, so Anvil skips the plugin when any of it differs.
 
+### Out of sync
+
+`out_of_sync` is the flag of the session's out-of-sync handler: a pointer at
+`session+0x4D8` (GOG `+0x4C8`), which may be null, then handler`+0x08`. A client
+sets it at its first checksum mismatch; the host compares no checksums, so it
+never has it. `paused_oos` is the game-speed object's `+0x19`. `CGameState::_bOutofsynch`
+in GOG's `eu4.pdb` looks like the place, but the code only clears it. Both fields
+were matched between GOG and Steam and read as `false` in a single-player game;
+`true` has not been seen, because a real desync takes two computers.
+
 ### Threading
 
 The pipe thread reads game memory while the main thread runs the game. Reads

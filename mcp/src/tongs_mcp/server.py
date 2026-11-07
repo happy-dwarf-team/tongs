@@ -398,7 +398,9 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
     @tool(READ)
     async def tongs_state() -> CallToolResult:
         """Game state: in_game, and with a loaded game date ("1719.3.17"), hour, speed (1-5 as in
-        the UI), paused, paused_flag (the player pause), session (1 for the first game of the
+        the UI), paused, paused_flag (the player pause), out_of_sync (this client's checksums
+        differed from the host's), paused_oos (paused because a machine went out of sync),
+        session (1 for the first game of the
         process, +1 at every load), game_calls_total and client_calls_total (since the save was
         loaded); always pid and process_start_ms (Unix ms) of the game process. Cheap; call it
         first."""

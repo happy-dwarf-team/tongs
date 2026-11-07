@@ -12,7 +12,7 @@ connection can instead carry notifications (see [Notifications](#notifications))
 | Command | Answer |
 | --- | --- |
 | `ping` | plugin version, game process id (`pid`) and its creation time (`process_start_ms`, Unix ms) |
-| `state` | `in_game`; with a loaded game also `date` (`"1719.3.17"`), `date_raw`, `hour`, `speed` (1–5 as in the UI), `speed_internal` (0–4), `paused` (the game's own answer), `paused_flag` (the player pause byte), `session` (see [Sessions](#sessions-and-the-ready-wait)), and `game_calls_total` and `client_calls_total` (game calls and client calls since the save was loaded); always `pid` and `process_start_ms`, which every answer that carries the state repeats, so a client can tell a restarted game apart |
+| `state` | `in_game`; with a loaded game also `date` (`"1719.3.17"`), `date_raw`, `hour`, `speed` (1–5 as in the UI), `speed_internal` (0–4), `paused` (the game's own answer), `paused_flag` (the player pause byte), `out_of_sync` (this client's checksums differed from the host's; the host never has it), `paused_oos` (paused because a machine went out of sync), `session` (see [Sessions](#sessions-and-the-ready-wait)), and `game_calls_total` and `client_calls_total` (game calls and client calls since the save was loaded); always `pid` and `process_start_ms`, which every answer that carries the state repeats, so a client can tell a restarted game apart |
 | `window` | the game window: client `width` / `height`, `screen_x` / `screen_y`, `focused`, `minimized`, `thread_id` (the game's main thread), `dpi` |
 | `threads` | worker threads in each of the game's two pools, the `threads` option, process and main-thread CPU masks, ideal CPU and priority of the main thread, number of threads |
 | `screenshot [NAME]` | writes a PNG of the game window to `anvil/data/tongs/screenshots/` (keeps the newest 100) and answers with its `path`, size and capture `method`; works while the window is covered |
@@ -101,7 +101,7 @@ mouse moves; the real cursor itself does not move.
 
 ```powershell
 .\scripts\tongs.ps1 state
-# {"ok":true,"in_game":true,"date":"1719.3.17","date_raw":58860240,"hour":0,"speed":2,"speed_internal":1,"paused":true,"paused_flag":true,"session":1,"pid":21384,"process_start_ms":1792418572041,"game_calls_total":0,"client_calls_total":0}
+# {"ok":true,"in_game":true,"date":"1719.3.17","date_raw":58860240,"hour":0,"speed":2,"speed_internal":1,"paused":true,"paused_flag":true,"out_of_sync":false,"paused_oos":false,"session":1,"pid":21384,"process_start_ms":1792418572041,"game_calls_total":0,"client_calls_total":0}
 .\scripts\tongs.ps1 'run_until 1719.6.1 speed=5'
 # {"ok":true,"command":"run_until","target":"1719.6.1","start_date":"1719.3.17","reached":true,"reached_date":"1719.6.1",
 #  "game_days":76.000,"days_per_second":12.352,"wall_ms":6153,"paused_ms":0,...,"overshoot_hours":0,...,"paused":true,...}
@@ -404,7 +404,7 @@ is `all` or a list such as `state,date,event`:
 
 | Kind | Sent when |
 | --- | --- |
-| `state` | the game is entered or left (`change`: `entered_game` with `session`, `left_game` with `reason`; a load is `left_game` then `entered_game`), paused or resumed (`paused`, `resumed`) or the speed changes (`speed`, with `previous_speed`); each with `speed`, `paused`, `paused_flag`. Also while a save loads |
+| `state` | the game is entered or left (`change`: `entered_game` with `session`, `left_game` with `reason`; a load is `left_game` then `entered_game`), paused or resumed (`paused`, `resumed`), the speed changes (`speed`, with `previous_speed`) or a multiplayer game goes out of sync (`out_of_sync`, with `out_of_sync` and `paused_oos`); each with `speed`, `paused`, `paused_flag`. Also while a save loads |
 | `date` | a new day, month (the default) or year begins, with `unit` and `previous` |
 | `event` | an event window opens (`opened`, with `id`, `title` and `options`) or closes (`closed`, with `chosen`: the option, with `by` saying who chose it: `tongs` for `event choose`, `run_until events=first` or `ui click` on the option button (`via: "ui click"`), `player` for any other click on an option (the real mouse, a plain `click`), `auto` for the game's own choice at the deadline; `null` when nobody's choice is known) |
 | `error_log` | the game writes a `line` to its `error.log`; `restarted` when the file was replaced. A line of Anvil's `anvil-log-throttle` also has `throttle` and its count (below) |
