@@ -30,6 +30,7 @@ struct StateSnapshot {
     bool paused_flag = false;    // the player pause byte (+0x48) alone
     bool out_of_sync = false;    // this client's checksums differed from the host's
     bool paused_oos = false;     // paused because a machine went out of sync
+    std::int32_t map_mode = 0;   // the map mode shown, the game's own number
     std::uintptr_t session = 0;  // the session object (root+0x1E00); not reported, tells loaded saves apart
     // The session the read saw (LoadWatch): 1 for the first game of the process, +1 at every
     // load; 0 when not observed. Reported as `session`.

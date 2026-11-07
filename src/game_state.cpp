@@ -52,6 +52,7 @@ void ReadUnguarded(std::uintptr_t base, const GameLayout& layout, StateSnapshot&
     const auto oos_handler = At<std::uintptr_t>(session + layout.oos_handler_offset);
     out.out_of_sync = oos_handler != 0 && At<std::uint8_t>(oos_handler + layout.oos_flag_offset) != 0;
     out.paused_oos = At<std::uint8_t>(game_speed + layout.oos_paused_offset) != 0;
+    out.map_mode = At<std::int32_t>(session + layout.map_mode_offset);
     out.in_game = true;
 }
 

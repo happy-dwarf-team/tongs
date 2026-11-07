@@ -20,6 +20,7 @@ struct GameLayout {
     std::uint32_t oos_handler_offset = Value(sym::oos_handler, "handler");  // session -> out-of-sync handler, may be null
     std::uint32_t oos_flag_offset = U32(sym::oos_flag.flag);       // byte: a checksum mismatch
     std::uint32_t oos_paused_offset = U32(sym::oos_pause.paused);  // game-speed object: byte, paused because of that
+    std::uint32_t map_mode_offset = Value(sym::select_province, "map_mode");  // session: int32, the current map mode
     std::uint32_t is_paused_rva = 0;                               // RvaOf(sym::is_paused), set when loading
 
     // The members only Anvil knows: call when the plugin is loading.

@@ -2417,9 +2417,9 @@ memory = "code"
 signature = "void (void* selection, void* province)"
 values.session = { at = 9, size = 1 }
 values.tutorial = { at = 19, size = 4 }
-values.session_mode = { at = 51, size = 1 }
+values.map_mode = { at = 51, size = 1 }
 values.blocked_mode = { at = 52, size = 1 }
-note = "selects a province and shows it in the province view; nothing in session mode 0x25 or while tutorial_blocks"
+note = "selects a province and shows it in the province view; nothing in map mode 0x25 (the session's current map mode, which state reports) or while tutorial_blocks"
 
 [symbol.select_province.build."eu4-1.37.5-steam-win64"]
 rva = 0x139C830
