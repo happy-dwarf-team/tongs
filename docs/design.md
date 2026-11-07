@@ -2594,8 +2594,10 @@ tongs#106 and this work; they are the "Loading a save" symbols of
   the helper from `load_helper` (`0x8BF160`) at `+0x48`. The loader appends
   `.eu4` (`save_extension`), so Tongs strips it from the name. It returns
   after the whole load, on the main thread, inside Tongs' job (a `GameCall`
-  job: it ends its batch). After a 0 Tongs calls `close_ingame_windows`
-  (`0x824810`), as the accept does.
+  job: it ends its batch). After a 0 Tongs calls `hide_ingame_windows`
+  (`0x82AEE0`), which hides the menu and the views. The accept calls the
+  menu's toggle (`0x824810`) there instead, which is why the dialog's load
+  ends with the menu open: see the table below.
 - **The metadata is Tongs' own read.** The game's metadata reader
   (`0x5D01B0`) runs inside the load; reading the save before the call with
   game code would need the game's metadata objects. Tongs reads the file
@@ -2646,7 +2648,9 @@ game wrote beside it.
 | a large late-game save | `lab_late_1821_01_01` (64 MB text, 1821.1.1): `ok`, `load_ms` 8666; the 120 s default holds |
 | the return codes | 0 every time; Tongs' own checks answer `bad_name` (`a/b`) and `no_such_save` (`lab_no_such_save`) before calling, so the loader's 1 and 2 were not reached; 3 needs an ironman save in a modded game, and the game here was not modded: not seen |
 | `compatible` | first read as the version's parts in memory order (1.37.0.5), so every save was "incompatible": the struct keeps first, second, fourth, third; fixed, then `true` for 1.37.5.0 and `false` for 1.37.4.0 |
-| `close_ingame_windows` outside the dialog | a province view open before the load stayed open; the game showed its in-game menu after every load (it was not open before), and `covered_by` named `menu/menu_panel/menu_ai_prefs_button`. The first `ready(speed=3)` after a load failed (no speed change within 10 s) until the menu was closed (`ui click menu/menu_panel/menu_close_button`), then 31 ms |
+| `0x824810` outside the dialog, up to 0.26.0 | the symbol was named as a close, but it is a toggle: it closes the menu when the menu shows and opens it otherwise. The load has hidden the windows by then, so every load ended with the menu open, also when it was open before, and `covered_by` named `menu/menu_panel/menu_ai_prefs_button`. The first `ready(speed=3)` after a load failed (no speed change within 10 s) until the menu was closed (`ui click menu/menu_panel/menu_close_button`), then 31 ms. 0.22 saw a province view stay open; a repeat on 0.26.0 did not: the province view and the country view were gone |
+| `hide_ingame_windows` instead | Steam and GOG, a load with the province view open, with the country view open and with the menu open (1 of each, 6 loads): none of them left after the load, no menu, `covered_by` `null`, the game paused, `speed 3` confirmed in 25–31 ms with no menu to close |
+| the player's Load dialog, on the same runs | on Steam with 0.26.0, on Steam and on GOG with this change: the menu is open after the load and `speed` is refused until it is closed, then 25–27 ms. This is the game's own behaviour, so `save load` now leaves less on screen than the dialog does |
 | `not_paused` | refused while running, nothing called |
 | `timeout=1` on an 8 s load | `timeout` with `started: true` after 1 s; `ready(session=6)` then found the loaded save |
 | counts and `session` | `game_calls_total` 1 and `client_calls_total` 0 after each load, `session` +1 per load (2 … 6); `entered_game` with `loaded_by: "tongs"` and the new `session`, an `activity` with `what: "game_call"`; the player's load through the UI (0.19's check, `t111-live1`) leaves `game_calls_total` 0 |

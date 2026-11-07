@@ -2028,7 +2028,7 @@ bytes = "E8 9D DF 74 FF 48 89 44 24 68 48 8D 93 C0 03 00 00"
 [symbol.load_request_call]
 memory = "code"
 values.request = { at = 4, size = 1 }
-note = "Load dialog accept: load_save(rsp+0x20), then close_ingame_windows(session)"
+note = "Load dialog accept: load_save(rsp+0x20), then the toggle of the in-game menu"
 
 [symbol.load_request_call.build."eu4-1.37.5-steam-win64"]
 rva = 0x11760C4
