@@ -68,6 +68,10 @@ std::vector<std::string> StateChanges(const StateSnapshot& before, const StateSn
     }
     if (!before.in_game || !after.in_game) return out;
     if (before.paused != after.paused) out.push_back(Change(after.paused ? "paused" : "resumed") + InGameFields(after));
+    if (before.out_of_sync != after.out_of_sync || before.paused_oos != after.paused_oos) {
+        out.push_back(Change("out_of_sync") + InGameFields(after) + ",\"out_of_sync\":" + Bool(after.out_of_sync) +
+                      ",\"paused_oos\":" + Bool(after.paused_oos));
+    }
     if (before.speed != after.speed) {
         out.push_back(Change("speed") + InGameFields(after) + ",\"previous_speed\":" + std::to_string(before.speed + 1));
     }

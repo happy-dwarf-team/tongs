@@ -186,6 +186,8 @@ std::string StateFields(const StateSnapshot& s) {
     out += ",\"speed_internal\":" + std::to_string(s.speed);
     out += std::string(",\"paused\":") + Bool(s.paused);
     out += std::string(",\"paused_flag\":") + Bool(s.paused_flag);
+    out += std::string(",\"out_of_sync\":") + Bool(s.out_of_sync);
+    out += std::string(",\"paused_oos\":") + Bool(s.paused_oos);
     if (s.load != 0) out += ",\"session\":" + std::to_string(s.load);
     return out + process;
 }
