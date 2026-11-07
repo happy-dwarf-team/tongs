@@ -152,10 +152,10 @@ promises an outer frame, not handled input: to prove input, set the speed
 afterwards with `speed N`, whose confirmed change and `waited_ms` show the
 game handled the press (when the speed already is `N` nothing is pressed).
 In the game, the first `speed` after the ready wait took 176 ms after a start
-and 31 ms after a load. A load from the in-game menu leaves that menu open,
-and the speed keys do nothing while it is: close it first
-(`ui click menu/menu_panel/menu_close_button`); the ready wait does not look
-at windows.
+and 31 ms after a load. A load by the player from the game's Load dialog
+leaves the in-game menu open, and the speed keys do nothing while it is: close
+it first (`ui click menu/menu_panel/menu_close_button`). `save load` leaves no
+menu. The ready wait does not look at windows.
 The Python client and the MCP server implement it as `ready()` and
 `tongs_ready` (see [Clients](../README.md#clients)).
 
@@ -486,12 +486,11 @@ when Tongs called the game's loader. A run with it is a marked run.
   launcher's `continue=`.
 - **What it discards.** The running game is discarded **without saving and
   without a warning**, as the Load dialog does; Tongs never saves the game.
-  Tongs then closes the in-game windows as the dialog does, which leaves what
-  the dialog leaves: the game shows its in-game menu after the load (as after a
-  load from that menu), and `covered_by` names it. While it is open the speed
-  keys do nothing: close it with `ui click menu/menu_panel/menu_close_button`
-  before `speed` (see [Sessions](#sessions-and-the-ready-wait)). A province
-  view that was open stays open.
+  Tongs then hides the in-game windows, as the game does when it resets a
+  session: no in-game menu and no province or country view of the old game
+  stay open, `covered_by` is `null` and `speed` works at once. This is where it
+  differs from the dialog, whose load leaves the in-game menu open (see
+  [Sessions](#sessions-and-the-ready-wait)).
 - **Before calling**, Tongs reads the save's metadata itself (text saves,
   compressed saves with a text or binary `meta`): its date, player, whether it
   is an ironman save and the versions it was saved with. An ironman save is
@@ -533,7 +532,7 @@ when Tongs called the game's loader. A run with it is a marked run.
 .\scripts\tongs.ps1 'save load mp_Russia1719_03_17'
 # {"ok":true,"command":"save load","save":"mp_Russia1719_03_17","called":true,"load_ms":7817,"save_date":"1719.3.17",
 #  "player":"RUS","compatible":true,"save_versions":["1.37.5.0"],"game_version":"1.37.5.0","session":2,
-#  "covered_by":"menu/menu_panel/menu_ai_prefs_button","game_calls_total":1,...,"paused":true,...}
+#  "covered_by":null,"game_calls_total":1,...,"paused":true,...}
 ```
 
 ## Console

@@ -170,7 +170,7 @@ struct Tongs : anvil::Plugin {
                 };
                 handlers.call_load = [image_base, save](const std::string& name) { return tongs::CallLoad(image_base, save, name); };
                 handlers.close_windows = [image_base, save](unsigned long& code) {
-                    return tongs::CloseWindows(image_base, save, code);
+                    return tongs::HideWindows(image_base, save, code);
                 };
                 handlers.read_loading = [image_base, save](bool& loading) { return tongs::ReadLoading(image_base, save, loading); };
                 const tongs::ConsoleLayout console_layout = tongs::ConsoleLayout::Load();

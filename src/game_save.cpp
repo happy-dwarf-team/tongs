@@ -75,9 +75,9 @@ bool Load(const SaveLayout& l, std::uintptr_t base, std::uintptr_t session, cons
     }
 }
 
-bool Close(const SaveLayout& l, std::uintptr_t base, std::uintptr_t session, unsigned long* code) {
+bool Hide(const SaveLayout& l, std::uintptr_t base, std::uintptr_t session, unsigned long* code) {
     __try {
-        reinterpret_cast<SessionFn>(base + l.close_rva)(reinterpret_cast<void*>(session));
+        reinterpret_cast<SessionFn>(base + l.hide_rva)(reinterpret_cast<void*>(session));
         return true;
     } __except (*code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
         return false;
@@ -148,10 +148,10 @@ LoadCall CallLoad(std::uintptr_t base, const SaveLayout& l, const std::string& n
     return out;
 }
 
-bool CloseWindows(std::uintptr_t base, const SaveLayout& l, unsigned long& fault_code) {
+bool HideWindows(std::uintptr_t base, const SaveLayout& l, unsigned long& fault_code) {
     std::uintptr_t session = 0;
     if (!Session(base, l, session)) return false;
-    return Close(l, base, session, &fault_code);
+    return Hide(l, base, session, &fault_code);
 }
 
 bool ReadLoading(std::uintptr_t base, const SaveLayout& l, bool& loading) {
