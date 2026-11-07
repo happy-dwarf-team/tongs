@@ -296,9 +296,9 @@ Decided in #102, with the load function tried in the game in #106.
   with missing DLC or mods is not refused: `compatible` says so.
 - **What it leaves:** the running game is discarded without saving and without
   a warning, as the in-game Load dialog does; Tongs never saves the game.
-  Windows are closed as the dialog does (`0x824810`), which leaves the game's
-  in-game menu open after the load, as after the dialog's own load, and a
-  province view open (found in 0.22). `game_calls_total` is 1 afterwards,
+  Windows are hidden as the game does when it resets a session (`0x82AEE0`):
+  no in-game menu and no province or country view stay open, unlike the
+  dialog's own load, which leaves the menu open. `game_calls_total` is 1 afterwards,
   `client_calls_total` 0, and `session` +1.
 - Readiness for input is `ready()`'s (section 4).
 
