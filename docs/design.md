@@ -124,6 +124,15 @@ value of the game's own map mode enum; Tongs does not list their names. A
 client that needs one maps the numbers it sees after pressing the minimap's
 map mode buttons.
 
+Live check (2026-11-07, Steam 1.37.5, Anvil 1.13.0, the branch's build,
+`input = true`, a private profile, the 1444 save loaded from the menu):
+`map_mode` was 1 after the load; `ui click` on the minimap's shortcut slots
+`custom_mapmode_3`, `custom_mapmode_5` and `custom_mapmode_2` changed it to
+4, 2 and 1, and the click's own answer already had the new number. With 2
+the map showed religions and the slot's tooltip said "Religious". Not
+checked on GOG in the game (its offset comes from the same verified
+symbol).
+
 ### Threading
 
 The pipe thread reads game memory while the main thread runs the game. Reads
