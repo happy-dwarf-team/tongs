@@ -16,6 +16,8 @@ Keyboard, mouse and console commands change your game exactly as if you had pres
 
 [![](https://anvil.happydwarf.dev/workshop/tongs-docs.png)](https://anvil.happydwarf.dev/plugins/tongs/) [![](https://anvil.happydwarf.dev/workshop/tongs-github.png)](https://github.com/happy-dwarf-team/tongs)
 
+[![](https://anvil.happydwarf.dev/workshop/discord-en.png)](https://discord.happydwarf.dev/)
+
 ![](https://anvil.happydwarf.dev/workshop/tongs-faq.png)
 
 ### Why do I have to approve it?
