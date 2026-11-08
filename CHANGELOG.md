@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.27.0](https://github.com/happy-dwarf-team/tongs/compare/v0.26.1...v0.27.0) (2026-11-08)
+
+
+### Features
+
+* **state:** report out-of-sync state ([#156](https://github.com/happy-dwarf-team/tongs/issues/156)) ([40cd905](https://github.com/happy-dwarf-team/tongs/commit/40cd905ae45fc17fef8d36b218d20984224c1644))
+
+
+### Bug Fixes
+
+* **pipe:** close the windows after a save load instead of opening the menu ([#155](https://github.com/happy-dwarf-team/tongs/issues/155)) ([681c31c](https://github.com/happy-dwarf-team/tongs/commit/681c31c007ad33078e2026e38d629e130692b963))
+
 ## [0.26.1](https://github.com/happy-dwarf-team/tongs/compare/v0.26.0...v0.26.1) (2026-11-05)
 
 
