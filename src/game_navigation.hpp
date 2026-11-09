@@ -24,8 +24,8 @@ struct NavigationLayout {
     std::uint32_t map_width = U32(sym::camera_to_province.map_width);       // map: int32
     std::uint32_t selection_session = U32(sym::select_province.session);   // selection: the session
     std::uint32_t tutorial = Value(sym::select_province, "tutorial");            // session: the tutorial, or null
-    std::uint32_t session_mode = Value(sym::select_province, "session_mode");    // session: int32
-    std::uint32_t blocked_mode = U32(sym::select_province.blocked_mode);    // the mode in which nothing is selected
+    std::uint32_t map_mode = Value(sym::select_province, "map_mode");    // session: int32, the current map mode
+    std::uint32_t blocked_mode = U32(sym::select_province.blocked_mode);    // the map mode in which nothing is selected
     std::uint32_t ti_flags = U32(sym::terra_incognita_check.ti_flags);      // province: byte
     std::uint32_t ti_bit = U32(sym::terra_incognita_check.ti_bit);          // set: the province can be undiscovered
     std::uint32_t discovered_by = U32(sym::terra_incognita_check.discovered_by);  // province: uint32* bitset by country index

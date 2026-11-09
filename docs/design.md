@@ -114,6 +114,25 @@ in GOG's `eu4.pdb` looks like the place, but the code only clears it. Both field
 were matched between GOG and Steam and read as `false` in a single-player game;
 `true` has not been seen, because a real desync takes two computers.
 
+### Map mode
+
+`map_mode` is the session's current map mode: an int32 at `session+0x2C`
+(GOG `+0x24`), the field that `select_province` compares with `0x25`, in
+which the game selects nothing. Tongs takes the offset from that symbol's
+bytes (its value `map_mode`), so no new symbol is needed. The number is a
+value of the game's own map mode enum; Tongs does not list their names. A
+client that needs one maps the numbers it sees after pressing the minimap's
+map mode buttons.
+
+Live check (2026-11-07, Steam 1.37.5, Anvil 1.13.0, the branch's build,
+`input = true`, a private profile, the 1444 save loaded from the menu):
+`map_mode` was 1 after the load; `ui click` on the minimap's shortcut slots
+`custom_mapmode_3`, `custom_mapmode_5` and `custom_mapmode_2` changed it to
+4, 2 and 1, and the click's own answer already had the new number. With 2
+the map showed religions and the slot's tooltip said "Religious". Not
+checked on GOG in the game (its offset comes from the same verified
+symbol).
+
 ### Threading
 
 The pipe thread reads game memory while the main thread runs the game. Reads
@@ -2682,7 +2701,7 @@ contract of tongs#101; they are the "Navigation" symbols of
   everything the call depends on, on the same frame: the world read's bound
   and guard, the land and wasteland bits, the player's tag (the observer
   rule of `player`), the session's selection object (`session+0x1220`), the
-  session mode (`+0x2C`, nothing is selected in `0x25`), the tutorial guard
+  map mode (`+0x2C`, nothing is selected in `0x25`; see "Map mode"), the tutorial guard
   (`tutorial_blocks`, `0x140D100`, which only reads), the camera
   (`session+0x1200`) and its lock byte (`+0x758`). Refusals call nothing.
 - **Terra incognita** is the province links' own test (`0xFF63B8`): a

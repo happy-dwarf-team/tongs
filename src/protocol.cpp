@@ -204,6 +204,7 @@ std::string StateFields(const StateSnapshot& s) {
     out += std::string(",\"paused_flag\":") + Bool(s.paused_flag);
     out += std::string(",\"out_of_sync\":") + Bool(s.out_of_sync);
     out += std::string(",\"paused_oos\":") + Bool(s.paused_oos);
+    out += ",\"map_mode\":" + std::to_string(s.map_mode);
     if (s.load != 0) out += ",\"session\":" + std::to_string(s.load);
     return out + process;
 }

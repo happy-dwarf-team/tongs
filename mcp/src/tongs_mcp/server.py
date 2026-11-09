@@ -400,6 +400,7 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         """Game state: in_game, and with a loaded game date ("1719.3.17"), hour, speed (1-5 as in
         the UI), paused, paused_flag (the player pause), out_of_sync (this client's checksums
         differed from the host's), paused_oos (paused because a machine went out of sync),
+        map_mode (the map mode shown, a value of the game's map mode enum),
         session (1 for the first game of the
         process, +1 at every load), game_calls_total and client_calls_total (since the save was
         loaded); always pid and process_start_ms (Unix ms) of the game process. Cheap; call it

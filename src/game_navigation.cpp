@@ -125,7 +125,7 @@ WorldFailure ReadNavigationFacts(std::uintptr_t base, const NavigationLayout& nl
     std::int32_t mode = 0;
     std::uintptr_t tutorial = 0, camera = 0;
     std::uint8_t lock = 0;
-    if (!Read(out.session + nl.session_mode, mode) || !Read(out.session + nl.tutorial, tutorial) ||
+    if (!Read(out.session + nl.map_mode, mode) || !Read(out.session + nl.tutorial, tutorial) ||
         !Read(out.session + nl.camera, camera) || camera == 0 || !Read(camera + nl.lock, lock)) {
         return Failed("the session is not readable");
     }
