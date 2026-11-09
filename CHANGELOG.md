@@ -2,18 +2,16 @@
 
 ## [0.28.0](https://github.com/happy-dwarf-team/tongs/compare/v0.27.0...v0.28.0) (2026-11-09)
 
-
 ### Features
 
-* **plugin:** run on the GOG build 1.37.5.0 ([#167](https://github.com/happy-dwarf-team/tongs/issues/167)) ([2d90ca0](https://github.com/happy-dwarf-team/tongs/commit/2d90ca09455d58a8cccc6ccbf2f0177563198431))
-
+* **plugin:** Tongs runs on the GOG build 1.37.5.0, the version GOG Galaxy installs when you roll EU4 back. It needs Anvil 1.15.0 or later, which knows that build. Tested in the lab on a copy of a GOG 1.37.5.0 install together with Bellows, Hamweard and Mei. ([#167](https://github.com/happy-dwarf-team/tongs/issues/167))
 
 ### Bug Fixes
 
-* **input:** let ui click pass widgets the game hands the click past ([#165](https://github.com/happy-dwarf-team/tongs/issues/165)) ([1fd497f](https://github.com/happy-dwarf-team/tongs/commit/1fd497ff775b15f8a2c4b1dbec4ec44b91cf80c7))
-* **input:** refuse queued input while the game window is minimized ([#170](https://github.com/happy-dwarf-team/tongs/issues/170)) ([47fc12a](https://github.com/happy-dwarf-team/tongs/commit/47fc12a0f0792df9799c6335db44177eac2e3205))
-* **ui:** give widget rects in client pixels at any GUI scale ([#169](https://github.com/happy-dwarf-team/tongs/issues/169)) ([3065fb3](https://github.com/happy-dwarf-team/tongs/commit/3065fb3451622c71aa024e55a50786ff6aa2ccc3))
-* **ui:** read text a mod keeps as UTF-8 as UTF-8 ([#168](https://github.com/happy-dwarf-team/tongs/issues/168)) ([a74e8a1](https://github.com/happy-dwarf-team/tongs/commit/a74e8a1e58c1ad34a020742d3bb3cc6f37a797d6))
+* **ui:** Chinese, Japanese and Korean text from a mod such as Mei now comes back readable from `ui find`, `ui tree` and the text reads. Before, it came back garbled (`å›½åº“` instead of `国库`). Text of the base game reads as before. ([#168](https://github.com/happy-dwarf-team/tongs/issues/168))
+* **ui:** clicks by widget name work at any GUI scale. At a raised `game_ui_scale`, `ui click` used to fail with `covered`; widget rectangles and click points are now in window pixels, and the answers carry `ui_scale`. ([#169](https://github.com/happy-dwarf-team/tongs/issues/169))
+* **input:** `ui click` gets through widgets the game itself lets the click pass. ([#165](https://github.com/happy-dwarf-team/tongs/issues/165))
+* **input:** while the game window is minimized, keys, clicks and text are refused with an error instead of waiting in the game's queue until the window comes back. Reads and `run_until` work as before. ([#170](https://github.com/happy-dwarf-team/tongs/issues/170))
 
 ## [0.27.0](https://github.com/happy-dwarf-team/tongs/compare/v0.26.1...v0.27.0) (2026-11-08)
 
