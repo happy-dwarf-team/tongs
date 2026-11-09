@@ -73,14 +73,14 @@ ALL_TOOLS = {
     "tongs_ui_tree", "tongs_ui_find", "tongs_ui_click",
     "tongs_event_list", "tongs_event_choose", "tongs_console", "tongs_raw",
     "tongs_province", "tongs_country", "tongs_player", "tongs_selection",
-    "tongs_province_open", "tongs_province_goto", "tongs_save_load",
+    "tongs_province_open", "tongs_province_goto", "tongs_map_mode", "tongs_save_load",
 }  # fmt: skip
 
 INPUT_TOOLS = {
     "tongs_ready", "tongs_run_until", "tongs_pause", "tongs_resume", "tongs_speed", "tongs_key", "tongs_text",
     "tongs_move", "tongs_click_point", "tongs_scroll", "tongs_release", "tongs_ui_click", "tongs_event_choose",
 }  # fmt: skip
-CLIENT_CALL_TOOLS = {"tongs_province_open", "tongs_province_goto"}
+CLIENT_CALL_TOOLS = {"tongs_province_open", "tongs_province_goto", "tongs_map_mode"}
 
 LINES = [
     ("tongs_state", {}, "state"),
@@ -138,6 +138,8 @@ LINES = [
     ("tongs_province_open", {"province_id": 295}, "province open 295"),
     ("tongs_province_open", {"province_id": 295, "timeout": 30}, "province open 295 timeout=30"),
     ("tongs_province_goto", {"province_id": 1252}, "province goto 1252"),
+    ("tongs_map_mode", {"mode": "religion"}, "map_mode religion"),
+    ("tongs_map_mode", {"mode": "player-cores.cores", "timeout": 5}, "map_mode player-cores.cores timeout=5"),
     ("tongs_save_load", {"name": "mp_Russia1719_03_17"}, "save load mp_Russia1719_03_17"),
     ("tongs_save_load", {"name": "Russia test.eu4", "timeout": 300}, 'save load "Russia test.eu4" timeout=300'),
     ("tongs_console", {"line": "echo x"}, "console echo x"),

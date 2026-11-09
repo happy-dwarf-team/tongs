@@ -25,3 +25,9 @@ repository = "https://github.com/happy-dwarf-team/tongs"
 [[dependencies]]
 id = "anvil-game"
 version = "^1"
+
+# Plugin map modes (anvil-map.modes): state's map_mode_id and map_mode by id. Tongs works without it.
+[[dependencies]]
+id = "anvil-map"
+version = "^1"
+optional = true

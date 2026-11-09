@@ -12,7 +12,7 @@ connection can instead carry notifications (see [Notifications](#notifications))
 | Command | Answer |
 | --- | --- |
 | `ping` | plugin version, game process id (`pid`) and its creation time (`process_start_ms`, Unix ms) |
-| `state` | `in_game`; with a loaded game also `date` (`"1719.3.17"`), `date_raw`, `hour`, `speed` (1–5 as in the UI), `speed_internal` (0–4), `paused` (the game's own answer), `paused_flag` (the player pause byte), `out_of_sync` (this client's checksums differed from the host's; the host never has it), `paused_oos` (paused because a machine went out of sync), `map_mode` (the map mode shown, a value of the game's map mode enum; see [Map mode](design.md#map-mode)), `session` (see [Sessions](#sessions-and-the-ready-wait)), and `game_calls_total` and `client_calls_total` (game calls and client calls since the save was loaded); always `pid` and `process_start_ms`, which every answer that carries the state repeats, so a client can tell a restarted game apart |
+| `state` | `in_game`; with a loaded game also `date` (`"1719.3.17"`), `date_raw`, `hour`, `speed` (1–5 as in the UI), `speed_internal` (0–4), `paused` (the game's own answer), `paused_flag` (the player pause byte), `out_of_sync` (this client's checksums differed from the host's; the host never has it), `paused_oos` (paused because a machine went out of sync), `map_mode` (the map mode shown, a value of the game's map mode enum) and `map_mode_id` (the id of the plugin mode that borrowed that number, from Anvil's `anvil-map`, or `null`; see [Map mode](design.md#map-mode)), `session` (see [Sessions](#sessions-and-the-ready-wait)), and `game_calls_total` and `client_calls_total` (game calls and client calls since the save was loaded); always `pid` and `process_start_ms`, which every answer that carries the state repeats, so a client can tell a restarted game apart |
 | `window` | the game window: client `width` / `height`, `screen_x` / `screen_y`, `focused`, `minimized`, `thread_id` (the game's main thread), `dpi` |
 | `threads` | worker threads in each of the game's two pools, the `threads` option, process and main-thread CPU masks, ideal CPU and priority of the main thread, number of threads |
 | `screenshot [NAME]` | writes a PNG of the game window to `anvil/data/tongs/screenshots/` (keeps the newest 100) and answers with its `path`, size and capture `method`; works while the window is covered |
@@ -47,6 +47,7 @@ With `input = true` in the settings, also:
 | `event choose N\|text^="..." [event=N\|event=title^="..."] [timeout=S]` | clicks an option of an open event (see [Events](#events)) |
 | `province open ID [timeout=S]` | opens the province's view and moves the camera to it, as the game's links do (see [Navigation](#navigation)) |
 | `province goto ID [timeout=S]` | moves the camera to the province |
+| `map_mode MODE [timeout=S]` | a client call: shows a map mode as the minimap's button does. `MODE` is a mode of the game's tabs by name (`political`, `religion`, `trade_goods`: the game's enum names in lower case) or number, or a plugin mode by its id (`player-cores.cores`, with `anvil-map`); answers its `number`, `client_calls_total` and the state read after it |
 
 With `game_calls = true` in the settings, also (see [Console](#console)):
 
@@ -105,7 +106,7 @@ mouse moves; the real cursor itself does not move.
 
 ```powershell
 .\scripts\tongs.ps1 state
-# {"ok":true,"in_game":true,"date":"1719.3.17","date_raw":58860240,"hour":0,"speed":2,"speed_internal":1,"paused":true,"paused_flag":true,"out_of_sync":false,"paused_oos":false,"map_mode":1,"session":1,"pid":21384,"process_start_ms":1792418572041,"game_calls_total":0,"client_calls_total":0}
+# {"ok":true,"in_game":true,"date":"1719.3.17","date_raw":58860240,"hour":0,"speed":2,"speed_internal":1,"paused":true,"paused_flag":true,"out_of_sync":false,"paused_oos":false,"map_mode":1,"map_mode_id":null,"session":1,"pid":21384,"process_start_ms":1792418572041,"game_calls_total":0,"client_calls_total":0}
 .\scripts\tongs.ps1 'run_until 1719.6.1 speed=5'
 # {"ok":true,"command":"run_until","target":"1719.6.1","start_date":"1719.3.17","reached":true,"reached_date":"1719.6.1",
 #  "game_days":76.000,"days_per_second":12.352,"wall_ms":6153,"paused_ms":0,...,"overshoot_hours":0,...,"paused":true,...}
