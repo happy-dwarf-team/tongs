@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cassert>
+#include <limits>
 #include <cctype>
 #include <chrono>
 #include <cstddef>
@@ -396,6 +397,25 @@ static void TestUiSelectors() {
     TestGameTextUtf8();
 }
 
+// Rects in the game's coordinates (client pixels divided by game_ui_scale) as client pixels.
+static void TestUiScale() {
+    const auto same = [](const UiRect& a, const UiRect& b) { return a.x == b.x && a.y == b.y && a.w == b.w && a.h == b.h; };
+    // At 1920x1080 and scale 1.2 the game lays out 1600x900 (1599x899, truncated, without Whetstone).
+    assert(same(ScaleRect({1500, 800, 100, 100}, 1.2f), {1800, 960, 120, 120}));
+    assert(same(ScaleRect({0, 0, 1599, 899}, 1.2f), {0, 0, 1919, 1079}));
+    // Edges are rounded, so adjacent widgets stay adjacent and a centre lands inside the drawn widget.
+    const UiRect left = ScaleRect({10, 5, 13, 7}, 1.2f), right = ScaleRect({23, 5, 13, 7}, 1.2f);
+    assert(left.x + left.w == right.x && same(left, {12, 6, 16, 8}));
+    assert(same(ScaleRect({-30, 7, 0, 0}, 1.6f), {-48, 11, 0, 0}));
+    // 1 and an unread scale (0) leave the rect alone.
+    assert(same(ScaleRect({3335, 18, 30, 30}, 1.0f), {3335, 18, 30, 30}) &&
+           same(ScaleRect({3335, 18, 30, 30}, 0), {3335, 18, 30, 30}));
+    assert(PlausibleUiScale(1.2f) == 1.2f && PlausibleUiScale(0.5f) == 0.5f && PlausibleUiScale(2.4f) == 2.4f);
+    assert(PlausibleUiScale(0) == 0 && PlausibleUiScale(-1) == 0 && PlausibleUiScale(100) == 0 &&
+           PlausibleUiScale(std::numeric_limits<float>::quiet_NaN()) == 0 &&
+           PlausibleUiScale(std::numeric_limits<float>::infinity()) == 0);
+}
+
 static void TestUiRequests() {
     UiRequest r;
     assert(ParseUiRequest("find //x[text=\"a b\"] all limit=3", r).empty() && r.verb == UiRequest::Verb::Find &&
@@ -431,6 +451,15 @@ static void TestUiRequests() {
     assert(ParseUiRequest("find //DateText", r).empty());
     out = UiAnswer(t, r, found);
     assert(Contains(out, "\"text\":\"17 March 1719\"") && !Contains(out, "\"enabled\""));
+    // The scale the rects were read at ends every answer; null when the game's was not read.
+    assert(out.ends_with(",\"ui_scale\":null"));
+    {
+        UiTree scaled = t;
+        scaled.ui_scale = 1.2f;
+        assert(UiAnswer(scaled, r, found).ends_with(",\"ui_scale\":1.2"));
+        scaled.ui_scale = 1.0f;
+        assert(UiAnswer(scaled, r, found).ends_with(",\"ui_scale\":1"));
+    }
     assert(ParseUiRequest("find //nothing", r).empty());
     assert(Contains(UiAnswer(t, r, found), "\"count\":0,\"truncated\":false,\"matches\":[]") && found);
 
@@ -4425,6 +4454,7 @@ int main(int argc, char** argv) {
     TestFrameStats();
     TestFramesCommand();
     TestUiSelectors();
+    TestUiScale();
     TestUiRequests();
     TestUiCommand();
     TestConsoleRules();

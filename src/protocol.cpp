@@ -1044,7 +1044,7 @@ std::string UiClick(const Handlers& handlers, const UiRequest& request) {
         out += ",\"event_option\":{\"id\":" + Quote(event->id) + ",\"number\":" + std::to_string(option->number) +
                ",\"option_index\":" + std::to_string(option->index) + "}";
     }
-    out += ",\"waited_ms\":" + std::to_string(h.now_ms() - start);
+    out += UiScaleMember(s.tree) + ",\"waited_ms\":" + std::to_string(h.now_ms() - start);
     return out + "," + StateFields(c.state) + "}";
 }
 

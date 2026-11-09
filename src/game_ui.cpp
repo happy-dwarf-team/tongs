@@ -88,7 +88,17 @@ class Describer {
 public:
     Describer(const UiLayout& layout, std::uintptr_t image_base) : l_(layout), base_(image_base) {}
 
+    // The GUI scale the rects are multiplied by (0: left as the game gives them).
+    void SetScale(float scale) { scale_ = scale; }
+
+    // The rect in client pixels: the game's coordinates times the GUI scale.
     void Describe(const UiEntry& e, UiWidget& w) const {
+        DescribeUnscaled(e, w);
+        w.rect = ScaleRect(w.rect, scale_);
+    }
+
+private:
+    void DescribeUnscaled(const UiEntry& e, UiWidget& w) const {
         w.type = e.kind ? e.kind->type : UiType::Other;
         w.address = e.pointer;
         std::uint8_t shown = 0;
@@ -129,6 +139,7 @@ public:
         }
     }
 
+public:
     // The name and the definition's file, without calling through a freed definition (ui_definitions.hpp):
     // slot 0xA0 when `live`; otherwise the widget is stale and named by its
     // holder's child list or its own name, when it has either. With `direct`,
@@ -222,7 +233,18 @@ private:
     const UiLayout& l_;
     std::uintptr_t base_;
     Code code_{base_};
+    float scale_ = 0;
 };
+
+// The game's GUI scale (game_ui_scale) from its graphics object; 0 when it cannot be read.
+float ReadGuiScale(const UiLayout& l, std::uintptr_t manager) {
+    std::uintptr_t graphics = 0;
+    float scale = 0;
+    if (!tongs::Read(manager + l.graphics, graphics) || graphics == 0 || !tongs::Read(graphics + l.gui_scale, scale)) {
+        return 0;
+    }
+    return PlausibleUiScale(scale);
+}
 
 // Scroll bars have no render node: their rect is the bounds of their buttons.
 void ScrollbarRects(const std::vector<UiEntry>& entries, UiTree& out) {
@@ -243,6 +265,8 @@ public:
         std::uintptr_t manager = 0;
         if (!tongs::Read(base_ + l_.manager_rva, manager) || manager == 0) return "no GUI manager";
         if (std::string error = structure_.ReadAll(manager); !error.empty()) return error;
+        out.ui_scale = ReadGuiScale(l_, manager);
+        describer_.SetScale(out.ui_scale);
         // Every live definition, read once per tree: a widget whose definition is
         // not among them was built from one a reload freed.
         if (std::string error = CollectLiveDefinitions(manager + l_.type_registry, LiveLayout(l_, base_), GameMemory(),
@@ -299,6 +323,8 @@ public:
         complete = true;
         std::uintptr_t manager = 0, pointer = 0;
         if (!tongs::Read(base_ + l_.manager_rva, manager) || manager == 0) return "no GUI manager";
+        out.ui_scale = ReadGuiScale(l_, manager);
+        describer_.SetScale(out.ui_scale);
         if (!tongs::Read(manager + l_.hovered, pointer) || pointer == 0) return {};
         if (std::string error = structure_.Climb(manager, pointer); !error.empty()) return error;
         const std::vector<UiEntry>& chain = structure_.entries();
