@@ -13,8 +13,9 @@ endif()
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS version.txt plugin/plugin.toml)
 project(tongs VERSION ${TONGS_VERSION_TEXT} LANGUAGES CXX)
 
-if(MSVC)
-    # Compile a target's sources on every core; the Visual Studio generator runs cl one file at a time.
+if(MSVC AND CMAKE_GENERATOR MATCHES "^Visual Studio")
+    # Compile a target's sources on every core; the Visual Studio generator runs cl one file at a time
+    # (Ninja, as CI uses it, runs one cl per source on its own).
     add_compile_options(/MP)
 endif()
 
