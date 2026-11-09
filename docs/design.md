@@ -937,7 +937,7 @@ form, or kept in tongs.ui's markup.
 
 A two-byte sequence with a lead from `C4` up does not count as evidence,
 because the game's Windows-1252 text makes those: an uppercase accented letter
-or `ß` before a symbol, as in German `Groß§!` (`DF A7`). Windows-1252 text
+or `ß` before a symbol, as in German `Groß` followed by the section sign (bytes `DF A7`). Windows-1252 text
 that is wholly valid UTF-8 with a sequence that counts, such as `Ã` or `Â`
 before a symbol, or a lowercase accented letter before two symbols (`à`
 before a no-break space and `«`, when no other byte from `0x80` up in the string
