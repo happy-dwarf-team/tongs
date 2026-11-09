@@ -280,6 +280,38 @@ static std::vector<std::string> Paths(const UiTree& t, const char* selector, boo
     return out;
 }
 
+// Text a mod keeps as UTF-8 (Mei's Chinese) next to the game's Windows-1252.
+static void TestGameTextUtf8() {
+    const std::string treasury = "\xE5\x9B\xBD\xE5\xBA\x93";  // 国库, which came out as "å›½åº“"
+    assert(GameTextToUtf8(treasury) == treasury);
+    // The game's own lone colour bytes around UTF-8 text, and § as UTF-8 (C2 A7).
+    assert(GameTextToUtf8("\xA7Y" + treasury + "\xA7!") == treasury);
+    assert(GameTextToUtf8("\xC2\xA7Y" + treasury + "\xC2\xA7!") == treasury);
+    assert(GameTextToUtf8("\xA7Y" + treasury + "\xC2\xA7!", true) == "\xC2\xA7Y" + treasury + "\xC2\xA7!");
+    // A colour code before a Chinese character drops the character, as the game does with any other.
+    assert(GameTextToUtf8("\xA7" + treasury) == "\xE5\xBA\x93");
+    // The ducat sign and an icon stay, in either form.
+    assert(GameTextToUtf8(treasury + " \xA4 \xC2\xA4 \xA3gold") == treasury + " \xC2\xA4 \xC2\xA4 \xC2\xA3gold");
+    // UTF-8 for U+0080-U+00FF alone, and four-byte sequences.
+    assert(GameTextToUtf8("M\xC3\xBCnster") == "M\xC3\xBCnster");
+    assert(GameTextToUtf8("\xC2\xA7YMing\xC2\xA7!") == "Ming");
+    assert(GameTextToUtf8("\xF0\x9F\x98\x80") == "\xF0\x9F\x98\x80");
+    // Windows-1252 that happens to be valid UTF-8 for a code point from U+0100 up stays Windows-1252:
+    // ß before a colour code (DF A7), É before a guillemet (C9 BB).
+    assert(GameTextToUtf8("\xA7YGro\xDF\xA7!") == "Gro\xC3\x9F");
+    assert(GameTextToUtf8("\xC9\xBB") == "\xC3\x89\xC2\xBB");
+    // One byte from 0x80 up outside a sequence (not § £ ¤) makes the whole string Windows-1252.
+    assert(GameTextToUtf8("\xE0\xA0\xAB x \xA0\xBB") == "\xC3\xA0\xC2\xA0\xC2\xAB x \xC2\xA0\xC2\xBB");
+    assert(GameTextToUtf8(treasury + "\xFC") == "\xC3\xA5\xE2\x80\xBA\xC2\xBD\xC3\xA5\xC2\xBA\xE2\x80\x9C\xC3\xBC");
+    // Cut, overlong and surrogate sequences are not UTF-8.
+    assert(GameTextToUtf8("\xE5\x9B") == "\xC3\xA5\xE2\x80\xBA");
+    assert(GameTextToUtf8("\xC0\xAF") == "\xC3\x80\xC2\xAF");
+    assert(GameTextToUtf8("\xE0\x80\xAF") == "\xC3\xA0\xE2\x82\xAC\xC2\xAF");
+    assert(GameTextToUtf8("\xED\xA0\x80") == "\xC3\xAD\xC2\xA0\xE2\x82\xAC");
+    // ASCII and empty text are unchanged.
+    assert(GameTextToUtf8("Moscow") == "Moscow" && GameTextToUtf8("").empty());
+}
+
 static void TestUiSelectors() {
     UiSelector sel;
     for (const char* bad : {"", "  ", "/a", "a/", "a//", "a/[0]", "a[x=1]", "a[type=frame]", "a[type~=button]",
@@ -361,6 +393,7 @@ static void TestUiSelectors() {
     assert(GameTextToUtf8("\xA7GM\xFCnster\xA7! \xA4") == "M\xC3\xBCnster \xC2\xA4" && GameTextToUtf8("x\xA7") == "x");
     // tongs.ui's markup keeps the colour codes, § as U+00A7.
     assert(GameTextToUtf8("\xA7G0.45\xA7!", true) == "\xC2\xA7G0.45\xC2\xA7!");
+    TestGameTextUtf8();
 }
 
 static void TestUiRequests() {
