@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.28.0](https://github.com/happy-dwarf-team/tongs/compare/v0.27.0...v0.28.0) (2026-11-09)
+
+### Features
+
+* **plugin:** Tongs runs on the GOG build 1.37.5.0, the version GOG Galaxy installs when you roll EU4 back. It needs Anvil 1.15.0 or later, which knows that build. Tested in the lab on a copy of a GOG 1.37.5.0 install together with Bellows, Hamweard and Mei. ([#167](https://github.com/happy-dwarf-team/tongs/issues/167))
+
+### Bug Fixes
+
+* **ui:** Chinese, Japanese and Korean text from a mod such as Mei now comes back readable from `ui find`, `ui tree` and the text reads. Before, it came back garbled (`å›½åº“` instead of `国库`). Text of the base game reads as before. ([#168](https://github.com/happy-dwarf-team/tongs/issues/168))
+* **ui:** clicks by widget name work at any GUI scale. At a raised `game_ui_scale`, `ui click` used to fail with `covered`; widget rectangles and click points are now in window pixels, and the answers carry `ui_scale`. ([#169](https://github.com/happy-dwarf-team/tongs/issues/169))
+* **input:** `ui click` gets through widgets the game itself lets the click pass. ([#165](https://github.com/happy-dwarf-team/tongs/issues/165))
+* **input:** while the game window is minimized, keys, clicks and text are refused with an error instead of waiting in the game's queue until the window comes back. Reads and `run_until` work as before. ([#170](https://github.com/happy-dwarf-team/tongs/issues/170))
+
 ## [0.27.0](https://github.com/happy-dwarf-team/tongs/compare/v0.26.1...v0.27.0) (2026-11-08)
 
 
