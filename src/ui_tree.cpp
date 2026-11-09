@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cmath>
+#include <cstdio>
 
 namespace tongs {
 namespace {
@@ -519,7 +521,25 @@ struct TreeWriter {
 
 }  // namespace
 
-std::string UiAnswer(const UiTree& tree, const UiRequest& request, bool& found) {
+float PlausibleUiScale(float scale) { return std::isfinite(scale) && scale >= 0.25f && scale <= 8.0f ? scale : 0; }
+
+UiRect ScaleRect(const UiRect& r, float scale) {
+    if (scale <= 0 || scale == 1.0f) return r;
+    const auto at = [scale](int v) { return static_cast<int>(std::lround(static_cast<double>(v) * scale)); };
+    const int left = at(r.x), top = at(r.y);
+    return {left, top, at(r.x + r.w) - left, at(r.y + r.h) - top};
+}
+
+std::string UiScaleMember(const UiTree& tree) {
+    if (tree.ui_scale <= 0) return ",\"ui_scale\":null";
+    char text[32];
+    std::snprintf(text, sizeof text, "%.4g", static_cast<double>(tree.ui_scale));
+    return std::string(",\"ui_scale\":") + text;
+}
+
+namespace {
+
+std::string UiAnswerMembers(const UiTree& tree, const UiRequest& request, bool& found) {
     found = true;
     // The tree shows stale widgets, marked; find leaves them out unless asked.
     const UiView view(tree, request.all, request.verb == UiRequest::Verb::Tree || request.stale);
@@ -569,6 +589,12 @@ std::string UiAnswer(const UiTree& tree, const UiRequest& request, bool& found) 
     out += ",\"count\":" + Num(writer.count) + ",\"truncated\":" + (writer.truncated ? "true" : "false") +
            ",\"widgets\":[" + widgets + "]";
     return out;
+}
+
+}  // namespace
+
+std::string UiAnswer(const UiTree& tree, const UiRequest& request, bool& found) {
+    return UiAnswerMembers(tree, request, found) + UiScaleMember(tree);
 }
 
 UiClickTarget ResolveClickTarget(const UiTree& tree, const UiSelector& selector) {

@@ -97,7 +97,7 @@ typedef struct TongsUiWidget {
     uint32_t type;  /* TongsUiType */
     uint32_t flags; /* TONGS_UI_VISIBLE ... */
     int32_t parent; /* index of the parent among this call's visits (0 = the first), -1 for a top-level window */
-    int32_t x, y, width, height; /* client pixels of the game window */
+    int32_t x, y, width, height; /* client pixels of the game window (the game's coordinates times its GUI scale) */
     uint64_t id;                 /* the widget's address: the same while the widget lives */
     const char *name;            /* the .gui name, UTF-8, case kept; "" when the widget has no usable name */
     const char *path;            /* the widget path, as the pipe gives it; NULL from hovered without TONGS_UI_PATHS */

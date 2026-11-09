@@ -643,7 +643,7 @@ this section describes what holds.
   | Name | vtable slot `0xA0`, a `std::string*`: the `.gui` name, case kept (`type+0x10` of the definition at `+0xB0`, or a window's own name); from 0.14.0 called only when that definition is live ("Stale widgets") |
   | Visible | `+0xC5` |
   | Dead | `+0xC4` |
-  | Position | slot `0xD8`: two int32 in client pixels, read from the widget's render node |
+  | Position | slot `0xD8`: two int32 in the game's coordinates (client pixels divided by the GUI scale, "GUI scale"), read from the widget's render node |
   | Size | slot `0xE0`, corrected where it is not what is drawn ("Widget sizes") |
   | Text | button `+0x200`, instant text box `+0x170`, text box `+0x178`, edit box `+0xF8`; Windows-1252, or UTF-8 put there by a mod ("Text encoding") |
   | Button state | `+0x124`; 3 = disabled |
@@ -965,6 +965,28 @@ start-time check, no files left, and `settings.txt` differing only in
 - **The base game in English** (vanilla profile, 3440×1440): the outliner's
   `Karadeniz Donanmasî` and `Ege Donanmasî`, and the Ottoman description with
   its en dash (`0x96`) as `–`, as before.
+
+### GUI scale (2026-11-09)
+
+The game lays out its interface at a 2D resolution of the window's divided by
+the GUI scale (`game_ui_scale` in `settings.txt`): the `CGraphics`
+constructor (`0x14D9558`, symbol `gui_scale`) reads the float scale at
+`graphics+0x32600` and divides the resolution at `+0x488`/`+0x48C` by it,
+truncated (Whetstone's `gui_size_inputs`). Slots `0xD8` and `0xE0` give
+positions and sizes in that layout, while the pointer the GUI reads
+(`gui_cursor`) and the clicks are client pixels. At scale 1.2 or 1.6 a rect
+read as it is lay short of the widget and `ui click` hovered the wrong place
+and answered `covered` (lab test, 7.11.2026).
+
+Both tree readers read the scale from the GUI manager's graphics object
+(`mgr+0xC0`, the object `NotifyMouseOverCollisions` runs on) and multiply
+every rect by it as it is read, edges rounded (`ScaleRect`), before scroll
+bars take their buttons' bounds and `FitRects` compares the rects with the
+client area. So `rect`, `click_point`, the hover check of `ui click` and
+tongs.ui's rects are client pixels at any scale. `ui find`, `ui tree` and
+`ui click` answer `ui_scale`. A value no setting gives (not finite, or
+outside 0.25–8) or an unreadable one answers `null`, and the rects are left
+as the game gives them, as before.
 
 ## Stale widgets (0.14.0)
 
