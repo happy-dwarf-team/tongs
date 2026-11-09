@@ -86,13 +86,29 @@ std::uint64_t AddTotalCall(TotalCalls& total, const StateSnapshot& s) {
     return ++total.count;
 }
 
+// While the game window is minimized the game leaves its event queue alone and
+// handles what waits there when the window is restored: a Space sent then
+// resumed the paused game only when the window came back (live check,
+// 2026-11-09). Input that goes through
+// the queue is therefore refused, with this error, while the window is
+// minimized; the speed and pause buttons are calls on the main thread and work.
+constexpr char kWindowMinimized[] =
+    "the game window is minimized: the game handles input only after it is restored, so nothing was sent";
+
+std::string MinimizedError(const std::function<WindowSnapshot()>& read_window) {
+    if (!read_window) return {};
+    const WindowSnapshot w = read_window();
+    return w.found && w.minimized ? kWindowMinimized : std::string();
+}
+
 // The handlers with a send_input and a press_speed_button that notice whether
 // anything was queued or pressed; the command counts as one input when it was,
 // and an `activity` notification names it.
 class CountedInput {
 public:
     CountedInput(const Handlers& h, std::string_view command) : handlers_(h), command_(command) {
-        handlers_.send_input = [this, send = h.send_input](const std::vector<InputEvent>& events) {
+        handlers_.send_input = [this, send = h.send_input, window = h.read_window](const std::vector<InputEvent>& events) {
+            if (std::string error = MinimizedError(window); !error.empty()) return error;
             std::string error = send(events);
             if (error.empty()) sent_ = true;
             return error;
@@ -634,6 +650,7 @@ std::string CheckPoint(const Handlers& h, int x, int y) {
     if (!h.read_window) return {};
     const WindowSnapshot w = h.read_window();
     if (!w.found) return w.reason ? w.reason : "no game window";
+    if (w.minimized) return kWindowMinimized;
     if (x >= w.width || y >= w.height) {
         return "(" + std::to_string(x) + ", " + std::to_string(y) + ") is outside the " + std::to_string(w.width) +
                "x" + std::to_string(w.height) + " client area";

@@ -616,9 +616,8 @@ every run, and the broker was stopped after the batch.
 The main menu, a save loaded from it and an unfocused window were checked in
 the hardening pass (2026-10-19, "Hardening pass (0.10.0)" below): outer frames
 run in the menu (159/s unfocused) and stop while a save loads from it (3.5 s
-of `main thread busy`). Still open: a minimized window. The game's borderless
-window did not minimize from the taskbar (`IsIconic` stayed false), and
-computer-use was not available to try another way.
+of `main thread busy`). A minimized window was checked on 2026-11-09 ("Input
+gaps (2026-11-09)" below): 8 outer frames per second.
 
 ## Widget tree (0.5.0)
 
@@ -3013,6 +3012,67 @@ Not in draft 4:
 - state queries through scripted triggers;
 - screenshots of single widgets.
 
+## Input gaps (2026-11-09)
+
+The input paths the earlier checks left open (eu4-engine-lab#64): text
+fields, a keyboard layout other than US, clicks on the map and a minimized
+window. Multiplayer speed and pause wait for a second player.
+
+### Live check
+
+Steam `eu4.exe` 1.37.5 (`9AD3EFE1…771A`, unchanged) from a lab copy of the
+game folder, Anvil 1.13.0, Tongs `main` at 3065fb3, a private vanilla profile
+(3440x1440, `game_ui_scale` 1), a new Ottoman campaign from 1444; one start
+under the lab game lock, closed after the PID, path and start-time check,
+`settings.txt` differing only in `graceful_exit` (restored). The game window
+was the foreground window the whole time, so the focused path of the cursor
+query `0x14E5E50` ran.
+
+- **Text fields.** The lobby's start year (`datewidget/year`): `key
+  backspace` deleted a digit, `text 5` and `key 4` typed digits, `key return`
+  kept `1444`. In game, `f` (the shortcut) and `ui click button_goto` opened the
+  find box with its field focused: `text Mün` and `text ster` typed `Münster`
+  and the list showed the four provinces; `key space` typed a space and left
+  the pause alone, paused and running; with the field focused `resume`,
+  `pause` and `speed 3` (buttons) worked and the field kept its text. Escape
+  in the field did not close the box; its Cancel button did. The console
+  (`key grave`) took `text date` and `key space`, and `key grave` closed it.
+- **Keyboard layout.** The lab has only the Polish (programmers) layout,
+  which is US for these keys. French AZERTY (`0000040C`) was loaded into the
+  session and given to the game's window thread alone (`WM_INPUTLANGCHANGEREQUEST`
+  posted to the game window; the shell and other threads kept Polish), then
+  unloaded. With AZERTY, where the keys `a` / `q` and `z` / `w` swap places,
+  `key q` gave the terrain map mode and `key w` the political one, `key a`
+  and `key z` nothing, exactly as with Polish: shortcuts follow the key code
+  Tongs sends, not the key's place. `key f` opened the find box, `text Zürich
+  aq`, `key 1` and `key m` typed `Zürich aq1m`, and `key grave` opened and
+  closed the console.
+- **Map.** `province goto 151`, then `click` at the middle of the window
+  selected 151 and opened its view (`selection`); another point selected
+  Filibe (2750), the province under the point on a screenshot. A click on an
+  army selected it, and a right click on Filibe ordered it there: 14 days
+  later it had moved from Selanik to Gumulcine on the way. `click … double`
+  selected the province under it; `scroll -5` zoomed the map out (the first
+  try hit a message pop-up that had opened at the same point, which `click`
+  does not check).
+- **Minimized** (`ShowWindow(SW_SHOWMINNOACTIVE)` from outside; `window`
+  answered `minimized: true`, a 0x0 client area at −32000). 8 outer frames
+  per second; `frames`, `state`, `ui find` and `selection` answered;
+  `screenshot` refused (`the game window is minimized`); `speed 2` worked
+  through the buttons; `run_until 1445.1.1 speed=5` reached its date at 3.8
+  days per second (7.3 visible, the game's own throttle, bellows#159).
+  `click` and `ui click` refused with `outside the 0x0 client area`, and a
+  `run_until … events=first` stopped with that error at the first event,
+  leaving it open. `key kp_plus` and `key space` answered `ok` but changed
+  nothing while minimized; when the window was restored, the game handled
+  them: the paused game resumed by itself. A second try (pause on, `key
+  space` and `text ab` minimized, 3 s, restore) did the same. So Tongs now
+  refuses every command that queues events while the window is minimized
+  (`key`, `text`, `move`, `click`, `scroll`, `ui click`, `event choose`,
+  `run_until events=first`, and `pause` / `resume` / `speed` when they fall
+  back to keys) with `the game window is minimized: …`; the buttons still
+  work.
+
 ## Not verified yet
 
 - Anvil 1.0 (plugin API 2): nothing of it ran in the game yet. To check:
@@ -3033,18 +3093,15 @@ Not in draft 4:
 - `paused` for pauses not caused by the pause button: message pop-ups set
   `paused_flag` (hardening pass); events that pause, menus and multiplayer
   were not seen.
-- Input in text fields (Space types instead of pausing) and with keyboard
-  layouts other than US (SDL key codes and the characters sent follow a US
-  layout). Input in the main menu and with event pop-ups works (hardening
-  pass).
+- Keyboard layouts other than AZERTY and the lab's Polish (programmers)
+  layout, which is US for the keys Tongs sends ("Input gaps (2026-11-09)").
 - Whether the speed keys need `SDL_TEXTINPUT` alone or both events; both are
   sent, as SDL does for a real key.
 - The speed buttons in a multiplayer game with a second player (ADR 0005):
   the posted pause and speed commands, a client's view of them, the game's
   speed setting, and what sets the buttons' guard byte.
-- Mouse: dragging (no command yet), right and middle clicks, double clicks,
-  clicks on the map (only interface buttons were tried), and the focused
-  window path of `0x14E5E50` (the game was never focused in the checks).
-- `run_until` across an event that pauses the game (no event paused with the
-  lab's message settings), with `max_pause` and with `events=first`.
-- A minimized game window.
+- Mouse: dragging (no command yet), and what a middle click does (one was
+  sent on the map, its effect not checked).
+- `run_until` with `max_pause`, and `events=first` choosing an option in a
+  visible window (the one event that opened in a run came while the window was
+  minimized, "Input gaps (2026-11-09)").
