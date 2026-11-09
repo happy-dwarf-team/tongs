@@ -664,9 +664,11 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
 
     @tool(PLAYER, INPUT_NOTE)
     async def tongs_ui_click(selector: Selector, timeout: Timeout = None) -> CallToolResult:
-        """Clicks the centre of the one widget the selector matches, after checking that the game sees
-        it under the pointer. Refuses without clicking: not_found, ambiguous (with matches),
-        not_visible, stale (only stale widgets match), disabled, covered (with covered_by)."""
+        """Clicks the centre of the one widget the selector matches, after checking that the click
+        reaches it: the game hands a click down past labels, backgrounds and other widgets without a
+        click action (named in `through`). Refuses without clicking: not_found, ambiguous (with
+        matches), not_visible, stale (only stale widgets match), disabled, covered (with covered_by,
+        the widget that would take the click)."""
         _check(selector)
         return await call(_line("ui click", selector, timeout=timeout))
 

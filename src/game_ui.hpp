@@ -24,6 +24,15 @@ struct UiLayout : UiStructureLayout {
     unsigned slot_name = U32(sym::listbox_find_child.name_slot);  // returns const std::string*
     unsigned button_state = U32(sym::button_state.state);
     unsigned hovered = U32(sym::hover_callback.hovered);          // mgr: the topmost widget under the GUI pointer, written once per frame
+    // How a click under the pointer goes (docs/design.md, "Clicks through widgets").
+    unsigned graphics = U32(sym::gui_graphics.graphics);          // mgr: the graphics object
+    unsigned under_pointer = U32(sym::mouse_collisions.list);     // graphics: {begin, end} of the widgets under the pointer
+    unsigned under_pointer_shift = U32(sym::hover_order.entry_shift);  // an entry is 1 << this bytes
+    unsigned under_pointer_owner = U32(sym::hover_order.owner);        // the widget in an entry
+    unsigned pointer_over = U32(sym::hover_last_frame.last_frame);     // byte: under the pointer on the last frame
+    unsigned takes_all_input = U32(sym::takes_all_input.flag);         // byte: consumes every mouse event
+    unsigned click_left = U32(sym::button_clickable.left);             // CButton bytes: reacts to a left
+    unsigned click_right = U32(sym::button_clickable.right);           // or a right click
 
     // Stale widgets (ui_definitions.hpp): the type registry, the definition
     // classes with nested maps or pointer fields, each widget's definition, and the names
@@ -151,37 +160,41 @@ struct UiLayout : UiStructureLayout {
         // its render node (read by its slot 0xD8) and its text.
         kinds = {
             {Value(sym::window_vtable, "vtable"), UiType::Window, U32(sym::window_render_node.node) - window_part, 0, false,
-             UiKind::Children::Window},
+             UiKind::Children::Window, 0, UiClickInput::Passes},
             {Value(sym::eu3dialog_vtable, "vtable"), UiType::Window, U32(sym::window_render_node.node) - window_part, 0,
-             false, UiKind::Children::Window},
+             false, UiKind::Children::Window, 0, UiClickInput::Passes},
             {Value(sym::container_vtable, "vtable"), UiType::Window, U32(sym::container_render_node.node), 0, false,
-             UiKind::Children::Container},
+             UiKind::Children::Container, 0, UiClickInput::Passes},
             {Value(sym::gui_button_vtable, "vtable"), UiType::Button, U32(sym::button_render_node.node),
-             U32(sym::button_set_text.text), true},
+             U32(sym::button_set_text.text), true, UiKind::Children::None, 0, UiClickInput::Button},
             {Value(sym::button_vtable, "vtable"), UiType::Button, U32(sym::button_render_node.node),
-             U32(sym::button_set_text.text), true},
+             U32(sym::button_set_text.text), true, UiKind::Children::None, 0, UiClickInput::Button},
             {Value(sym::slider_vtable, "vtable"), UiType::Button, U32(sym::slider_render_node.node)},
-            {Value(sym::track_vtable, "vtable"), UiType::Button, U32(sym::track_render_node.node)},
-            {Value(sym::icon_type_vtable, "vtable"), UiType::Icon, U32(sym::icon_render_node.node)},
-            {Value(sym::icon_vtable, "vtable"), UiType::Icon, U32(sym::icon_render_node.node)},
+            {Value(sym::track_vtable, "vtable"), UiType::Button, U32(sym::track_render_node.node), 0, false,
+             UiKind::Children::None, 0, UiClickInput::Button},
+            {Value(sym::icon_type_vtable, "vtable"), UiType::Icon, U32(sym::icon_render_node.node), 0, false,
+             UiKind::Children::None, 0, UiClickInput::Button},
+            {Value(sym::icon_vtable, "vtable"), UiType::Icon, U32(sym::icon_render_node.node), 0, false,
+             UiKind::Children::None, 0, UiClickInput::Button},
             {Value(sym::instant_text_vtable, "vtable"), UiType::Text, U32(sym::instant_text_render_node.node),
-             U32(sym::instant_text_set_text.text)},
+             U32(sym::instant_text_set_text.text), false, UiKind::Children::None, 0, UiClickInput::Passes},
             {Value(sym::text_box_destructor, "vtable"), UiType::Text, U32(sym::text_box_render_node.node),
-             U32(sym::text_box_destructor.text)},
+             U32(sym::text_box_destructor.text), false, UiKind::Children::None, 0, UiClickInput::Passes},
             // The edit box's text at +0xF8 is not in symbols.toml.
             {Value(sym::edit_box_vtable, "vtable"), UiType::Editbox, U32(sym::edit_box_render_node.node), 0xF8},
             // The check box's ticked byte at +0x100 is not in symbols.toml.
             {Value(sym::checkbox_vtable, "vtable"), UiType::Checkbox, U32(sym::checkbox_render_node.node), 0, false,
              UiKind::Children::None, 0x100},
             {Value(sym::listbox_vtable, "vtable"), UiType::Listbox, U32(sym::listbox_render_node.node), 0, false,
-             UiKind::Children::Listbox},
+             UiKind::Children::Listbox, 0, UiClickInput::Passes},
             {Value(sym::smooth_listbox_vtable, "vtable"), UiType::Listbox, U32(sym::smooth_listbox_render_node.node), 0,
-             false, UiKind::Children::SmoothListbox},
+             false, UiKind::Children::SmoothListbox, 0, UiClickInput::Passes},
             {Value(sym::overlapping_box_vtable, "vtable"), UiType::Listbox, U32(sym::overlapping_box_render_node.node), 0,
-             false, UiKind::Children::Overlapping},
+             false, UiKind::Children::Overlapping, 0, UiClickInput::Passes},
             {Value(sym::grid_box_vtable, "vtable"), UiType::Listbox, U32(sym::grid_box_render_node.node), 0, false,
-             UiKind::Children::Grid},
-            {Value(sym::scrollbar_vtable, "vtable"), UiType::Other, 0, 0, false, UiKind::Children::Scrollbar},
+             UiKind::Children::Grid, 0, UiClickInput::Passes},
+            {Value(sym::scrollbar_vtable, "vtable"), UiType::Other, 0, 0, false, UiKind::Children::Scrollbar, 0,
+             UiClickInput::Passes},
         };
     }
 
@@ -211,6 +224,10 @@ std::string ReadUiTree(std::uintptr_t image_base, const UiLayout& layout, UiRect
 
 // Main thread: the widget the game hovers (mgr+0x130), 0 when none or unreadable.
 std::uintptr_t ReadHoveredWidget(std::uintptr_t image_base, const UiLayout& layout);
+
+// Main thread: the widgets the game found under the pointer on the last frame,
+// topmost first (the order it hands them a click); empty when unreadable.
+std::vector<std::uintptr_t> ReadUnderPointer(std::uintptr_t image_base, const UiLayout& layout);
 
 // Main thread: the hovered widget and its ancestors only, without reading the
 // whole tree (tongs.ui's hovered without TONGS_UI_PATHS, docs/design.md "The

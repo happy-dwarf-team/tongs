@@ -139,6 +139,9 @@ struct Handlers {
     std::function<std::string(UiTree&)> read_ui;
     // Main thread: the widget under the GUI pointer (mgr+0x130, 0 = none).
     std::function<std::uintptr_t()> read_hovered;
+    // Main thread, optional: the widgets under the GUI pointer on the last frame,
+    // topmost first. Without it a click goes ahead only on the hovered widget or one inside it.
+    std::function<std::vector<std::uintptr_t>()> read_under_pointer;
     // Main thread: the world reads (game_world.cpp), called after the state on the
     // same frame said in game. Each fills its raw struct or answers a WorldFailure.
     // All four null: the world reads answer `unavailable`.

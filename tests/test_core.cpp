@@ -13,6 +13,7 @@
 #include "ui_tree.hpp"
 #include "world.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <cctype>
@@ -1374,6 +1375,78 @@ static void TestUiClickTarget() {
     assert(cover.covered && cover.covered_by.empty());
 }
 
+// The widgets above a target that let a click through, as seen live in the
+// goto box, the ironman save dialog and the lobby, and the ones that do not.
+static void TestCheckCoverThrough() {
+    UiTree t;
+    const auto add = [&t](const char* name, UiType type, UiClickInput input, int parent = -1) {
+        const int w = AddWidget(t, name, type, true, {0, 0, 100, 100}, parent);
+        t.widgets[w].click_input = input;
+        t.widgets[w].clickable = input == UiClickInput::Button;
+        t.widgets[w].pointer_over = true;
+        return w;
+    };
+    const int box = add("goto_box", UiType::Window, UiClickInput::Passes);
+    const int list = add("provinces", UiType::Listbox, UiClickInput::Passes, box);
+    const int entry = add("province_finder_entry", UiType::Window, UiClickInput::Passes, list);
+    const int button = add("button", UiType::Button, UiClickInput::Button, entry);
+    const int title = add("title", UiType::Text, UiClickInput::Passes, entry);
+    const int dialog = add("IronmanSaveSelectDialog", UiType::Window, UiClickInput::Passes);
+    const int local = add("show_local", UiType::Checkbox, UiClickInput::Takes, dialog);
+    const int label = add("show_local_label", UiType::Text, UiClickInput::Passes, dialog);
+    const int lobby = add("ingame_lobby_window", UiType::Window, UiClickInput::Passes);
+    const int start = add("start_button", UiType::Button, UiClickInput::Button, lobby);
+    const int background = add("background", UiType::Icon, UiClickInput::Button, lobby);
+    t.widgets[background].clickable = false;
+    const auto a = [](int w) { return Address(w); };
+    const auto check = [&t](int target, std::vector<std::uintptr_t> under) {
+        return CheckCover(t, Address(target), under.empty() ? 0 : under.front(), under);
+    };
+
+    // A label or a background over the target: the game hands the click on.
+    UiCoverCheck c = check(button, {a(title), a(button), a(entry), a(list), a(box)});
+    assert(!c.covered && c.hovered == "goto_box/provinces/province_finder_entry/title" &&
+           c.through == std::vector<std::string>{"goto_box/provinces/province_finder_entry/title"});
+    c = check(local, {a(label), a(local), a(dialog)});
+    assert(!c.covered && c.through == std::vector<std::string>{"IronmanSaveSelectDialog/show_local_label"});
+    c = check(start, {a(background), a(start), a(lobby)});
+    assert(!c.covered && c.hovered == "ingame_lobby_window/background");
+    // A window passes too, and a hidden widget gets no events.
+    t.widgets[title].shown = false;
+    c = check(button, {a(title), a(entry), a(button)});
+    assert(!c.covered && c.through.size() == 2 && c.through[1] == "goto_box/provinces/province_finder_entry");
+    t.widgets[title].shown = true;
+
+    // What takes the click: a clickable button or icon, a check box, a widget
+    // that takes all input, one Tongs does not know.
+    c = check(button, {a(start), a(button)});
+    assert(c.covered && c.covered_by == "ingame_lobby_window/start_button" && c.through.empty());
+    t.widgets[background].clickable = true;
+    c = check(start, {a(background), a(start)});
+    assert(c.covered && c.covered_by == "ingame_lobby_window/background");
+    t.widgets[background].clickable = false;
+    c = check(button, {a(title), a(local), a(button)});
+    assert(c.covered && c.covered_by == "IronmanSaveSelectDialog/show_local");
+    t.widgets[lobby].takes_all_input = true;
+    c = check(button, {a(background), a(lobby), a(button)});
+    assert(c.covered && c.covered_by == "ingame_lobby_window");
+    t.widgets[lobby].takes_all_input = false;
+    c = check(button, {a(title), 0x77777, a(button)});
+    assert(c.covered && c.covered_by == "goto_box/provinces/province_finder_entry/title");
+
+    // The game must have had the target under the pointer, and the list must be the hovered widget's.
+    t.widgets[button].pointer_over = false;
+    c = check(button, {a(title), a(button)});
+    assert(c.covered && c.covered_by == "goto_box/provinces/province_finder_entry/title");
+    t.widgets[button].pointer_over = true;
+    c = check(button, {a(title)});  // the target not under the pointer
+    assert(c.covered && c.covered_by == "goto_box/provinces/province_finder_entry/title");
+    c = CheckCover(t, Address(button), Address(title), {a(background), a(button)});
+    assert(c.covered && c.covered_by == "goto_box/provinces/province_finder_entry/title");
+    c = CheckCover(t, Address(button), Address(title));  // no list: only the target or inside it
+    assert(c.covered && c.covered_by == "goto_box/provinces/province_finder_entry/title");
+}
+
 // A game with a widget tree and events: the GUI hovers the last visible widget
 // under the virtual cursor, and a click on an option button chooses that option.
 struct FakeScreen {
@@ -1384,18 +1457,24 @@ struct FakeScreen {
     std::function<void(std::uintptr_t)> on_click;  // called with the widget under every click
     Dispatcher dispatcher{SteadyMs};
 
-    std::uintptr_t Hovered() const {
-        if (game.cursor.first < 0) return 0;
+    // The visible widgets under the virtual cursor, topmost (last) first.
+    std::vector<std::uintptr_t> UnderPointer() const {
+        std::vector<std::uintptr_t> under;
+        if (game.cursor.first < 0) return under;
         const UiView view(tree, false);
-        std::uintptr_t hit = 0;
-        for (int i = 0; i < static_cast<int>(tree.widgets.size()); ++i) {
+        for (int i = static_cast<int>(tree.widgets.size()); i-- > 0;) {
             const UiRect& r = tree.widgets[i].rect;
             if (view.Visible(i) && game.cursor.first >= r.x && game.cursor.first < r.x + r.w &&
                 game.cursor.second >= r.y && game.cursor.second < r.y + r.h) {
-                hit = tree.widgets[i].address;
+                under.push_back(tree.widgets[i].address);
             }
         }
-        return hit;
+        return under;
+    }
+
+    std::uintptr_t Hovered() const {
+        const std::vector<std::uintptr_t> under = UnderPointer();
+        return under.empty() ? 0 : under.front();
     }
 
     Handlers Make() {
@@ -1425,9 +1504,12 @@ struct FakeScreen {
         h.dispatcher = &dispatcher;
         h.read_ui = [this](UiTree& out) {
             out = tree;
+            const std::vector<std::uintptr_t> under = UnderPointer();
+            for (UiWidget& w : out.widgets) w.pointer_over = std::ranges::find(under, w.address) != under.end();
             return std::string();
         };
         h.read_hovered = [this] { return Hovered(); };
+        h.read_under_pointer = [this] { return UnderPointer(); };
         // A chosen event is gone by the next read, with its window.
         h.read_events = [this](EventsRaw& out) {
             out = raw;
@@ -1496,6 +1578,15 @@ static void TestUiClickCommand() {
            Contains(out, "\"covered_by\":\"tooltip\"") && Contains(out, "\"point\":{\"x\":3350,\"y\":32}"));
     assert(screen.game.events.size() == 1 && screen.game.events[0].type == InputEvent::Type::MouseMove);  // no press
     screen.tree.widgets.back().shown = false;
+    // A label over it lets the click through, as the game hands it on.
+    const int label = AddWidget(screen.tree, "speed_label", UiType::Text, true, {3300, 0, 140, 40});
+    screen.tree.widgets[label].click_input = UiClickInput::Passes;
+    screen.game.events.clear();
+    out = HandleRequest("ui click speed_controls/button_speedup", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"hovered\":\"speed_label\"") &&
+           Contains(out, "\"through\":[\"speed_label\"]"));
+    assert(screen.game.events.size() == 3 && screen.game.events[1].type == InputEvent::Type::MouseDown);
+    screen.tree.widgets[label].shown = false;
     screen.game.events.clear();
     out = HandleRequest("ui click speed_controls/button_speedup timeout=5", h);
     assert(Contains(out, "{\"ok\":true,\"command\":\"ui click\",\"selector\":\"speed_controls/button_speedup\"") &&
@@ -4259,6 +4350,7 @@ int main(int argc, char** argv) {
     TestSubscribeCommands();
     TestEvents();
     TestUiClickTarget();
+    TestCheckCoverThrough();
     TestLiveDefinitions();
     TestLivePointerDefinitions();
     TestWidgetNamePlan();

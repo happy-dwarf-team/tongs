@@ -601,27 +601,81 @@ UiClickTarget ResolveClickTarget(const UiTree& tree, const UiSelector& selector)
     return t;
 }
 
-UiCoverCheck CheckCover(const UiTree& tree, std::uintptr_t target, std::uintptr_t hovered) {
+namespace {
+
+int WidgetAt(const UiTree& tree, std::uintptr_t address) {
+    if (address == 0) return -1;
+    for (int i = 0; i < static_cast<int>(tree.widgets.size()); ++i) {
+        if (tree.widgets[i].address == address) return i;
+    }
+    return -1;
+}
+
+// Whether the game hands a left click on to the widgets under this one: it
+// gives mouse events only to shown widgets, and the click stops at the first
+// one that consumes it.
+bool LetsClickThrough(const UiWidget& w) {
+    if (!w.shown) return true;
+    if (w.takes_all_input) return false;
+    switch (w.click_input) {
+        case UiClickInput::Passes:
+            return true;
+        case UiClickInput::Button:
+            return !w.clickable;
+        case UiClickInput::Takes:
+            break;
+    }
+    return false;
+}
+
+}  // namespace
+
+UiCoverCheck CheckCover(const UiTree& tree, std::uintptr_t target, std::uintptr_t hovered,
+                        const std::vector<std::uintptr_t>& under_pointer) {
     UiCoverCheck c;
     if (hovered == 0) return c;
-    int hit = -1;
-    for (int i = 0; i < static_cast<int>(tree.widgets.size()) && hit == -1; ++i) {
-        if (tree.widgets[i].address == hovered) hit = i;
-    }
+    const int hit = WidgetAt(tree, hovered);
     if (hit == -1) {
         c.covered = hovered != target;
         return c;
     }
-    // The hovered widget may be stale: its path is named all the same.
+    // Widgets above the target may be stale or hidden: their paths are named all the same.
     const UiView view(tree, false, true);
     const UiView all(tree, true, true);
-    const std::string path = view.Visible(hit) ? view.PathOf(hit) : all.PathOf(hit);
-    for (int w = hit; w != -1; w = all.Parent(w)) {
-        if (tree.widgets[w].address == target) {
+    const auto path_of = [&view, &all](int w) { return view.Visible(w) ? view.PathOf(w) : all.PathOf(w); };
+    const auto in_target = [&tree, &all, target](int w) {
+        for (; w != -1; w = all.Parent(w)) {
+            if (tree.widgets[w].address == target) return true;
+        }
+        return false;
+    };
+    const std::string path = path_of(hit);
+    if (in_target(hit)) {
+        c.covered = false;
+        c.hovered = path;
+        return c;
+    }
+    // The list must be the one the game picked the hovered widget from.
+    if (under_pointer.empty() || under_pointer.front() != hovered) {
+        c.covered_by = path;
+        return c;
+    }
+    std::vector<std::string> through;
+    for (const std::uintptr_t owner : under_pointer) {
+        const int w = WidgetAt(tree, owner);
+        if (w == -1) break;  // not a widget Tongs knows: it may take the click
+        if (in_target(w)) {
+            if (!tree.widgets[w].pointer_over) break;
             c.covered = false;
             c.hovered = path;
+            c.through = std::move(through);
             return c;
         }
+        if (!LetsClickThrough(tree.widgets[w])) {
+            c.covered_by = path_of(w);
+            return c;
+        }
+        through.push_back(path_of(w));
     }
     c.covered_by = path;
     return c;

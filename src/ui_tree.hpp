@@ -15,6 +15,14 @@ enum class UiType { Window, Button, Icon, Text, Listbox, Checkbox, Editbox, Othe
 
 const char* UiTypeName(UiType type);
 
+// What a widget's class does with a left click the game hands it (its
+// ProcessInput; docs/design.md, "Clicks through widgets").
+enum class UiClickInput {
+    Takes,   // acts on it (check and edit boxes, scroll bar sliders) or a class Tongs has not checked
+    Passes,  // windows, text boxes, list boxes, scroll bars: only the wheel, or every event with takes_all_input
+    Button,  // buttons and icons (CButton): acts on it when `clickable`
+};
+
 struct UiRect {
     int x = 0;  // client pixels of the game window
     int y = 0;
@@ -38,6 +46,11 @@ struct UiWidget {
     bool has_definition_file = false;  // only when the widget's definition is live
     std::string definition_file;       // the game path of the defining .gui file, UTF-8; tongs.ui only
     std::uint32_t definition_line = 0;  // the line of its opening `{` in that file, 0 when unknown; tongs.ui only
+    // How a click under the pointer reaches it or passes it (CheckCover); not reported.
+    UiClickInput click_input = UiClickInput::Takes;
+    bool clickable = false;        // Button: the left or right click byte is set
+    bool takes_all_input = false;  // consumes every mouse event it gets (slot 0x18)
+    bool pointer_over = false;     // the game had it under the pointer on the last frame (its copy of +0x8F)
     std::vector<int> children;  // indices into UiTree::widgets, in the game's order
     std::uintptr_t address = 0;  // the widget pointer in the game: matches event buttons and the hovered widget; not reported
 };
@@ -187,15 +200,23 @@ constexpr int kUiClickPaths = 10;
 UiClickTarget ResolveClickTarget(const UiTree& tree, const UiSelector& selector);
 
 // After the pointer moved onto a target: the game hovers `hovered` (mgr+0x130,
-// 0 = none). The click goes ahead only when that is the target or a widget
-// inside it; otherwise `covered_by` names the hovered widget, when the tree has it.
+// 0 = none), the topmost of the widgets under the pointer `under_pointer`
+// (topmost first, as the game hands them a click). The click goes ahead when
+// the hovered widget is the target or a widget inside it, or when every widget
+// above the target lets the click through (shown, not takes_all_input, and a
+// class that passes it or a button that is not clickable) and the game had the
+// target under the pointer (pointer_over). Otherwise `covered_by` names the
+// widget that would take the click: the first above the target that does not
+// let it through, else the hovered widget, when the tree has it.
 struct UiCoverCheck {
     bool covered = true;
     std::string covered_by;  // path; empty when nothing is hovered or the widget is not in the tree
-    std::string hovered;     // path of the hovered widget when it is the target or inside it
+    std::string hovered;     // path of the hovered widget when the click goes ahead
+    std::vector<std::string> through;  // the widgets above the target the click passes, topmost first
 };
 
-UiCoverCheck CheckCover(const UiTree& tree, std::uintptr_t target, std::uintptr_t hovered);
+UiCoverCheck CheckCover(const UiTree& tree, std::uintptr_t target, std::uintptr_t hovered,
+                        const std::vector<std::uintptr_t>& under_pointer = {});
 
 // The smallest rectangle around the children of `parent` that have a size,
 // the shown ones when any of them has; the parent's own rect when none has.

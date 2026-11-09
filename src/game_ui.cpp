@@ -97,7 +97,17 @@ public:
         Pair(code_, e.pointer, l_.slot_position, position);
         Pair(code_, e.pointer, l_.slot_size, size);
         w.rect = {position[0], position[1], size[0], size[1]};
+        std::uint8_t flag = 0;
+        w.takes_all_input = tongs::Read(e.pointer + l_.takes_all_input, flag) && flag != 0;
+        w.pointer_over = tongs::Read(e.pointer + l_.pointer_over, flag) && flag != 0;
         if (!e.kind) return;
+        w.click_input = e.kind->click_input;
+        if (w.click_input == UiClickInput::Button) {
+            std::uint8_t left = 0, right = 0;
+            // Unreadable: assumed to take the click.
+            w.clickable = !tongs::Read(e.pointer + l_.click_left, left) ||
+                          !tongs::Read(e.pointer + l_.click_right, right) || left != 0 || right != 0;
+        }
         DrawnSize(e, w);
         std::string text;
         // A button without a label has an empty string; a text or edit box shows even an empty one.
@@ -373,6 +383,25 @@ std::uintptr_t ReadHoveredWidget(std::uintptr_t image_base, const UiLayout& layo
     std::uintptr_t manager = 0, hovered = 0;
     if (!Read(image_base + layout.manager_rva, manager) || manager == 0 || !Read(manager + layout.hovered, hovered)) return 0;
     return hovered;
+}
+
+std::vector<std::uintptr_t> ReadUnderPointer(std::uintptr_t image_base, const UiLayout& layout) {
+    constexpr std::uintptr_t kMaxUnderPointer = 1000;  // the game collects at most 1000
+    std::vector<std::uintptr_t> out;
+    std::uintptr_t manager = 0, graphics = 0, begin = 0, end = 0;
+    if (!Read(image_base + layout.manager_rva, manager) || manager == 0 || !Read(manager + layout.graphics, graphics) ||
+        graphics == 0 || !Read(graphics + layout.under_pointer, begin) ||
+        !Read(graphics + layout.under_pointer + sizeof(std::uintptr_t), end) || end < begin) {
+        return out;
+    }
+    const std::uintptr_t count = (end - begin) >> layout.under_pointer_shift;
+    if (count > kMaxUnderPointer) return out;
+    for (std::uintptr_t i = 0; i < count; ++i) {
+        std::uintptr_t owner = 0;
+        if (!Read(begin + (i << layout.under_pointer_shift) + layout.under_pointer_owner, owner)) return {};
+        out.push_back(owner);
+    }
+    return out;
 }
 
 std::string ReadHoveredChain(std::uintptr_t image_base, const UiLayout& layout, UiRect client,
