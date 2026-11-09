@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.0](https://github.com/happy-dwarf-team/tongs/compare/v0.28.0...v0.29.0) (2026-11-09)
+
+### Features
+
+* **state:** `state` and every answer that carries it report the current map mode as `map_mode`, the game's own number. ([#172](https://github.com/happy-dwarf-team/tongs/issues/172))
+* **state:** with Anvil 1.16's `anvil-map`, `map_mode_id` names the plugin map mode on screen by its id, or is `null` in the game's own modes. The new `map_mode MODE` command (`tongs_map_mode` in MCP) shows a map mode by number or by a plugin mode's id, as the minimap's button does; it needs `input = true` and counts as a client call. Tongs runs as before without `anvil-map`. Tested in the lab on GOG 1.37.5.2 with `anvil-map` and three plugin modes. ([#173](https://github.com/happy-dwarf-team/tongs/issues/173))
+
 ## [0.28.0](https://github.com/happy-dwarf-team/tongs/compare/v0.27.0...v0.28.0) (2026-11-09)
 
 ### Features
