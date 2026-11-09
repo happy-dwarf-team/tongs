@@ -3072,6 +3072,15 @@ query `0x14E5E50` ran.
   `run_until events=first`, and `pause` / `resume` / `speed` when they fall
   back to keys) with `the game window is minimized: …`; the buttons still
   work.
+- **With the refusal** (the branch of this change, a second start, the same
+  setup): minimized, `key space`, `text ab`, `click 100 100`, `scroll -2` and
+  `ui click speed_controls/button_speedup` answered `the game window is
+  minimized: …` with `presses: 0`; `speed 5`, `resume` and `pause` worked
+  through the buttons; `run_until 1445.1.1 speed=5 events=first` stopped with
+  the same error at the first event (1444.11.18), leaving it open. Restored,
+  the game stayed paused on the same date (nothing had waited in the queue),
+  and the same `run_until` chose the event's option in the visible window and
+  reached 1445.1.1 (`inputs: 1`).
 
 ## Not verified yet
 
@@ -3102,6 +3111,4 @@ query `0x14E5E50` ran.
   speed setting, and what sets the buttons' guard byte.
 - Mouse: dragging (no command yet), and what a middle click does (one was
   sent on the map, its effect not checked).
-- `run_until` with `max_pause`, and `events=first` choosing an option in a
-  visible window (the one event that opened in a run came while the window was
-  minimized, "Input gaps (2026-11-09)").
+- `run_until` with `max_pause`.
