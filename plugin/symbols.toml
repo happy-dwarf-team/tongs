@@ -1560,6 +1560,20 @@ build."eu4-1.37.5-steam-win64" = { rva = 0x14E9B1A }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x14E368A }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x14E368A }
 
+[symbol.gui_scale]
+# movss xmm1, [r15+0x32600]   ; the GUI scale (game_ui_scale)
+# movd xmm2, [r15+0x48C]      ; the resolution's height
+# cvtdq2ps xmm2, xmm2
+# divss xmm2, xmm1
+# movd xmm0, [r15+0x488]      ; the resolution's width
+bytes = "F3 41 0F 10 8F 00 26 03 00 66 41 0F 6E 97 8C 04 00 00 0F 5B D2 F3 0F 5E D1 66 41 0F 6E 87 88 04 00 00"
+memory = "code"
+values.scale = { at = 5, size = 4 }
+note = "the CGraphics constructor: the 2D resolution is the window's divided by the float GUI scale at graphics+scale, so widget positions are window pixels divided by it (site from Whetstone's gui_size_inputs)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x14D9558 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x14D30C8 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x14D30C8 }
+
 [symbol.hover_last_frame]
 bytes = "FF 50 40 0F B6 83 8F 00 00 00 88 83 AA 00 00 00 C6 83 8F 00 00 00 00"
 memory = "code"

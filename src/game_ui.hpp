@@ -26,6 +26,7 @@ struct UiLayout : UiStructureLayout {
     unsigned hovered = U32(sym::hover_callback.hovered);          // mgr: the topmost widget under the GUI pointer, written once per frame
     // How a click under the pointer goes (docs/design.md, "Clicks through widgets").
     unsigned graphics = U32(sym::gui_graphics.graphics);          // mgr: the graphics object
+    unsigned gui_scale = U32(sym::gui_scale.scale);               // graphics: the GUI scale (float)
     unsigned under_pointer = U32(sym::mouse_collisions.list);     // graphics: {begin, end} of the widgets under the pointer
     unsigned under_pointer_shift = U32(sym::hover_order.entry_shift);  // an entry is 1 << this bytes
     unsigned under_pointer_owner = U32(sym::hover_order.owner);        // the widget in an entry

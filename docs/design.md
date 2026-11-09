@@ -643,9 +643,9 @@ this section describes what holds.
   | Name | vtable slot `0xA0`, a `std::string*`: the `.gui` name, case kept (`type+0x10` of the definition at `+0xB0`, or a window's own name); from 0.14.0 called only when that definition is live ("Stale widgets") |
   | Visible | `+0xC5` |
   | Dead | `+0xC4` |
-  | Position | slot `0xD8`: two int32 in client pixels, read from the widget's render node |
+  | Position | slot `0xD8`: two int32 in the game's coordinates (client pixels divided by the GUI scale, "GUI scale"), read from the widget's render node |
   | Size | slot `0xE0`, corrected where it is not what is drawn ("Widget sizes") |
-  | Text | button `+0x200`, instant text box `+0x170`, text box `+0x178`, edit box `+0xF8`; Windows-1252 |
+  | Text | button `+0x200`, instant text box `+0x170`, text box `+0x178`, edit box `+0xF8`; Windows-1252, or UTF-8 put there by a mod ("Text encoding") |
   | Button state | `+0x124`; 3 = disabled |
   | Check box state | byte `+0x100` of `checkboxType`; 1 = ticked |
   | Render node | per kind (table below); the node holds its owner at `+0x118` and its parent node at `+0x110` |
@@ -916,6 +916,105 @@ null`: the game reports no widget under the pointer there (`mgr+0x130` is 0),
 though a press there works, so `click` at its `click_point` is the way. A
 `ui click` on the battle popup's OK was refused as `covered` once, with a map
 tooltip drawn next to it (not confirmed: the game was closing).
+
+### Text encoding (2026-11-09)
+
+The game keeps its text as Windows-1252 bytes. A mod can put UTF-8 there
+instead: Mei (Chinese) keeps its localisation as UTF-8 and draws a well-formed
+UTF-8 sequence as one character, every other byte as itself. Read as
+Windows-1252, `国库` came out as `å›½åº“`. The game's own code still adds
+lone Windows-1252 format bytes to such text (`§` colour codes, `£` icons, `¤`).
+
+`GameTextToUtf8` (`src/ui_tree.cpp`) decides per string, for widget text,
+event ids and option keys and world names alike. A string is read as UTF-8
+when every byte from `0x80` up is part of a well-formed sequence of two to four
+bytes (no overlong forms, surrogates or code points above U+10FFFF) or one
+of the lone format bytes `A7`, `A3`, `A4`, and at least one sequence is
+evidence of UTF-8: three or four bytes long (CJK, `“”`), or two bytes for
+U+0080–U+00FF (`§` is `C2 A7`, `é` `C3 A9`). Then each sequence is one
+character, and the lone bytes are Windows-1252. Any other string is
+Windows-1252, as before. `§` and the character after it are dropped in either
+form, or kept in tongs.ui's markup.
+
+A two-byte sequence with a lead from `C4` up does not count as evidence,
+because the game's Windows-1252 text makes those: an uppercase accented letter
+or `ß` before a symbol, as in German `Groß§!` (`DF A7`). Windows-1252 text
+that is wholly valid UTF-8 with a sequence that counts, such as `Ã` or `Â`
+before a symbol, or a lowercase accented letter before two symbols (`à`
+before a no-break space and `«`, when no other byte from `0x80` up in the string
+breaks it), would be read as UTF-8; such text has not been seen in the game.
+
+#### Live check (2026-11-09)
+
+The original `eu4.exe` (Steam 1.37.5, `9AD3EFE1…D771A`) in a junction copy
+of the game folder, Anvil 1.13.0 with anvil-game and this branch, under the
+lab's game lock. Each start ended with the game closed after the PID, path and
+start-time check, no files left, and `settings.txt` differing only in
+`graceful_exit`, then restored.
+
+- **Mei 0.3.0 and a Chinese translation mod**, on a private copy of the lab's
+  zh-CN profile (1920×1080). Main menu: `鸣谢`, `退出游戏`, and the test mod's
+  mixed labels `单人游戏 UTF8`, `中文与 English`, `日本語 한국어` (the Korean
+  drawn as `???` by the font, read right by Tongs); `//[text~=游戏]` found
+  both labels with it. Lobby: `游戏选项`, `后退`, `随机国家`, the selected
+  nation `奥斯曼`, `苏丹国` and `苏丹 Mehmed II Fatih`. In a new game as the
+  Ottomans: the country description (four paragraphs with Chinese
+  punctuation), `地理大发现时代`, `暂停`, `DateText` `11 11月 1444`, and
+  `Karadeniz Donanmasî` in the outliner. Before this change the same reads
+  answered mojibake such as `å›½åº“` (lab test, 2026-11-07).
+- **The base game in English** (vanilla profile, 3440×1440): the outliner's
+  `Karadeniz Donanmasî` and `Ege Donanmasî`, and the Ottoman description with
+  its en dash (`0x96`) as `–`, as before.
+
+### GUI scale (2026-11-09)
+
+The game lays out its interface at a 2D resolution of the window's divided by
+the GUI scale (`game_ui_scale` in `settings.txt`): the `CGraphics`
+constructor (`0x14D9558`, symbol `gui_scale`) reads the float scale at
+`graphics+0x32600` and divides the resolution at `+0x488`/`+0x48C` by it,
+truncated (Whetstone's `gui_size_inputs`). Slots `0xD8` and `0xE0` give
+positions and sizes in that layout, while the pointer the GUI reads
+(`gui_cursor`) and the clicks are client pixels. At scale 1.2 or 1.6 a rect
+read as it is lay short of the widget and `ui click` hovered the wrong place
+and answered `covered` (lab test, 7.11.2026).
+
+Both tree readers read the scale from the GUI manager's graphics object
+(`mgr+0xC0`, the object `NotifyMouseOverCollisions` runs on) and multiply
+every rect by it as it is read, edges rounded (`ScaleRect`), before scroll
+bars take their buttons' bounds and `FitRects` compares the rects with the
+client area. So `rect`, `click_point`, the hover check of `ui click` and
+tongs.ui's rects are client pixels at any scale. `ui find`, `ui tree` and
+`ui click` answer `ui_scale`. A value no setting gives (not finite, or
+outside 0.25–8) or an unreadable one answers `null`, and the rects are left
+as the game gives them, as before.
+
+#### Live check (2026-11-09)
+
+The original `eu4.exe` (Steam 1.37.5, `9AD3EFE1…D771A`) in a junction copy
+of the game folder, Anvil 1.13.0 with anvil-game, under the lab's game lock,
+on private vanilla profiles at 3440×1440 borderless. Each start ended with the
+game closed after the PID, path and start-time check, no files left, and
+`settings.txt` differing only in `graceful_exit`, then restored.
+
+- **Before, `game_ui_scale` 1.2** (a build without this change, Mei's zh-CN
+  profile at 1920×1080): `ui find` gave the menu buttons inside 1600×900 (the
+  single player button at (594, 778) 204×60), and `ui click` on the lobby's
+  `play_button` answered `covered` with `covered_by: null` after three hover
+  attempts. A `click` at `click_point` times 1.2 worked.
+- **After, scale 1.2:** `ui_scale: 1.2` in every answer. The main menu buttons
+  came at (1476, 1297) 245×72 and similar; drawn over a screenshot, the rects of
+  Single Player, Multiplayer, Credits and Options lie on the drawn buttons, as
+  do those of `speed_controls` in the game. `ui click` went through with the
+  clicked widget hovered on `single_player_button`, `shield[1]` (a masked
+  shield in the lobby), the
+  lobby's `play_button`, `start_game_dialog/start_button`,
+  `startup_screen/close_button`, and `button_speedup` / `button_speeddown`
+  (speed 1 → 2 → 1).
+- **After, scale 1.0:** `ui_scale: 1`; the single player button at
+  (1517, 1321) 204×60 with `click_point` (1619, 1351), the same point as the
+  build without this change; `ui click` on it and on the lobby's
+  `back_button` went through (Back restarts the game, as it does without
+  plugins).
 
 ## Stale widgets (0.14.0)
 

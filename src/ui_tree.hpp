@@ -58,7 +58,23 @@ struct UiWidget {
 struct UiTree {
     std::vector<UiWidget> widgets;
     std::vector<int> roots;  // top-level windows, in the order of the game's widget registry
+    // The game's GUI scale (game_ui_scale) the rects were multiplied by, from the
+    // game's own value; 0 when it could not be read, and the rects are then the
+    // game's own coordinates, which are client pixels only at scale 1.
+    float ui_scale = 0;
 };
+
+// The GUI scale read from the game, or 0 for a value no game setting gives
+// (not finite, or outside 0.25-8).
+float PlausibleUiScale(float scale);
+
+// A rect in the game's interface coordinates (client pixels divided by the GUI
+// scale) as client pixels: the edges are multiplied by `scale` and rounded, so
+// adjacent widgets stay adjacent. A scale of 0 or 1 leaves it as it is.
+UiRect ScaleRect(const UiRect& r, float scale);
+
+// `,"ui_scale":1.2` for an answer, or `,"ui_scale":null` when it was not read.
+std::string UiScaleMember(const UiTree& tree);
 
 struct UiSelector {
     enum class Axis { Top, Child, Descendant };
@@ -234,6 +250,11 @@ void FitRects(UiTree& tree, UiRect client);
 
 // The game's 8-bit text (Windows-1252) as UTF-8, without its colour codes (§ and
 // the next character, e.g. "§YName§!" -> "Name"), or with them when `colour_codes`.
+// Text that a mod keeps as UTF-8 (Mei's Chinese) is read as UTF-8: a string whose
+// bytes from 0x80 up are all well-formed UTF-8, apart from the game's lone format
+// bytes (§ £ ¤), with at least one sequence of three or four bytes or one for
+// U+0080-U+00FF; the lone bytes in it are still Windows-1252 (docs/design.md,
+// "Text encoding").
 std::string GameTextToUtf8(std::string_view text, bool colour_codes = false);
 
 }  // namespace tongs

@@ -641,7 +641,8 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         selector: Selector, all: All = False, stale: Stale = False, limit: Limit = None
     ) -> CallToolResult:
         """Widgets matching a selector: count, truncated and matches, each with path, type, visible,
-        rect and click_point in client pixels, and text / enabled / stale where they apply."""
+        rect and click_point in client pixels, and text / enabled / stale where they apply; ui_scale
+        is the game's GUI scale the rects were converted by (null when it could not be read)."""
         _check(selector)
         return await call(_line("ui find", selector, "all" if all else None, "stale" if stale else None, limit=limit))
 
