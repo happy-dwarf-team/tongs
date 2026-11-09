@@ -540,7 +540,10 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         max_pause: MaxPause = None,
         events: Annotated[
             Literal["first", "stop"] | None,
-            Field(description="first: choose the first enabled option of every event that opens on the way."),
+            Field(
+                description="first: choose the first enabled option of every event that opens on the way "
+                "(through Anvil's anvil-game.commands when it has version 2, else by a click)."
+            ),
         ] = None,
         progress: Progress = True,
     ) -> CallToolResult:

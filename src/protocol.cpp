@@ -122,6 +122,14 @@ public:
                 return p;
             };
         }
+        // A choice the service made counts as the click it stands for.
+        if (h.choose_option) {
+            handlers_.choose_option = [this, choose = h.choose_option](std::int32_t pending, std::int32_t option) {
+                ServiceChoice c = choose(pending, option);
+                if (c.posted != 0) sent_ = true;
+                return c;
+            };
+        }
     }
     CountedInput(const CountedInput&) = delete;
     CountedInput& operator=(const CountedInput&) = delete;
@@ -1236,6 +1244,10 @@ std::string EventCommand(const Handlers& h, std::string_view argument) {
     return request.verb == EventRequest::Verb::List ? EventList(h, request) : EventChoose(h, request);
 }
 
+// anvil-game.commands' answers that run_until events=first tries again (AnvilResult).
+constexpr int kServiceWrongPhase = 8;
+constexpr int kServiceNotFound = 11;
+
 // run_until events=first: between the polls of the wait, chooses the first
 // enabled option of the topmost open event, as `event choose` would.
 struct EventsFirst {
@@ -1294,6 +1306,79 @@ struct EventsFirst {
         return true;
     }
 
+    // The service's choice of `o` (anvil-game.commands version 2), as the button would make it.
+    // Returns false when the service cannot choose here, so the caller clicks; otherwise
+    // `ok` is what Poll returns.
+    bool ChooseByService(const EventView& e, const EventOption& o, bool& ok) {
+        if (!h.choose_option || !service_usable) return false;
+        const StateSnapshot before = h.read_state();
+        ServiceChoice sc;
+        Dispatcher::Outcome run;
+        {
+            const CountedInput counted(h, "run_until events=first: choice");
+            const auto& choose = counted.handlers().choose_option;
+            const std::int32_t pending = e.pending_id, option = o.index;
+            run = h.dispatcher->Run(
+                Dispatcher::Kind::Read,
+                [&sc, &choose, pending, option] {
+                    sc = choose(pending, option);
+                    return std::string();
+                },
+                h.dispatch_timeout_ms);
+        }
+        if (!run.ran) {
+            ok = Stop(run.error);
+            return true;
+        }
+        if (!sc.available) {
+            service_usable = false;  // this build or this Anvil has no event option: click from now on
+            return false;
+        }
+        if (sc.result == kServiceWrongPhase || sc.result == kServiceNotFound || sc.skipped != 0 || sc.refused != 0) {
+            // A button not enabled yet, or the window gone or chosen meanwhile: look again later.
+            ++misses.still_waiting;
+            ok = Missed(e, "the service did not choose (result " + std::to_string(sc.result) + ")", std::string());
+            return true;
+        }
+        if (sc.result != 0 || sc.posted == 0) {
+            ok = Fail(e, "anvil-game.commands refused the choice (result " + std::to_string(sc.result) + ")", std::string());
+            return true;
+        }
+        NoteChoice(h, e, o, before, "service");
+        const CloseWatch w = WatchClose(h, e, h.now_ms(), run.frame);
+        if (!w.chosen) {
+            ForgetChoice(h, e);
+            ++misses.still_waiting;
+            ok = Missed(e, NotChosen(), std::string());
+            return true;
+        }
+        ok = Chosen(e, o, before, ",\"via\":\"service\"");
+        return true;
+    }
+
+    // A choice that took: into the answer, and the game resumed when the event paused it.
+    bool Chosen(const EventView& e, const EventOption& o, const StateSnapshot& before, const std::string& extra) {
+        if (!choices.empty()) choices += ',';
+        std::string choice = ChoiceJson(e, o, before.in_game ? DateText(before.date_raw) : std::string());
+        choice.insert(choice.size() - 1, AttemptFields() + extra);
+        choices += choice;
+        missed = 0;
+        attempts = 0;
+        misses = {};
+        // An event that paused the game with the player pause leaves it paused.
+        const StateSnapshot after = h.read_state();
+        if (after.in_game && after.paused_flag) {
+            const CountedInput counted(h, "run_until events=first: resume");
+            Actions actions(counted.handlers());
+            const ActionResult resume = actions.SetPaused(false);
+            if (!resume.ok) return Stop("resume after choosing an event failed: " + resume.error);
+        }
+        next_look = 0;
+        return true;
+    }
+
+    bool service_usable = true;
+
     bool Poll() {
         // One word from the pipe thread; the main thread is asked only while events are open.
         if (h.now_ms() < next_look || h.count_event_windows() <= 0) return true;
@@ -1326,6 +1411,7 @@ struct EventsFirst {
         }
         ++attempts;
         const EventOption& o = e.options[option];
+        if (bool ok = true; ChooseByService(e, o, ok)) return ok;
         const StateSnapshot before = h.read_state();
         const UiWidget& button = s.tree.widgets[o.widget];
         ClickOutcome c;
@@ -1348,23 +1434,7 @@ struct EventsFirst {
             misses.pointer_released += PointerReleased(h);
             return Missed(e, NotChosen(), PointerNote(h));
         }
-        if (!choices.empty()) choices += ',';
-        std::string choice = ChoiceJson(e, o, before.in_game ? DateText(before.date_raw) : std::string());
-        choice.insert(choice.size() - 1, AttemptFields());
-        choices += choice;
-        missed = 0;
-        attempts = 0;
-        misses = {};
-        // An event that paused the game with the player pause leaves it paused.
-        const StateSnapshot after = h.read_state();
-        if (after.in_game && after.paused_flag) {
-            const CountedInput counted(h, "run_until events=first: resume");
-            Actions actions(counted.handlers());
-            const ActionResult resume = actions.SetPaused(false);
-            if (!resume.ok) return Stop("resume after choosing an event failed: " + resume.error);
-        }
-        next_look = 0;
-        return true;
+        return Chosen(e, o, before, std::string());
     }
 };
 

@@ -23,6 +23,7 @@ struct EventButtonRaw {
 struct OpenEventRaw {
     std::uintptr_t controller = 0;
     bool waiting = false;        // +0x124: no option chosen yet
+    std::int32_t pending_id = 0;  // +0x120: the pending event's id (CGameState::_PendingEvents)
     std::uintptr_t window = 0;   // the event window's widget pointer; 0 before the window is filled
     std::string id;              // script id (event+0x20), game text
     std::int32_t numeric_id = 0;  // event+0x14, assigned at load; only matched against the buttons
@@ -51,6 +52,7 @@ struct EventOption {
 struct EventView {
     int number = 0;        // in `event list`, from 1, topmost (newest) first
     std::uintptr_t controller = 0;
+    std::int32_t pending_id = 0;  // the pending event's id, for anvil-game.commands
     std::string id;        // UTF-8
     std::string title;
     std::string description;

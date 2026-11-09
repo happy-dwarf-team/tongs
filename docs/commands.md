@@ -381,7 +381,8 @@ answers `event_option` and counts as a choice Tongs knows (see [Events](#events)
 ## Events
 
 `event list` reports each open event window, topmost (newest) first, with its
-`number`, `id` (the script id, e.g. `flavor_rus.1`), `title`, `description`,
+`number`, `id` (the script id, e.g. `flavor_rus.1`), `pending_id` (the id of
+the game's pending event, which `anvil-game.commands` takes), `title`, `description`,
 widget `path`, and its options: `number` on screen (from 1), `text`,
 `enabled`, `option_index` (the option in the event file; options hidden by
 their trigger are skipped on screen but keep their index), `option_key` (the
@@ -403,6 +404,15 @@ the run: it waits for the first enabled option of the topmost event, clicks it
 and lists the choices in `events`; when no option becomes enabled, the run
 ends with `no_enabled_option` and the event. An event that paused the game is
 resumed after the choice. Every click counts in `inputs`.
+With an Anvil whose `anvil-game.commands` has version 2 (Anvil 1.17), the choice
+is made through that service instead of a click: it does what the option's button
+does, so it works with the game window minimised or covered. The choice counts in
+`inputs` all the same, and its entry in `events` and the `event` notification at
+the close have `via: "service"`. While the service says the button is not enabled
+yet, the run tries again as it does for a click. Without the service, or on a game
+build that lacks its symbols, the run clicks as before; in ironman or multiplayer
+without the player's opt-in the service answers that Tongs is suspended and the run
+ends with that error.
 A choice that does not take (`covered`, or the event still waiting for a choice
 3 s after the click) is tried again a quarter of a second later, from whatever
 event is then on top, while the game goes on. `choice_retries` counts these
@@ -424,7 +434,7 @@ is `all` or a list such as `state,date,event`:
 | --- | --- |
 | `state` | the game is entered or left (`change`: `entered_game` with `session`, `left_game` with `reason`; a load is `left_game` then `entered_game`), paused or resumed (`paused`, `resumed`), the speed changes (`speed`, with `previous_speed`) or a multiplayer game goes out of sync (`out_of_sync`, with `out_of_sync` and `paused_oos`); each with `speed`, `paused`, `paused_flag`. Also while a save loads |
 | `date` | a new day, month (the default) or year begins, with `unit` and `previous` |
-| `event` | an event window opens (`opened`, with `id`, `title` and `options`) or closes (`closed`, with `chosen`: the option, with `by` saying who chose it: `tongs` for `event choose`, `run_until events=first` or `ui click` on the option button (`via: "ui click"`), `player` for any other click on an option (the real mouse, a plain `click`), `auto` for the game's own choice at the deadline; `null` when nobody's choice is known) |
+| `event` | an event window opens (`opened`, with `id`, `title` and `options`) or closes (`closed`, with `chosen`: the option, with `by` saying who chose it: `tongs` for `event choose`, `run_until events=first` or `ui click` on the option button (`via: "ui click"`), `player` for any other click on an option (the real mouse, a plain `click`), `auto` for the game's own choice at the deadline; `via: "service"` when `run_until events=first` chose through `anvil-game.commands`; `null` when nobody's choice is known) |
 | `error_log` | the game writes a `line` to its `error.log`; `restarted` when the file was replaced. A line of Anvil's `anvil-log-throttle` also has `throttle` and its count (below) |
 | `activity` | any client sends an input command (`what: "input"`, `command`), makes a client call (`what: "client_call"`, `command`) or a game call (`what: "game_call"`, `line`, `name`), with the `client` (pipe instance) and the running count (`inputs`, `client_calls`, `game_calls`), so a marked run shows as it happens |
 

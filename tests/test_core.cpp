@@ -1374,6 +1374,7 @@ static EventsRaw EventRaw(const UiTree& t) {
     plague.numeric_id = 7;
     plague.option_keys = {"flavor_x.2.a"};
     plague.buttons = {{Address(FindWidget(t, "Pray")), "7_0"}};
+    plague.pending_id = 71;
     raw.events.push_back(plague);
     OpenEventRaw fish;
     fish.controller = 0xC2;
@@ -1381,6 +1382,7 @@ static EventsRaw EventRaw(const UiTree& t) {
     fish.window = Address(8);
     fish.id = "flavor_rus.1";
     fish.numeric_id = 5;
+    fish.pending_id = 51;
     fish.option_keys = {"flavor_rus.1.a", "flavor_rus.1.b", "flavor_rus.1.hidden", ""};
     fish.buttons = {{Address(11), "5_0"}, {Address(13), "5_1"}, {Address(15), "5_3"}};
     raw.events.push_back(fish);
@@ -1408,7 +1410,7 @@ static void TestEvents() {
     assert(events[1].id == "flavor_x.2" && events[1].title == "Plague" && events[1].number == 2);
     assert(FirstEnabledOption(fish) == 0);
     const std::string json = EventJson(fish);
-    assert(Contains(json, "{\"number\":1,\"id\":\"flavor_rus.1\",\"title\":\"Tariffs on Fish\",\"description\":") &&
+    assert(Contains(json, "{\"number\":1,\"id\":\"flavor_rus.1\",\"pending_id\":51,\"title\":\"Tariffs on Fish\",\"description\":") &&
            Contains(json, "{\"number\":3,\"text\":\"Ask the merchants\",\"enabled\":false,\"option_index\":3,\"option_key\":\"\""));
 
     EventRequest r;
@@ -1948,6 +1950,73 @@ static void TestRunUntilEventsFirst() {
     screen.game.state.date_raw = *ParseGameDate("1719.4.2");
     out = HandleRequest("run_until 1719.5.1 events=stop", h);
     assert(Contains(out, "\"ok\":true") && !Contains(out, "\"events\":"));
+}
+
+// run_until events=first through anvil-game.commands version 2 (eu4-engine-lab#139): the
+// service chooses as the button would, the choice counts as an input, and without the type
+// on the build (NOT_DECLARED) the run clicks instead.
+static void TestRunUntilEventsFirstService() {
+    FakeScreen screen;
+    screen.game.clock_runs_date = true;
+    const EventsRaw opened = screen.raw;
+    screen.raw = {};
+    Handlers h = screen.Make();
+    FakeMainThread main(screen.dispatcher);
+    std::vector<std::string> asked;  // "<pending> <option>"
+    int answer = 0;                  // the AnvilResult the fake service gives
+    h.choose_option = [&screen, &asked, &answer](std::int32_t pending, std::int32_t option) {
+        asked.push_back(std::to_string(pending) + " " + std::to_string(option));
+        ServiceChoice c;
+        c.result = answer;
+        c.available = answer != 2;
+        if (answer != 0) return c;
+        for (OpenEventRaw& e : screen.raw.events) {
+            if (e.pending_id != pending || !e.waiting) continue;
+            e.waiting = false;
+            screen.chosen.push_back("service " + std::to_string(option));
+            c.posted = 1;
+        }
+        return c;
+    };
+    std::int32_t opens = *ParseGameDate("1719.3.25");
+    bool open = false;
+    screen.game.on_sleep = [&] {
+        if (!open && screen.game.state.date_raw >= opens) {
+            open = true;
+            screen.raw = opened;
+            screen.game.state.paused_flag = true;
+        }
+    };
+    std::string out = HandleRequest("run_until 1719.4.1 speed=1 events=first", h);
+    assert(Contains(out, "{\"ok\":true,\"command\":\"run_until\"") && Contains(out, "\"reached\":true"));
+    assert(asked == std::vector<std::string>({"51 0", "71 0"}));
+    assert(screen.chosen == std::vector<std::string>({"service 0", "service 0"}));
+    assert(Contains(out, "\"title\":\"Plague\",\"option\":1,\"text\":\"Pray\"") && Contains(out, "\"via\":\"service\""));
+    // Two choices and one resume after the pause the first event set; no click.
+    assert(Contains(out, "\"inputs\":3,") && screen.game.cursor.first < 0);
+
+    // A build without the type's symbols: the service says NOT_DECLARED once, and the run clicks.
+    answer = 2;
+    asked.clear();
+    screen.chosen.clear();
+    screen.raw = {};
+    open = false;
+    opens = *ParseGameDate("1719.4.10");
+    screen.game.state.date_raw = *ParseGameDate("1719.4.2");
+    out = HandleRequest("run_until 1719.5.1 events=first", h);
+    assert(Contains(out, "{\"ok\":true,\"command\":\"run_until\"") && !Contains(out, "\"via\":\"service\""));
+    assert(asked.size() == 1 && screen.chosen == std::vector<std::string>({"5_0", "7_0"}));
+
+    // Suspended (ironman without the player's opt-in): the run ends there, nothing clicked.
+    answer = 13;
+    screen.chosen.clear();
+    screen.raw = {};
+    open = false;
+    opens = *ParseGameDate("1719.5.10");
+    screen.game.state.date_raw = *ParseGameDate("1719.5.2");
+    out = HandleRequest("run_until 1719.6.1 events=first", h);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"anvil-game.commands refused the choice (result 13)\"") &&
+           screen.chosen.empty());
 }
 
 static void TestConsoleRules() {
@@ -4554,6 +4623,7 @@ int main(int argc, char** argv) {
     TestEventCommands();
     TestInputsCount();
     TestRunUntilEventsFirst();
+    TestRunUntilEventsFirstService();
     TestDate();
     TestLoadWatch();
     TestScreenshot();

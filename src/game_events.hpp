@@ -29,6 +29,7 @@ struct EventLayout {
     unsigned controller_window = U32(sym::event_controller.window);  // full windowType object; 0 before the window is filled
     unsigned controller_event = U32(sym::event_controller.event);
     unsigned controller_waiting = U32(sym::option_click.waiting);   // byte: no option chosen yet
+    unsigned controller_pending = U32(sym::option_window.pending);  // int32: the pending event's id
     unsigned controller_buttons = U32(sym::event_button_append.buttons);  // list of option buttons
     unsigned window_part = U32(sym::eu3dialog_vtable.window_part);  // full window object -> widget pointer
     unsigned event_id = U32(sym::event_id_parser.script_id);        // std::string: the script id
