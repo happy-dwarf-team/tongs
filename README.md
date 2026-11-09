@@ -29,8 +29,8 @@ Status: early. Everything is off until you turn it on (see [Safety](#safety)).
 - **Other plugins** can read the widget tree and select a province (see
   [For other plugins](#for-other-plugins-tongsui)).
 
-It needs EU4 1.37.5 (Steam, Windows 64-bit) or 1.37.5.2 (GOG, Windows 64-bit),
-and Anvil 1.7 or newer with its standard plugin `anvil-game`. Anvil skips Tongs
+It needs EU4 1.37.5 (Steam, Windows 64-bit) or 1.37.5.2 or 1.37.5.0 (GOG, Windows 64-bit),
+and Anvil 1.7 or newer (Anvil 1.16 on 1.37.5.0) with its standard plugin `anvil-game`. Anvil skips Tongs
 on other builds. Design and the addresses it relies on:
 [docs/design.md](docs/design.md) and [plugin/symbols.toml](plugin/symbols.toml).
 

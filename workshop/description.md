@@ -6,7 +6,7 @@ Tongs is for mod testers, tool makers and anyone who wants a program or an AI ag
 
 ![](https://anvil.happydwarf.dev/workshop/tongs-steps.png)
 
-Needs [Anvil](https://anvil.happydwarf.dev/) 1.7 or newer, EU4 1.37.5 (Steam; the GOG build 1.37.5.2 too, see the FAQ) and something to talk to it: the [GitHub page](https://github.com/happy-dwarf-team/tongs) has clients for PowerShell and Python and an MCP server. If Windows warns about Anvil, choose **More info**, then **Run anyway**.
+Needs [Anvil](https://anvil.happydwarf.dev/) 1.7 or newer, EU4 1.37.5 (Steam; GOG's 1.37.5.2 and 1.37.5.0 too, see the FAQ) and something to talk to it: the [GitHub page](https://github.com/happy-dwarf-team/tongs) has clients for PowerShell and Python and an MCP server. If Windows warns about Anvil, choose **More info**, then **Run anyway**.
 
 ![](https://anvil.happydwarf.dev/workshop/tongs-tiles-title.png)
 
@@ -30,10 +30,10 @@ That is on purpose: Tongs starts switched off. Turn it on in Anvil's panel or in
 No. Tongs only answers programs running on your own computer under your own Windows user. The front gate stays shut, and the dwarf keeps the key.
 
 ### Does it work with my mods?
-It reads the interface the game is actually showing, so interface mods should not get in its way. The game itself has to be 1.37.5 (or GOG's 1.37.5.2).
+It reads the interface the game is actually showing, so interface mods should not get in its way. The game itself has to be 1.37.5 (or GOG's 1.37.5.2 or 1.37.5.0).
 
 ### I play on GOG. Can I use it?
-Yes, on the GOG build 1.37.5.2. GOG has no Workshop, so install Tongs from the **Catalog** tab in Anvil Manager (Anvil 1.9 or newer), or from the release zip on [GitHub](https://github.com/happy-dwarf-team/tongs/releases). The tongs fit either hand.
+Yes, on the GOG builds 1.37.5.2 and 1.37.5.0 (1.37.5.0 needs Anvil 1.16 or newer). GOG has no Workshop, so install Tongs from the **Catalog** tab in Anvil Manager (Anvil 1.9 or newer), or from the release zip on [GitHub](https://github.com/happy-dwarf-team/tongs/releases). The tongs fit either hand.
 
 ### Something's wrong. Where do I ask?
 In **#help-and-bugs** on our [Discord server](https://discord.happydwarf.dev/) (pick the Tongs tag), or in a [GitHub issue](https://github.com/happy-dwarf-team/tongs/issues/new/choose). What we confirm on Discord goes to GitHub too.

@@ -7,7 +7,7 @@ api = 2
 anvil = ">=1.7.0"
 entry = "tongs.dll"
 phase = "main"
-# Every game address and offset Tongs uses; its `builds` limit Tongs to EU4 1.37.5 (Steam, win64) and 1.37.5.2 (GOG, win64).
+# Every game address and offset Tongs uses; its `builds` limit Tongs to EU4 1.37.5 (Steam, win64) and 1.37.5.2 and 1.37.5.0 (GOG, win64).
 symbols = "symbols.toml"
 # enabled, input, game calls: the player's values live in anvil/data/tongs/settings.toml.
 settings = "settings.toml"

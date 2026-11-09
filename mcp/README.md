@@ -13,8 +13,8 @@ keyboard and mouse input, `game_calls = true` for `console`. See the
 
 ## Requirements
 
-- Windows, EU4 1.37.5 (Steam) or 1.37.5.2 (GOG) with
-  [Anvil](https://github.com/happy-dwarf-team/anvil) 1.7 or newer and Tongs installed, `enabled = true` in `anvil/data/tongs/settings.toml`.
+- Windows, EU4 1.37.5 (Steam) or 1.37.5.2 or 1.37.5.0 (GOG) with
+  [Anvil](https://github.com/happy-dwarf-team/anvil) 1.7 or newer (Anvil 1.16 on 1.37.5.0) and Tongs installed, `enabled = true` in `anvil/data/tongs/settings.toml`.
 - [uv](https://docs.astral.sh/uv/) (recommended), or Python 3.11+ with pip.
 
 The server starts without a game; tools then answer with an error until the
