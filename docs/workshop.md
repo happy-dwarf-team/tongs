@@ -33,7 +33,7 @@ checksum.
 
    ```powershell
    cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-   cmake --build build --config Release
+   cmake --build build --config Release --parallel
    cmake --install build --config Release --component plugin --prefix dist/package
    Remove-Item workshop/anvil -Recurse -Force -ErrorAction Ignore
    New-Item -ItemType Directory workshop/anvil -Force | Out-Null

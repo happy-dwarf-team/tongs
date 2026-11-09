@@ -244,7 +244,7 @@ installed from a local Anvil checkout (`cmake --install <anvil build> --componen
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release
+cmake --build build --config Release --parallel
 ctest --test-dir build -C Release --output-on-failure
 cmake --install build --config Release --component plugin --prefix dist
 ```
