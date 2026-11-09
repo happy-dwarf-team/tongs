@@ -587,7 +587,8 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
             ),
         ],
     ) -> CallToolResult:
-        """Presses one key in the game (through its SDL queue; the window needs no focus) and answers
+        """Presses one key in the game (through its SDL queue; the window needs no focus, but a minimized
+        window refuses: the game would act on the key only when it is restored) and answers
         with the state 0.1 s later."""
         return await call(_line("key", name))
 
