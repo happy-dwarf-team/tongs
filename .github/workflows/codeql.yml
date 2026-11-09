@@ -49,16 +49,31 @@ jobs:
         with:
           persist-credentials: false
 
+      # The FetchContent sources and sub-builds, keyed on the CMake files that pin
+      # them (a key of its own: build.yml configures them with Ninja).
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            build/_deps/*-src
+            build/_deps/*-subbuild
+          key: fetchcontent-vs-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+
+      # Only the plugin, in parallel, as in the other plugins (the unit tests do not
+      # ship). Configure runs before init: CodeQL needs only the compiler calls.
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DTONGS_BUILD_TESTS=OFF
+
+      # tools: linked is the CodeQL bundle of this action version, which the runner
+      # image has in its toolcache once the image catches up; left out, the action
+      # takes a newer bundle when GitHub offers one and spends over a minute unpacking it.
       - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           languages: c-cpp
           build-mode: manual
-
-      - name: Configure
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          tools: linked
 
       - name: Build
-        run: cmake --build build --config Release
+        run: cmake --build build --config Release --target tongs --parallel
 
       - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
