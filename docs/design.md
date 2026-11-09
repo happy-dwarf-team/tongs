@@ -944,6 +944,28 @@ before a symbol, or a lowercase accented letter before two symbols (`à`
 before a no-break space and `«`, when no other byte from `0x80` up in the string
 breaks it), would be read as UTF-8; such text has not been seen in the game.
 
+#### Live check (2026-11-09)
+
+The original `eu4.exe` (Steam 1.37.5, `9AD3EFE1…D771A`) in a junction copy
+of the game folder, Anvil 1.13.0 with anvil-game and this branch, under the
+lab's game lock. Each start ended with the game closed after the PID, path and
+start-time check, no files left, and `settings.txt` differing only in
+`graceful_exit`, then restored.
+
+- **Mei 0.3.0 and a Chinese translation mod**, on a private copy of the lab's
+  zh-CN profile (1920×1080). Main menu: `鸣谢`, `退出游戏`, and the test mod's
+  mixed labels `单人游戏 UTF8`, `中文与 English`, `日本語 한국어` (the Korean
+  drawn as `???` by the font, read right by Tongs); `//[text~=游戏]` found
+  both labels with it. Lobby: `游戏选项`, `后退`, `随机国家`, the selected
+  nation `奥斯曼`, `苏丹国` and `苏丹 Mehmed II Fatih`. In a new game as the
+  Ottomans: the country description (four paragraphs with Chinese
+  punctuation), `地理大发现时代`, `暂停`, `DateText` `11 11月 1444`, and
+  `Karadeniz Donanmasî` in the outliner. Before this change the same reads
+  answered mojibake such as `å›½åº“` (lab test, 2026-11-07).
+- **The base game in English** (vanilla profile, 3440×1440): the outliner's
+  `Karadeniz Donanmasî` and `Ege Donanmasî`, and the Ottoman description with
+  its en dash (`0x96`) as `–`, as before.
+
 ## Stale widgets (0.14.0)
 
 A reload of a `.gui` file (console `reload <file>`) deletes the file's old
