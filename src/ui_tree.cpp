@@ -736,32 +736,121 @@ void FitRects(UiTree& tree, UiRect client) {
     }
 }
 
+namespace {
+
+// The length of the well-formed UTF-8 sequence of two to four bytes at text[i]
+// (no overlong forms, surrogates or code points above U+10FFFF), its code
+// point in `cp`; 0 when there is none.
+std::size_t Utf8Sequence(std::string_view text, std::size_t i, char32_t& cp) {
+    const auto at = [&text](std::size_t k) { return static_cast<unsigned char>(text[k]); };
+    const unsigned lead = at(i);
+    std::size_t length = 0;
+    unsigned low = 0x80, high = 0xBF;  // the range of the second byte
+    if (lead >= 0xC2 && lead <= 0xDF) {
+        length = 2;
+        cp = lead & 0x1Fu;
+    } else if (lead >= 0xE0 && lead <= 0xEF) {
+        length = 3;
+        cp = lead & 0x0Fu;
+        if (lead == 0xE0) low = 0xA0;
+        if (lead == 0xED) high = 0x9F;
+    } else if (lead >= 0xF0 && lead <= 0xF4) {
+        length = 4;
+        cp = lead & 0x07u;
+        if (lead == 0xF0) low = 0x90;
+        if (lead == 0xF4) high = 0x8F;
+    } else {
+        return 0;
+    }
+    if (i + length > text.size()) return 0;
+    for (std::size_t k = 1; k < length; ++k) {
+        const unsigned b = at(i + k);
+        if (k == 1 ? (b < low || b > high) : (b & 0xC0u) != 0x80u) return 0;
+        cp = (cp << 6) | (b & 0x3Fu);
+    }
+    return length;
+}
+
+// The game's format introducers (colour §, icon £, ducats ¤), which its own
+// code puts into text as single Windows-1252 bytes.
+bool FormatByte(unsigned char c) { return c == 0xA7 || c == 0xA3 || c == 0xA4; }
+
+// True when `text` is UTF-8 that a mod put into the game (Mei keeps its
+// localisation as UTF-8): every byte from 0x80 up is part of a well-formed
+// sequence or a lone format introducer, and at least one sequence is one that
+// the game's Windows-1252 text does not make. Windows-1252 text forms a
+// two-byte sequence where an uppercase letter or ß stands before a symbol
+// (German "Gro\xDF\xA7!", ß before a colour code, is valid UTF-8), so a two-byte sequence counts only
+// for U+0080-U+00FF (§ is C2 A7 and é C3 A9 in UTF-8; Â and Ã before a symbol
+// do not occur in the game's text).
+bool ModUtf8(std::string_view text) {
+    bool evidence = false;
+    for (std::size_t i = 0; i < text.size();) {
+        const auto c = static_cast<unsigned char>(text[i]);
+        if (c < 0x80) {
+            ++i;
+            continue;
+        }
+        char32_t cp = 0;
+        const std::size_t length = Utf8Sequence(text, i, cp);
+        if (length == 0) {
+            if (!FormatByte(c)) return false;
+            ++i;
+            continue;
+        }
+        evidence = evidence || length > 2 || cp <= 0xFF;
+        i += length;
+    }
+    return evidence;
+}
+
+void AppendUtf8(std::string& out, char32_t cp) {
+    if (cp < 0x80) {
+        out += static_cast<char>(cp);
+    } else if (cp < 0x800) {
+        out += static_cast<char>(0xC0 | (cp >> 6));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
+    } else if (cp < 0x10000) {
+        out += static_cast<char>(0xE0 | (cp >> 12));
+        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
+    } else {
+        out += static_cast<char>(0xF0 | (cp >> 18));
+        out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
+    }
+}
+
+}  // namespace
+
 std::string GameTextToUtf8(std::string_view text, bool colour_codes) {
     // 0x80-0x9F of Windows-1252; 0 marks the five bytes it leaves undefined (kept as U+0080-U+009F).
     static constexpr char16_t kHigh[32] = {0x20AC, 0,      0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021,
                                            0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0,      0x017D, 0,
                                            0,      0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
                                            0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0,      0x017E, 0x0178};
+    const bool utf8 = ModUtf8(text);
+    // One character at i: its code point and length in bytes.
+    const auto next = [&text, utf8](std::size_t i, char32_t& cp) -> std::size_t {
+        if (utf8) {
+            if (const std::size_t length = Utf8Sequence(text, i, cp); length != 0) return length;
+        }
+        const auto c = static_cast<unsigned char>(text[i]);
+        cp = c >= 0x80 && c < 0xA0 && kHigh[c - 0x80] != 0 ? kHigh[c - 0x80] : c;
+        return 1;
+    };
     std::string out;
     out.reserve(text.size());
-    for (std::size_t i = 0; i < text.size(); ++i) {
-        const auto c = static_cast<unsigned char>(text[i]);
-        if (c == 0xA7 && !colour_codes) {  // a colour code: § and the character after it are not displayed
-            ++i;
+    for (std::size_t i = 0; i < text.size();) {
+        char32_t cp = 0;
+        i += next(i, cp);
+        if (cp == 0xA7 && !colour_codes) {  // a colour code: § and the character after it are not displayed
+            char32_t skipped = 0;
+            if (i < text.size()) i += next(i, skipped);
             continue;
         }
-        char32_t cp = c;
-        if (c >= 0x80 && c < 0xA0 && kHigh[c - 0x80] != 0) cp = kHigh[c - 0x80];
-        if (cp < 0x80) {
-            out += static_cast<char>(cp);
-        } else if (cp < 0x800) {
-            out += static_cast<char>(0xC0 | (cp >> 6));
-            out += static_cast<char>(0x80 | (cp & 0x3F));
-        } else {
-            out += static_cast<char>(0xE0 | (cp >> 12));
-            out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
-            out += static_cast<char>(0x80 | (cp & 0x3F));
-        }
+        AppendUtf8(out, cp);
     }
     return out;
 }

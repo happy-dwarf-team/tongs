@@ -234,6 +234,11 @@ void FitRects(UiTree& tree, UiRect client);
 
 // The game's 8-bit text (Windows-1252) as UTF-8, without its colour codes (§ and
 // the next character, e.g. "§YName§!" -> "Name"), or with them when `colour_codes`.
+// Text that a mod keeps as UTF-8 (Mei's Chinese) is read as UTF-8: a string whose
+// bytes from 0x80 up are all well-formed UTF-8, apart from the game's lone format
+// bytes (§ £ ¤), with at least one sequence of three or four bytes or one for
+// U+0080-U+00FF; the lone bytes in it are still Windows-1252 (docs/design.md,
+// "Text encoding").
 std::string GameTextToUtf8(std::string_view text, bool colour_codes = false);
 
 }  // namespace tongs
