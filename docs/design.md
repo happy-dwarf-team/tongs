@@ -988,6 +988,34 @@ tongs.ui's rects are client pixels at any scale. `ui find`, `ui tree` and
 outside 0.25–8) or an unreadable one answers `null`, and the rects are left
 as the game gives them, as before.
 
+#### Live check (2026-11-09)
+
+The original `eu4.exe` (Steam 1.37.5, `9AD3EFE1…D771A`) in a junction copy
+of the game folder, Anvil 1.13.0 with anvil-game, under the lab's game lock,
+on private vanilla profiles at 3440×1440 borderless. Each start ended with the
+game closed after the PID, path and start-time check, no files left, and
+`settings.txt` differing only in `graceful_exit`, then restored.
+
+- **Before, `game_ui_scale` 1.2** (a build without this change, Mei's zh-CN
+  profile at 1920×1080): `ui find` gave the menu buttons inside 1600×900 (the
+  single player button at (594, 778) 204×60), and `ui click` on the lobby's
+  `play_button` answered `covered` with `covered_by: null` after three hover
+  attempts. A `click` at `click_point` times 1.2 worked.
+- **After, scale 1.2:** `ui_scale: 1.2` in every answer. The main menu buttons
+  came at (1476, 1297) 245×72 and similar; drawn over a screenshot, the rects of
+  Single Player, Multiplayer, Credits and Options lie on the drawn buttons, as
+  do those of `speed_controls` in the game. `ui click` went through with the
+  clicked widget hovered on `single_player_button`, `shield[1]` (a masked
+  shield in the lobby), the
+  lobby's `play_button`, `start_game_dialog/start_button`,
+  `startup_screen/close_button`, and `button_speedup` / `button_speeddown`
+  (speed 1 → 2 → 1).
+- **After, scale 1.0:** `ui_scale: 1`; the single player button at
+  (1517, 1321) 204×60 with `click_point` (1619, 1351), the same point as the
+  build without this change; `ui click` on it and on the lobby's
+  `back_button` went through (Back restarts the game, as it does without
+  plugins).
+
 ## Stale widgets (0.14.0)
 
 A reload of a `.gui` file (console `reload <file>`) deletes the file's old
