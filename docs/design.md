@@ -1417,13 +1417,14 @@ guess:
 - `disabled`;
 - `not_visible`, when the widget exists but is hidden;
 - `not_found`;
-- `covered`, with `covered_by`. After `move`, Tongs reads `mgr+0x130` on the
-  main thread; when it is neither the target nor inside it, the click is not
-  sent.
+- `covered`, with `covered_by`. After `move`, Tongs reads `mgr+0x130` and the
+  widgets under the pointer on the main thread; when the hovered widget is
+  neither the target nor inside it, and a widget above the target would take
+  the click, the click is not sent ("Clicks through widgets", below).
 
-The game delivers a click to the topmost visible owner under the pointer, and
-a button reacts only when `+0x8F` (hovered this frame) is set, which is why
-the cursor hook is needed. On success the answer has `clicked`, `point` and the
+The game hands a click to the widgets under the pointer from the topmost down
+until one consumes it, and a button reacts only when `+0x8F` (under the
+pointer this frame) is set, which is why the cursor hook is needed. On success the answer has `clicked`, `point` and the
 state after the click. `ui click` needs `input = true` and counts as an input.
 When event windows are open, `ui click` reads the events with the tree; a
 click on an option button answers `event_option` (`id`, `number`,
@@ -1440,13 +1441,16 @@ How it runs (`src/protocol.cpp`, `ClickWidget`; decisions in
 2. The virtual cursor is set to the centre of `rect` and a motion event
    queued; then 50 ms. A centre with a negative coordinate (a panel still
    sliding in) or outside the client area is refused without input.
-3. An empty main-thread job runs, then a second one reads the tree again and
-   `mgr+0x130`. The first job may follow a frame that began before the move;
-   the second follows a whole frame that began after it, so the game has
-   picked the widget under the new pointer.
+3. An empty main-thread job runs, then a second one reads the tree again,
+   `mgr+0x130` and the list of widgets under the pointer. The first job may
+   follow a frame that began before the move; the second follows a whole
+   frame that began after it, so the game has picked the widgets under the
+   new pointer.
 4. The hovered widget must be the target or inside it (by the tree's
-   parents); otherwise the answer is `covered` with `covered_by` (its path,
-   or `null` when it is not in the tree or the pointer is 0). The click is not
+   parents), or every widget above the target in the list must let the click
+   through ("Clicks through widgets"); otherwise the answer is `covered` with
+   `covered_by` (the widget that would take the click, else the hovered one;
+   `null` when it is not in the tree or the pointer is 0). The click is not
    sent. When `mgr+0x130` is 0, steps 2–4 run again, up to three times in
    all, the later ones after a step one pixel aside (`hover_attempts`): live,
    the first move after a click on a scroll bar button sometimes left the
@@ -1454,7 +1458,8 @@ How it runs (`src/protocol.cpp`, `ClickWidget`; decisions in
    3 of 30 repeated `downButton` clicks in `tongs-harden-2`), and the same
    move again found the target.
 5. Button down and up are queued; the answer has `hovered` (the path of the
-   hovered widget) and the state read 0.1 s later.
+   hovered widget), `through` (the widgets above the target the click passes,
+   when there are any) and the state read 0.1 s later.
 
 Static findings checked for this: the hover callback `0x15528D0` writes
 `mgr+0x130 = this`, and `0x14DEFD0` calls it for the picked owners from the
@@ -1496,6 +1501,80 @@ was restored, and the Process Lasso rule was `eu4.exe,0,1-7` afterwards.
   null`. At speed 5, running, `ui click` on the speed buttons worked (speed
   5 → 4 in `state` a second later), but the state in the answer, read 0.1 s
   after the click, did not show it yet at about 10 days/s.
+
+### Clicks through widgets (2026-11-09)
+
+Until then a click went ahead only when `mgr+0x130` was the target or a
+widget inside it. Agents got `covered` from a label or a background drawn
+over the target in the same window (`goto_box/provinces/province_finder_entry/title`
+over its `button`, `IronmanSaveSelectDialog/show_local_label` over
+`show_local`, `ingame_lobby_window/background` over `start_button`), while
+`click` at the same point worked. Static findings in `eu4.exe` 1.37.5 (Steam;
+the same bytes in the GOG build):
+
+- `CGraphics::NotifyMouseOverCollisions` (`0x14DEFD0`, `mouse_collisions`)
+  rebuilds the widgets under the pointer, topmost first, in an array
+  `{begin, end}` at `graphics+0x30` of 16-byte entries with the widget at
+  `+8` (`hover_order`); the graphics object is `mgr+0xC0` (`gui_graphics`).
+  It calls every one's hover callback, last to first, so each sets its own
+  `+0x8F` and the first stays in `mgr+0x130`.
+- `CGui::HandleMouseEvent` hands a mouse event to those widgets in that
+  order, each shown one through its slot `0x10` (`GuiProcessInput`, then the
+  class's `ProcessInput` in slot `0x48`), and stops at the first that marks
+  the event handled. So the topmost widget is only the first to be asked.
+- What marks a left click handled, by `ProcessInput`:
+  - windows (`CFixedWindow`, `CContainerWindow`), text boxes, list boxes,
+    grid and overlapping boxes and scroll bars only the wheel, or every event
+    when the byte that every widget's slot `0x18` returns (`+0x8C`,
+    `takes_all_input`) is set;
+  - buttons, icons and scroll bar tracks (`CButton::ProcessInput`) ignore
+    mouse events unless their left or right click byte (`+0x160`, `+0x161`,
+    `button_clickable`) is set, and then act on them;
+  - check boxes, edit boxes and scroll bar sliders act on it; Tongs counts
+    every class it has not checked as one that takes the click.
+- After each widget's update `CGui::HandelInput` copies `+0x8F` to `+0xAA`
+  and clears `+0x8F` (`hover_last_frame`): `+0xAA` is the game's own answer,
+  read after the frame, whether the widget was under the pointer.
+
+So `CheckCover` walks the list Tongs reads with the tree, from the top: the
+click goes ahead when it reaches the target (or a widget inside it) whose
+`+0xAA` is set and every widget before it lets the click through (hidden, or
+not `takes_all_input` and a class that passes it or a button or icon that is
+not clickable). It answers `covered` with the first widget that would take
+the click, or with the hovered widget when the list does not start with it,
+holds a widget Tongs does not know, or never reaches the target. Without the
+list (`read_under_pointer` unset) the old rule holds. The answer names the
+widgets passed in `through`.
+
+Not settled: the game may also set the event's handled flag in a widget's
+gesture recogniser or its slot `0x140` object before `ProcessInput`; Tongs
+does not read those. A modal state (`mgr+0x1A`) gives events only to widgets
+with `takes_all_input`; Tongs does not read it either.
+
+#### Live check (2026-11-09)
+
+Setup: the original Steam `eu4.exe` (`9AD3EFE1…771A`) started from a
+junction copy of the game folder with a private vanilla profile and a copy of
+the Russia save of 17 March 1719 (`anvil-play.ps1 -Scenario tongs -NoContinue
+-TongsInput -GameDirectory … -UserDir …`), Anvil 1.13.0 with `anvil-game`,
+this branch's build, under the lab's game lock; driven through the MCP server.
+Two sessions, 11.4 and 1.2 minutes; both closed after the PID check, the save
+unchanged, `settings.txt` differing only in `graceful_exit` (restored).
+
+| Click | Hovered | Answer | What the game did |
+| --- | --- | --- | --- |
+| `goto_box/provinces/province_finder_entry[1]/button` (Moskva) | its `title` | ok, `through` the title | the Find box closed and the camera moved off |
+| `country_selection_panel/lobby/left/save_games/save_games_list/savegameentry/save_game` | its `save_game_title` | ok, `through` the title | the entry became `checked: true` |
+| `menu_load/games/ingamesavegameentry/save_game` | its `save_game_title` | ok, `through` the title | the save was selected and loaded with Load |
+| `speed_controls/button_speedup` with the game menu open | `menu/menu` | `covered`, `covered_by: "menu/menu"` | `click` at the same point left the speed at 2 |
+| `minimap_panel/menu_button` with the game menu open | `menu/menu` | `covered`, `covered_by: "menu/menu"` | — |
+
+Not reproduced live: `IronmanSaveSelectDialog` (not opened from the
+single-player screen here) and `ingame_lobby_window`, which the game shows
+only when hosting a multiplayer game. Their pattern (a text label, or an icon
+that is not clickable, over a widget of the same window) is the one above
+and is in the unit tests. Answers with `pointer_released` (the real mouse
+moved during the check) were tried again and are not counted.
 
 ## Events (0.6.0)
 

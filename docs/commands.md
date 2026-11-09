@@ -340,11 +340,18 @@ shields in the lobby and in dialogs), so `ui click` refuses them as
 `covered` with `covered_by: null`; `click` at their `click_point` works.
 
 `ui click SEL` resolves the selector, moves the pointer to the centre of the
-widget, checks that the game sees that widget (or one inside it) under the
-pointer, and only then clicks. It refuses without clicking: `not_found`,
+widget, checks that the click would reach that widget, and only then clicks.
+The game hands a click to the widgets under the pointer from the topmost down
+until one takes it, so the click goes ahead when the topmost widget is the
+target or one inside it, and also when the widgets above the target let it
+through: text, windows, list boxes and buttons or icons without a click action
+(a label or a background drawn over the target). It refuses without clicking: `not_found`,
 `ambiguous` (with up to 10 `matches`), `not_visible` (only hidden widgets
 match), `stale` (only stale widgets match), `disabled`, or `covered` (with `covered_by`, the widget that would get
-the click). The answer has `clicked`, `point` and the state after the click.
+the click: another button, a check box, a window that takes all input such as
+the game menu). The answer has `clicked`, `point`, `hovered` (the topmost
+widget under the pointer), `through` (the widgets above the target the click
+passed, when there are any) and the state after the click.
 When the game reports no widget at all under the pointer, the move is tried up
 to three times (`hover_attempts`). `covered` with `pointer_released: true`
 means the real mouse moved meanwhile, so the game took the real pointer again

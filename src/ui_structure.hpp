@@ -28,6 +28,7 @@ struct UiKind {
     bool state = false;   // int32 state at UiLayout::button_state, 3 = disabled
     Children children = Children::None;
     unsigned checked = 0;  // byte: the check box is ticked; 0 = none
+    UiClickInput click_input = UiClickInput::Takes;  // its ProcessInput (docs/design.md, "Clicks through widgets")
 };
 
 // The offsets of the registry, the child containers and the render nodes;

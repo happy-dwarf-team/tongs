@@ -1276,9 +1276,52 @@ build."eu4-1.37.5.2-gog-win64" = { rva = 0x15497F0 }
 [symbol.hover_order]
 bytes = "48 8B 5E 08 48 2B 1E 48 C1 FB 04 83 EB 01 78 34 48 89 7C 24 30 48 63 FB 48 C1 E7 04 66 66 0F 1F 84 00 00 00 00 00 48 8B 06 8B D3 48 8B 4C 07 08 48 8B 01 FF 50 08 83 EB 01 48 8D 7F F0 79 E7"
 memory = "code"
-note = "hover: picked owners called from the last to the first, so the topmost (first) stays in manager+0x130"
+values.entry_shift = { at = 27, size = 1 }
+values.owner = { at = 47, size = 1 }
+note = "hover: picked owners called from the last to the first, so the topmost (first) stays in manager+0x130; entries 1 << entry_shift bytes, the owner at +owner"
 build."eu4-1.37.5-steam-win64" = { rva = 0x14DEFFA }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x14D8B6A }
+
+[symbol.mouse_collisions]
+bytes = "48 89 5C 24 10 56 48 83 EC 20 48 8D 71 30 48 8B D9 48 8B CE"
+memory = "code"
+values.list = { at = 13, size = 1 }
+note = "CGraphics::NotifyMouseOverCollisions: rebuilds the owners under the pointer, topmost first, in the array {begin, end} at graphics+list"
+build."eu4-1.37.5-steam-win64" = { rva = 0x14DEFD0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x14D8B40 }
+
+[symbol.gui_graphics]
+bytes = "48 8B 8E C0 00 00 00 E8 AA 54 FF FF"
+memory = "code"
+values.graphics = { at = 3, size = 4 }
+note = "CGui::HandelInput: the graphics object at manager+graphics gets the mouse-over notification"
+build."eu4-1.37.5-steam-win64" = { rva = 0x14E9B1A }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x14E368A }
+
+[symbol.hover_last_frame]
+bytes = "FF 50 40 0F B6 83 8F 00 00 00 88 83 AA 00 00 00 C6 83 8F 00 00 00 00"
+memory = "code"
+values.last_frame = { at = 12, size = 4 }
+note = "CGui::HandelInput, after each widget's update: +last_frame = +0x8F (the pointer was over it this frame), then +0x8F = 0"
+build."eu4-1.37.5-steam-win64" = { rva = 0x14E9E77 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x14E39E7 }
+
+[symbol.takes_all_input]
+bytes = "0F B6 81 8C 00 00 00 C3"
+memory = "code"
+values.flag = { at = 3, size = 4 }
+note = "every widget kind's vtable slot 0x18: when the byte is set, the widget consumes every mouse event it gets"
+build."eu4-1.37.5-steam-win64" = { rva = 0x15529A0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x15498C0 }
+
+[symbol.button_clickable]
+bytes = "38 8F 8F 00 00 00 0F 84 F1 02 00 00 0F B6 8F 60 01 00 00 84 C9 75 0C 38 8F 61 01 00 00"
+memory = "code"
+values.left = { at = 15, size = 4 }
+values.right = { at = 25, size = 4 }
+note = "CButton::ProcessInput (buttons and icons): a mouse event is ignored unless the left or right click byte is set"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1592CBF }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x15897DF }
 
 # --- Events (docs/design.md, "Events") ---
 # Session lists are {head, tail, count}, their nodes {value, prev, next, being-removed byte}.

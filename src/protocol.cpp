@@ -911,6 +911,7 @@ HoverOutcome HoverCheck(const Handlers& h, std::uintptr_t target, const UiRect& 
         Dispatcher::Outcome o = h.dispatcher->Run(Dispatcher::Kind::Read, [] { return std::string(); }, timeout_ms);
         UiTree tree;
         std::uintptr_t hovered = 0;
+        std::vector<std::uintptr_t> under_pointer;
         std::string read_error;
         if (o.ran) {
             o = h.dispatcher->Run(
@@ -918,6 +919,7 @@ HoverOutcome HoverCheck(const Handlers& h, std::uintptr_t target, const UiRect& 
                 [&] {
                     read_error = h.read_ui(tree);
                     hovered = h.read_hovered();
+                    if (h.read_under_pointer) under_pointer = h.read_under_pointer();
                     return std::string();
                 },
                 timeout_ms);
@@ -927,7 +929,7 @@ HoverOutcome HoverCheck(const Handlers& h, std::uintptr_t target, const UiRect& 
             return out;
         }
         out.frame = o.frame;
-        cover = CheckCover(tree, target, hovered);
+        cover = CheckCover(tree, target, hovered, under_pointer);
         // Live, the game sometimes had no hovered widget at all for the first move
         // after a click on a scroll bar button; the same move again found the target.
         if (!cover.covered || hovered != 0 || attempt == kHoverAttempts) return out;
@@ -967,6 +969,11 @@ ClickOutcome ClickWidget(const Handlers& h, std::uintptr_t target, const UiRect&
         return fail("covered");
     }
     if (!cover.hovered.empty()) c.members += ",\"hovered\":" + Quote(cover.hovered);
+    if (!cover.through.empty()) {
+        std::string through;
+        for (const std::string& path : cover.through) through += (through.empty() ? "" : ",") + Quote(path);
+        c.members += ",\"through\":[" + through + "]";
+    }
     InputEvent down;
     down.type = InputEvent::Type::MouseDown;
     down.x = x;

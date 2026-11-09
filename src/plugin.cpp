@@ -137,6 +137,9 @@ struct Tongs : anvil::Plugin {
                 return tongs::ReadUiTree(image_base, ui_layout, client, tree);
             };
             handlers.read_hovered = [image_base, ui_layout] { return tongs::ReadHoveredWidget(image_base, ui_layout); };
+            handlers.read_under_pointer = [image_base, ui_layout] {
+                return tongs::ReadUnderPointer(image_base, ui_layout);
+            };
             handlers.read_events = [image_base, event_layout](tongs::EventsRaw& events) {
                 return tongs::ReadEvents(image_base, event_layout, events);
             };
