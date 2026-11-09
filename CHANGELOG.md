@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.29.0](https://github.com/happy-dwarf-team/tongs/compare/v0.28.0...v0.29.0) (2026-11-09)
+
+
+### Features
+
+* **state:** name plugin map modes and show a map mode by name or id ([#173](https://github.com/happy-dwarf-team/tongs/issues/173)) ([34868d5](https://github.com/happy-dwarf-team/tongs/commit/34868d57afdba17f9bd6a6bd3fa39b4d6c82cc1a))
+* **state:** report the map mode ([#172](https://github.com/happy-dwarf-team/tongs/issues/172)) ([ae64c75](https://github.com/happy-dwarf-team/tongs/commit/ae64c753e35913a9341dbefc76e393222e7e8b39))
+
 ## [0.28.0](https://github.com/happy-dwarf-team/tongs/compare/v0.27.0...v0.28.0) (2026-11-09)
 
 ### Features
