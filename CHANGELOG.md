@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.28.0](https://github.com/happy-dwarf-team/tongs/compare/v0.27.0...v0.28.0) (2026-11-09)
+
+
+### Features
+
+* **plugin:** run on the GOG build 1.37.5.0 ([#167](https://github.com/happy-dwarf-team/tongs/issues/167)) ([2d90ca0](https://github.com/happy-dwarf-team/tongs/commit/2d90ca09455d58a8cccc6ccbf2f0177563198431))
+
+
+### Bug Fixes
+
+* **input:** let ui click pass widgets the game hands the click past ([#165](https://github.com/happy-dwarf-team/tongs/issues/165)) ([1fd497f](https://github.com/happy-dwarf-team/tongs/commit/1fd497ff775b15f8a2c4b1dbec4ec44b91cf80c7))
+* **input:** refuse queued input while the game window is minimized ([#170](https://github.com/happy-dwarf-team/tongs/issues/170)) ([47fc12a](https://github.com/happy-dwarf-team/tongs/commit/47fc12a0f0792df9799c6335db44177eac2e3205))
+* **ui:** give widget rects in client pixels at any GUI scale ([#169](https://github.com/happy-dwarf-team/tongs/issues/169)) ([3065fb3](https://github.com/happy-dwarf-team/tongs/commit/3065fb3451622c71aa024e55a50786ff6aa2ccc3))
+* **ui:** read text a mod keeps as UTF-8 as UTF-8 ([#168](https://github.com/happy-dwarf-team/tongs/issues/168)) ([a74e8a1](https://github.com/happy-dwarf-team/tongs/commit/a74e8a1e58c1ad34a020742d3bb3cc6f37a797d6))
+
 ## [0.27.0](https://github.com/happy-dwarf-team/tongs/compare/v0.26.1...v0.27.0) (2026-11-08)
 
 
