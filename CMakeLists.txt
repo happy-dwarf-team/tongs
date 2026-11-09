@@ -13,6 +13,11 @@ endif()
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS version.txt plugin/plugin.toml)
 project(tongs VERSION ${TONGS_VERSION_TEXT} LANGUAGES CXX)
 
+if(MSVC)
+    # Compile a target's sources on every core; the Visual Studio generator runs cl one file at a time.
+    add_compile_options(/MP)
+endif()
+
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "64-bit Windows only")
 endif()
