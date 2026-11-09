@@ -1,5 +1,7 @@
 #include "protocol.hpp"
 
+#include "map_modes.hpp"
+
 #include "game_date.hpp"
 #include "navigation_service.hpp"
 
@@ -205,6 +207,7 @@ std::string StateFields(const StateSnapshot& s) {
     out += std::string(",\"out_of_sync\":") + Bool(s.out_of_sync);
     out += std::string(",\"paused_oos\":") + Bool(s.paused_oos);
     out += ",\"map_mode\":" + std::to_string(s.map_mode);
+    out += ",\"map_mode_id\":" + (s.map_mode_id != nullptr ? "\"" + JsonEscape(s.map_mode_id) + "\"" : std::string("null"));
     if (s.load != 0) out += ",\"session\":" + std::to_string(s.load);
     return out + process;
 }
@@ -1875,6 +1878,100 @@ std::atomic<std::uint64_t> g_tongs_load{0};
 constexpr int kDefaultLoadTimeoutS = 120;
 constexpr int kMaxLoadTimeoutS = 600;
 
+std::string Refused(std::string_view command, std::string_view error, std::string_view detail);
+
+// A fault in SetCurrentMapMode refuses every later map_mode until the game exits.
+std::atomic<bool> g_map_mode_tripped{false};
+
+// The number MODE names: a plugin mode's id (it has a '.'), a number of the game's tabs
+// or of a plugin mode, or the name of a mode on the game's tabs (map_modes.hpp).
+std::int32_t ResolveMapMode(const Handlers& h, const std::string& mode, WorldFailure& refusal) {
+    if (mode.find('.') != std::string::npos) {
+        const std::int32_t number = h.map_mode_number ? h.map_mode_number(mode) : -1;
+        if (number < 0) {
+            refusal = {"unknown_map_mode", h.map_mode_number ? "no plugin mode has this id"
+                                                             : "plugin modes need anvil-map, which is not loaded"};
+        }
+        return number;
+    }
+    int number = -1;
+    if (ParseInt(mode, number)) {
+        if (GameMapModeName(number) == nullptr && (!h.map_mode_id || h.map_mode_id(number) == nullptr)) {
+            refusal = {"unknown_map_mode", "not a map mode of the game's tabs or of a plugin"};
+            return -1;
+        }
+        return number;
+    }
+    number = GameMapModeByName(mode);
+    if (number < 0) refusal = {"unknown_map_mode", "not the name of a map mode on the game's tabs"};
+    return number;
+}
+
+// map_mode MODE [timeout=S]: a client call (ADR 0003) that shows a map mode as the minimap's
+// button does (SetCurrentMapMode(mode, false, false) on the main thread). It changes only
+// what the map shows.
+std::string MapModeCommand(const Handlers& h, std::string_view argument) {
+    const std::string command = "map_mode";
+    const std::vector<std::string_view> words = SplitWords(argument);
+    constexpr char kUsage[] = "usage: map_mode NAME|NUMBER|PLUGIN-ID [timeout=S]";
+    if (words.empty() || words.size() > 2) return Refused(command, "bad_command", kUsage);
+    int timeout_ms = h.dispatch_timeout_ms;
+    if (words.size() == 2) {
+        int seconds = 0;
+        if (!words[1].starts_with("timeout=") || !ParseInt(words[1].substr(8), seconds) || seconds < 1 || seconds > 600) {
+            return Refused(command, "bad_command", kUsage);
+        }
+        timeout_ms = seconds * 1000;
+    }
+    const std::string mode(words[0].substr(0, 96));
+    const auto refuse = [&](const std::string& error, const std::string& detail, const std::string& extra = {}) {
+        return "{\"ok\":false,\"error\":" + Quote(error) + ",\"detail\":" + Quote(detail) +
+               ",\"command\":\"map_mode\",\"mode\":" + Quote(mode) + extra +
+               (h.read_state ? "," + StateFields(h.read_state()) : std::string()) + "}";
+    };
+    if (!InputReady(h)) return refuse("input_disabled", kInputDisabled);
+    if (Suspended(h)) return refuse("suspended", kSuspended);
+    if (!h.dispatcher || !h.read_state || !h.set_map_mode) {
+        return refuse("unavailable", h.dispatcher ? "map modes are not set up" : kNoDispatch);
+    }
+    if (g_map_mode_tripped.load()) {
+        return refuse("map_mode_tripped", "map_mode is off until the game exits after a call faulted");
+    }
+    std::lock_guard lock(g_input_mutex);  // client calls take turns with input
+    StateSnapshot before;
+    WorldFailure refusal;
+    std::int32_t number = -1;
+    bool faulted = false;
+    unsigned long fault_code = 0;
+    const Dispatcher::Outcome o = h.dispatcher->Run(
+        Dispatcher::Kind::GameCall,
+        [&] {
+            before = h.read_state();
+            if (!before.in_game) {
+                refusal = {"not_in_game", before.reason ? before.reason : "no game loaded"};
+                return std::string();
+            }
+            number = ResolveMapMode(h, mode, refusal);
+            if (refusal.failed()) return std::string();
+            faulted = !h.set_map_mode(before.session, number, fault_code);
+            if (faulted) g_map_mode_tripped.store(true);
+            return std::string();
+        },
+        timeout_ms);
+    if (!o.ran) return refuse(o.error, "no outer frame came within the timeout; nothing was called");
+    if (refusal.failed()) return refuse(refusal.error, refusal.detail);
+    const std::string counts = ",\"client_calls_total\":" + std::to_string(CountClientCall(h, command, before));
+    if (faulted) {
+        char code[16];
+        std::snprintf(code, sizeof code, "0x%08lX", fault_code);
+        if (h.log) h.log(kLogError, "map_mode " + mode + ": exception " + code + " in the game's code");
+        return refuse("faulted", std::string("exception ") + code + " in the game's code; map_mode is off until the game exits",
+                      counts);
+    }
+    return "{\"ok\":true,\"command\":\"map_mode\",\"mode\":" + Quote(mode) + ",\"number\":" + std::to_string(number) +
+           counts + "," + StateFields(h.read_state()) + "}";
+}
+
 // save load NAME [timeout=S]: a game call (ADR 0001) through the in-game Load
 // dialog's own loader. The metadata is read first, on the pipe thread; one
 // main-thread job checks the game and calls the loader, which returns after the
@@ -2275,7 +2372,7 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
     if (command == "help" && argument.empty()) {
         return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"frames\",\"ui\",\"event\",\"province\",\"country\",\"player\",\"selection\",\"help\",") +
                "\"wait_until\",\"cancel\",\"key\",\"text\",\"move\",\"click\",\"scroll\",\"release\",\"pause\",\"resume\",\"speed\"," +
-               "\"run_until\",\"console\",\"save\",\"subscribe\",\"unsubscribe\"],\"input\":" + Bool(InputReady(handlers)) + ",\"main_thread\":" +
+               "\"run_until\",\"console\",\"save\",\"map_mode\",\"subscribe\",\"unsubscribe\"],\"input\":" + Bool(InputReady(handlers)) + ",\"main_thread\":" +
                Bool(handlers.dispatcher != nullptr) + ",\"game_calls\":" + Bool(handlers.game_calls.enabled) +
                ",\"game_calls_tripped\":" + Bool(g_game_calls_tripped.load()) +
                ",\"suspended\":" + Bool(Suspended(handlers)) + "}";
@@ -2291,6 +2388,7 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
     if (command == "province" || command == "country" || command == "player" || command == "selection") {
         return WorldCommand(handlers, command, argument);
     }
+    if (command == "map_mode") return MapModeCommand(handlers, argument);
     if (command == "console") return ConsoleCall(handlers, argument, client).Run();
     if (command == "save") {
         const auto [verb, rest] = SplitCommand(argument);

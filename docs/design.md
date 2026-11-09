@@ -120,9 +120,32 @@ were matched between GOG and Steam and read as `false` in a single-player game;
 (GOG `+0x24`), the field that `select_province` compares with `0x25`, in
 which the game selects nothing. Tongs takes the offset from that symbol's
 bytes (its value `map_mode`), so no new symbol is needed. The number is a
-value of the game's own map mode enum; Tongs does not list their names. A
-client that needs one maps the numbers it sees after pressing the minimap's
-map mode buttons.
+value of the game's own map mode enum. `map_mode MODE` (below) knows the
+names of the 54 modes on the minimap's four tabs, in the game's own words
+(`EPdxMapColorUpdateMode` in GOG's `eu4.pdb`, without `MAPMODE_`, in lower
+case).
+
+**Plugin modes.** Anvil's standard plugin `anvil-map` lends plugin map modes
+numbers of the same enum (80–83 first, then debug modes such as 50 and 57;
+its ADR 0007). With it, `state` adds `map_mode_id`, the id of the plugin mode
+that borrowed `map_mode` (`player-cores.cores`), and `null` for the game's
+own modes. `anvil-map` is an optional dependency: without it the field is
+`null`. The id comes from the service's `mode_id(number)`, which may be
+called from any thread, so the pipe thread asks it for the number it has just
+read, and the id always belongs to that number. A client tells plugin modes
+by the id, never by the number, which may change between starts.
+
+**`map_mode MODE`** is a client call (ADR 0003, `input = true`, counted in
+`client_calls`) that shows a mode as the minimap's button does:
+`CEU3Idler::SetCurrentMapMode(mode, false, false)` (symbol
+`set_current_map_mode`, Steam `0x6EC450`, GOG `0x6EBE10`) on the main thread
+after an outer frame. The game's two direct calls, the console's `mapmode`
+(`0x8220EF`) and one among the minimap's functions (`0x1253546`), both pass
+`false, false`. It takes a mode of the
+game's tabs by name or number, or a plugin mode by its id or borrowed number;
+anything else (13, the siege view; 37, the timeline; 40, the front end) is
+`unknown_map_mode`, so Tongs never shows a view the game reserves for
+itself. A fault turns the command off until the game exits.
 
 Live check (2026-11-07, Steam 1.37.5, Anvil 1.13.0, the branch's build,
 `input = true`, a private profile, the 1444 save loaded from the menu):

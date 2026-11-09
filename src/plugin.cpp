@@ -1,5 +1,6 @@
 // Tongs — Anvil plugin entry point (plugin API 2).
 #include "game_console.hpp"
+#include "game_map_mode.hpp"
 #include "game_cursor.hpp"
 #include "game_events.hpp"
 #include "game_files.hpp"
@@ -99,12 +100,32 @@ struct Tongs : anvil::Plugin {
         // Every state read also tells LoadWatch whether a game was loaded: the `session` number,
         // and a reloaded save starts game_calls_total and client_calls_total again.
         static tongs::LoadWatch load_watch;
-        handlers.read_state = [image_base, game_layout, pid = handlers.process_id, start_ms = handlers.process_start_ms] {
+        // anvil-map is optional: with it, state names the plugin mode a map mode number belongs to.
+        // Its mode_id may be called from any thread, so the pipe thread asks it for the number it
+        // just read and the id always matches that number.
+        const auto* map_modes = host.service<tongs::MapModesService>(tongs::kMapModesService, 1);
+        if (map_modes != nullptr && (map_modes->size < offsetof(tongs::MapModesService, mode_id) +
+                                                           sizeof(map_modes->mode_id) ||
+                                     map_modes->mode_id == nullptr)) {
+            map_modes = nullptr;
+        }
+        handlers.read_state = [image_base, game_layout, map_modes, pid = handlers.process_id,
+                               start_ms = handlers.process_start_ms] {
             tongs::StateSnapshot s = tongs::ReadState(image_base, game_layout);
             load_watch.Observe(s);
+            if (s.in_game && map_modes != nullptr) s.map_mode_id = map_modes->mode_id(s.map_mode);
             s.pid = pid;
             s.process_start_ms = start_ms;
             return s;
+        };
+        if (map_modes != nullptr) {
+            handlers.map_mode_id = [map_modes](std::int32_t number) { return map_modes->mode_id(number); };
+            handlers.map_mode_number = [map_modes](std::string_view id) {
+                return tongs::PluginMapModeNumber(map_modes, id);
+            };
+        }
+        handlers.set_map_mode = [image_base](std::uintptr_t session, std::int32_t number, unsigned long& fault_code) {
+            return tongs::CallSetMapMode(image_base, session, number, fault_code);
         };
         handlers.read_window = [] { return tongs::ReadGameWindow(); };
         handlers.take_screenshot = [folder = data_dir / "screenshots"](std::string_view name) {

@@ -5,6 +5,7 @@
 #include "navigation.hpp"
 #include "navigation_service.hpp"
 #include "notify_sources.hpp"
+#include "map_modes.hpp"
 #include "protocol.hpp"
 #include "save_meta.hpp"
 #include "ui_definitions.hpp"
@@ -654,7 +655,7 @@ static void TestProtocol() {
     assert(Contains(HandleRequest("state", h), "\"in_game\":false,\"reason\":\"\",\"pid\":1234,\"process_start_ms\":1792418572041"));
     snapshot.in_game = true;
     snapshot.date_raw = 58'860'240;
-    assert(Contains(HandleRequest("state", h), "\"paused_flag\":false,\"out_of_sync\":false,\"paused_oos\":false,\"map_mode\":0,\"pid\":1234,\"process_start_ms\":1792418572041"));
+    assert(Contains(HandleRequest("state", h), "\"paused_flag\":false,\"out_of_sync\":false,\"paused_oos\":false,\"map_mode\":0,\"map_mode_id\":null,\"pid\":1234,\"process_start_ms\":1792418572041"));
     snapshot = StateSnapshot{};
     assert(Contains(HandleRequest("help", h), "\"state\""));
     assert(Contains(HandleRequest("", h), "\"ok\":false"));
@@ -677,12 +678,12 @@ static void TestProtocol() {
     assert(Contains(out, "\"paused\":true"));
     assert(!Contains(out, "\"session\""));  // not observed by LoadWatch
     snapshot.load = 3;
-    assert(Contains(HandleRequest("state", h), "\"paused_flag\":true,\"out_of_sync\":false,\"paused_oos\":false,\"map_mode\":0,\"session\":3,"));
+    assert(Contains(HandleRequest("state", h), "\"paused_flag\":true,\"out_of_sync\":false,\"paused_oos\":false,\"map_mode\":0,\"map_mode_id\":null,\"session\":3,"));
     snapshot.out_of_sync = snapshot.paused_oos = true;
-    assert(Contains(HandleRequest("state", h), "\"out_of_sync\":true,\"paused_oos\":true,\"map_mode\":0,\"session\":3,"));
+    assert(Contains(HandleRequest("state", h), "\"out_of_sync\":true,\"paused_oos\":true,\"map_mode\":0,\"map_mode_id\":null,\"session\":3,"));
     snapshot.out_of_sync = snapshot.paused_oos = false;
     snapshot.map_mode = 37;
-    assert(Contains(HandleRequest("state", h), "\"paused_oos\":false,\"map_mode\":37,\"session\":3,"));
+    assert(Contains(HandleRequest("state", h), "\"paused_oos\":false,\"map_mode\":37,\"map_mode_id\":null,\"session\":3,"));
     snapshot.map_mode = 0;
     assert(Contains(HandleRequest("state", h), "\"game_calls_total\":0,\"client_calls_total\":0"));
 
@@ -2708,7 +2709,7 @@ static void TestSubscribeCommands() {
     std::string out = Subscribe("subscribe state,date", h, sub);
     assert(out == "{\"ok\":true,\"command\":\"subscribe\",\"kinds\":[\"state\",\"date\"],\"date_unit\":\"month\",\"queue\":1000,"
                   "\"in_game\":true,\"date\":\"1719.3.17\",\"date_raw\":58860240,\"hour\":0,\"speed\":2,\"speed_internal\":1,"
-                  "\"paused\":true,\"paused_flag\":true,\"out_of_sync\":false,\"paused_oos\":false,\"map_mode\":0}");
+                  "\"paused\":true,\"paused_flag\":true,\"out_of_sync\":false,\"paused_oos\":false,\"map_mode\":0,\"map_mode_id\":null}");
     assert(sub && hub.subscriptions() == 1);
     assert(Contains(SubscribedRequest("ping", h, sub), "{\"ok\":true,\"command\":\"ping\",\"pong\":true"));
     out = SubscribedRequest("state", h, sub);
@@ -3892,6 +3893,81 @@ static void TestNavigationRules() {
            ",\"camera\":{\"settled\":false,\"target\":{\"x\":1000,\"z\":2000.5},\"locked\":true}");
 }
 
+static void TestMapModeCommand() {
+    assert(GameMapModeByName("political") == 1 && GameMapModeByName("trade_goods") == 23 &&
+           GameMapModeByName("continent") == -1 && GameMapModeByName("Political") == -1);
+    assert(std::string(GameMapModeName(0)) == "terrain" && GameMapModeName(80) == nullptr && GameMapModeName(13) == nullptr);
+
+    Handlers h;
+    h.now_ms = SteadyMs;
+    h.sleep_ms = SleepMs;
+    StateSnapshot game;
+    game.in_game = true;
+    game.date_raw = 58'860'240;
+    game.load = 1;
+    game.session = 0x10;
+    game.map_mode = 1;
+    h.read_state = [&game] { return game; };
+    assert(Contains(HandleRequest("map_mode political", h), "{\"ok\":false,\"error\":\"input_disabled\""));
+    h.send_input = [](const std::vector<InputEvent>&) { return std::string(); };
+    Dispatcher d(SteadyMs);
+    h.dispatcher = &d;
+    assert(Contains(HandleRequest("map_mode political", h), "\"error\":\"unavailable\""));
+    std::vector<std::pair<std::uintptr_t, std::int32_t>> set;
+    bool fault = false;
+    h.set_map_mode = [&](std::uintptr_t session, std::int32_t number, unsigned long& code) {
+        if (fault) {
+            code = 0xC0000005;
+            return false;
+        }
+        set.emplace_back(session, number);
+        game.map_mode = number;
+        return true;
+    };
+    FakeMainThread main(d);
+    assert(Contains(HandleRequest("map_mode", h), "\"error\":\"bad_command\""));
+    assert(Contains(HandleRequest("map_mode political later", h), "\"error\":\"bad_command\""));
+
+    std::string out = HandleRequest("map_mode religion", h);
+    assert(Contains(out, "{\"ok\":true,\"command\":\"map_mode\",\"mode\":\"religion\",\"number\":2,\"client_calls_total\":"));
+    assert(Contains(out, "\"map_mode\":2,\"map_mode_id\":null"));
+    assert(set.size() == 1 && set[0].first == 0x10 && set[0].second == 2);
+    assert(Contains(HandleRequest("map_mode 4", h), "\"number\":4"));
+    // Numbers the tabs do not offer, unknown names and plugin ids without anvil-map are refused.
+    assert(Contains(HandleRequest("map_mode 13", h), "\"error\":\"unknown_map_mode\""));
+    assert(Contains(HandleRequest("map_mode continent", h), "\"error\":\"unknown_map_mode\""));
+    out = HandleRequest("map_mode player-cores.cores", h);
+    assert(Contains(out, "\"error\":\"unknown_map_mode\"") && Contains(out, "anvil-map, which is not loaded"));
+    assert(set.size() == 2);
+
+    // With anvil-map: a plugin mode by its id or its borrowed number, and its id in the state.
+    h.map_mode_id = [](std::int32_t n) { return n == 80 ? "player-cores.cores" : nullptr; };
+    h.map_mode_number = [](std::string_view id) { return id == "player-cores.cores" ? 80 : -1; };
+    h.read_state = [&game, &h] {
+        StateSnapshot s = game;
+        s.map_mode_id = h.map_mode_id(s.map_mode);
+        return s;
+    };
+    out = HandleRequest("map_mode player-cores.cores", h);
+    assert(Contains(out, "\"number\":80") && Contains(out, "\"map_mode\":80,\"map_mode_id\":\"player-cores.cores\""));
+    assert(Contains(HandleRequest("state", h), "\"map_mode\":80,\"map_mode_id\":\"player-cores.cores\""));
+    assert(Contains(HandleRequest("map_mode 80", h), "\"ok\":true"));
+    assert(Contains(HandleRequest("map_mode other.mode", h), "no plugin mode has this id"));
+    assert(Contains(HandleRequest("map_mode 81", h), "\"error\":\"unknown_map_mode\""));
+
+    game.in_game = false;
+    game.reason = "no game loaded";
+    assert(Contains(HandleRequest("map_mode political", h), "\"error\":\"not_in_game\""));
+    game.in_game = true;
+    game.reason = nullptr;
+
+    // A fault turns map_mode off until the game exits.
+    fault = true;
+    assert(Contains(HandleRequest("map_mode political", h), "\"error\":\"faulted\""));
+    fault = false;
+    assert(Contains(HandleRequest("map_mode political", h), "\"error\":\"map_mode_tripped\""));
+}
+
 static void TestNavigationCommands() {
     Handlers h;
     h.now_ms = SteadyMs;
@@ -4507,6 +4583,7 @@ int main(int argc, char** argv) {
     TestConsoleRules();
     TestNavigationService();
     TestNavigationCommands();  // trips navigation for the rest of the process
+    TestMapModeCommand();      // trips map_mode for the rest of the process
     TestNavigationServiceTripped();
     TestSaveLoadCommand();
     TestConsoleCommand();  // last: it trips game calls for the rest of the process

@@ -400,7 +400,8 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         """Game state: in_game, and with a loaded game date ("1719.3.17"), hour, speed (1-5 as in
         the UI), paused, paused_flag (the player pause), out_of_sync (this client's checksums
         differed from the host's), paused_oos (paused because a machine went out of sync),
-        map_mode (the map mode shown, a value of the game's map mode enum),
+        map_mode (the map mode shown, a value of the game's map mode enum), map_mode_id (the id of
+        the plugin mode that borrowed that number, from Anvil's anvil-map, or null),
         session (1 for the first game of the
         process, +1 at every load), game_calls_total and client_calls_total (since the save was
         loaded); always pid and process_start_ms (Unix ms) of the game process. Cheap; call it
@@ -724,6 +725,24 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         else; answers camera {settled, target} once it arrives or at the timeout (still ok).
         camera_locked while debug_lockcamera is on."""
         return await call(_line("province goto", province_id, timeout=timeout))
+
+    @tool(INPUT, CLIENT_CALL_NOTE)
+    async def tongs_map_mode(
+        mode: Annotated[
+            str,
+            Field(
+                min_length=1,
+                max_length=96,
+                pattern=r"^[A-Za-z0-9_.-]+$",
+                description="A map mode of the game's tabs by its name (political, religion, trade_goods; the "
+                "game's enum names in lower case) or number, or a plugin mode by its id (player-cores.cores).",
+            ),
+        ],
+        timeout: WorldTimeout = None,
+    ) -> CallToolResult:
+        """Shows a map mode as the minimap's button does, and nothing else; answers its number and
+        the state read after it (map_mode, map_mode_id). Plugin modes need Anvil's anvil-map."""
+        return await call(_line("map_mode", mode, timeout=timeout))
 
     # --- events ---
 
