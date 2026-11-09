@@ -74,7 +74,11 @@ key. While the game ignores its buttons (the byte the buttons check is set)
 nothing is pressed and the command answers an error. Without the main thread (no `anvil-game` frames) the commands press
 the keys instead, and `via` is `"key"`. `key`, `text` and the mouse commands do not expect a change;
 they answer with the state read 0.1 s after the input. Input commands from
-different clients take turns.
+different clients take turns. While the game window is minimized the game
+leaves its input queued until the window is restored, and acts on it then:
+`key`, `text`, the mouse commands, `ui click` and `event choose` (also the
+choices of `run_until events=first`) send nothing and answer `the game window
+is minimized: …`, while `pause`, `resume` and `speed` work through the buttons.
 
 `wait_until` and `run_until` report `start_date`, `reached` and
 `reached_date`, `game_days`, `wall_ms` (from the start of the wait until the

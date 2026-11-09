@@ -817,6 +817,49 @@ static void TestInputDisabled() {
     assert(game.pressed.empty());
 }
 
+// While the game window is minimized the game keeps queued input until it is
+// restored, so commands that queue events send nothing and say why; the speed and
+// pause buttons, calls on the main thread, still work.
+static void TestMinimized() {
+    FakeGame game = LoadedGame();
+    game.clock_runs_date = true;
+    game.window.found = true;
+    game.window.minimized = true;  // a minimized window has a 0 x 0 client area
+    Handlers h = game.Make();
+    for (const char* command : {"key space", "text a", "move 1 1", "click 1 1", "click 5 5 right double", "scroll 1",
+                                "scroll -2 3 4"}) {
+        const std::string out = HandleRequest(command, h);
+        assert(Contains(out, "\"ok\":false") && Contains(out, "minimized") && !Contains(out, "client area"));
+    }
+    // Without the main thread resume and speed press keys: refused too. A pause already
+    // on presses nothing and answers as before.
+    for (const char* command : {"resume", "speed 3"}) {
+        assert(Contains(HandleRequest(command, h), "minimized"));
+    }
+    assert(Contains(HandleRequest("pause", h), "\"ok\":true"));
+    assert(game.events.empty() && game.pressed.empty() && game.state.paused_flag);
+
+    Dispatcher d(SteadyMs);
+    game.UseButtons(h, d);
+    FakeMainThread main(d);
+    std::string out = HandleRequest("resume", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"via\":\"button\"") && Contains(out, "\"paused\":false"));
+    out = HandleRequest("speed 4", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"speed\":4"));
+    out = HandleRequest("pause", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"paused_flag\":true"));
+    assert(Contains(HandleRequest("key space", h), "minimized"));
+    assert(game.events.empty() && game.pressed.empty());
+
+    // Restored: the same commands queue their events again.
+    game.window.minimized = false;
+    game.window.width = 1920;
+    game.window.height = 1080;
+    assert(Contains(HandleRequest("click 1 1", h), "\"ok\":true"));
+    assert(Contains(HandleRequest("text a", h), "\"ok\":true"));
+    assert(!game.events.empty());
+}
+
 // While Anvil suspends Tongs (ironman or multiplayer without the player's opt-in),
 // input commands answer an error and send nothing; reads go on.
 static void TestSuspended() {
@@ -4446,6 +4489,7 @@ int main(int argc, char** argv) {
     TestKeys();
     TestInputDisabled();
     TestSuspended();
+    TestMinimized();
     TestPauseResume();
     TestPauseTimeoutAndErrors();
     TestSpeed();
