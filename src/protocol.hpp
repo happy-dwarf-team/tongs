@@ -108,6 +108,13 @@ struct SpeedButtonPress {
 // release, pause, resume, speed, run_until, ui click, event choose, province open/goto,
 // and with game calls enabled console. Input commands and game calls answer with
 // the state read after the action; they take turns across clients.
+// What anvil-game.commands answered for an event option (include/anvil/anvil_game.h of Anvil).
+struct ServiceChoice {
+    bool available = false;  // the service took the type: false for NOT_DECLARED or UNSUPPORTED
+    int result = 0;          // AnvilResult
+    std::uint32_t posted = 0, skipped = 0, refused = 0;
+};
+
 struct Handlers {
     std::function<StateSnapshot()> read_state;
     std::function<WindowSnapshot()> read_window;
@@ -174,6 +181,10 @@ struct Handlers {
     SaveTokens save_tokens;
     // Main thread: the open events (game_events.cpp). Returns an error text, or empty.
     std::function<std::string(EventsRaw&)> read_events;
+    // Main thread: anvil-game.commands version 2 chooses `option` of the pending event
+    // `pending` as its button does (game_commands.cpp). Null without input or without
+    // the service; `available` false when the service lacks the type on this build.
+    std::function<ServiceChoice(std::int32_t pending, std::int32_t option)> choose_option;
     // Pipe thread, one word: entries in the session's event window list; -1 = unreadable.
     // run_until events=first reads the events on the main thread only while it is above 0.
     std::function<int()> count_event_windows;

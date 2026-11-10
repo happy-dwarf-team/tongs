@@ -1728,8 +1728,10 @@ not a game call: it works in ironman and needs `input = true` but not
     controllers are filtered by vtable.
   - Filled event windows are also listed as `{event, scope, window}` at
     `+0x498`.
-- **Controller fields:** window `+0x38`, event `+0x48`, "waiting for a
-  choice" `+0x124`, option buttons `+0x208`.
+- **Controller fields:** window `+0x38`, event `+0x48`, the pending event's
+  id `+0x120` (from `CEventWindow::OptionSelected`, symbol `option_window`),
+  "waiting for a choice" `+0x124`, option buttons `+0x208`. The controller is
+  the game's `CEventWindow`.
 - **Event.** The script id as written in the file (e.g. `flavor_xxx.1`) is
   the `std::string` at `event+0x20`. The numeric id at `+0x14` is assigned at
   load and is not reported.
@@ -1745,6 +1747,15 @@ not a game call: it works in ironman and needs `input = true` but not
 - **Click delay.** The game keeps option buttons disabled for a short time
   (a float setting at `0x233E854`). Clicking respects that delay; calling the
   handler directly would skip it.
+- **Through Anvil (eu4-engine-lab#139).** With `anvil-game.commands` version 2
+  (Anvil 1.17), `run_until events=first` hands the pending id and the option
+  index to the service, which calls `OptionSelected` for an enabled button only
+  (eu4-engine-lab#126). Tongs keeps no address of its own for that: the struct
+  is copied into `src/game_commands.hpp`, since Tongs builds against an older
+  SDK. A choice through it counts as an input (`CountedInput` wraps the
+  handler), and `NOT_DECLARED` or `UNSUPPORTED` falls back to the click for the
+  rest of the run. `event choose` keeps clicking: it is the tool that checks the
+  UI.
 
 Commands:
 

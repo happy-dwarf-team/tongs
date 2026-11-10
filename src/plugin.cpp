@@ -1,4 +1,5 @@
 // Tongs — Anvil plugin entry point (plugin API 2).
+#include "game_commands.hpp"
 #include "game_console.hpp"
 #include "game_map_mode.hpp"
 #include "game_cursor.hpp"
@@ -167,6 +168,21 @@ struct Tongs : anvil::Plugin {
             handlers.count_event_windows = [image_base, event_layout] {
                 return tongs::CountEventWindows(image_base, event_layout);
             };
+            if (config.input) {
+                // run_until events=first chooses through anvil-game.commands version 2 when Anvil
+                // has it (docs/design.md, "Events"), and clicks otherwise. anvil-game loads first.
+                const auto* commands = host.service<tongs::GameCommandsService>(tongs::kGameCommandsService,
+                                                                               tongs::kGameCommandsVersion);
+                if (commands != nullptr && commands->size >= offsetof(tongs::GameCommandsService, post) +
+                                                                sizeof(commands->post)) {
+                    AnvilPlugin* self = host.self();
+                    handlers.choose_option = [commands, self](std::int32_t pending, std::int32_t option) {
+                        return tongs::ChooseEventOption(commands, self, pending, option);
+                    };
+                    host.info("run_until events=first chooses through {} v{}", tongs::kGameCommandsService,
+                              tongs::kGameCommandsVersion);
+                }
+            }
             // World reads (docs/design.md, "World reads (0.20.0)"): reads like ui, whatever the settings.
             const tongs::WorldLayout world = tongs::WorldLayout::Load();
             handlers.read_province = [image_base, world](std::int32_t id, tongs::ProvinceRaw& out) {

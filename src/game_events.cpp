@@ -38,6 +38,7 @@ void ReadController(std::uintptr_t controller, const EventLayout& l, OpenEventRa
     e.controller = controller;
     std::uint8_t waiting = 0;
     e.waiting = Read(controller + l.controller_waiting, waiting) && waiting != 0;
+    Read(controller + l.controller_pending, e.pending_id);
     std::uintptr_t window = 0;
     if (Read(controller + l.controller_window, window) && window != 0) e.window = window + l.window_part;
     std::uintptr_t event = 0;

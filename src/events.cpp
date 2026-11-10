@@ -149,6 +149,7 @@ std::vector<EventView> BuildEvents(const UiTree& tree, const EventsRaw& raw) {
         EventView v;
         v.number = static_cast<int>(out.size()) + 1;
         v.controller = e.controller;
+        v.pending_id = e.pending_id;
         v.id = GameTextToUtf8(e.id);
         v.window = find(e.window);
         v.window_address = e.window;
@@ -350,7 +351,8 @@ int FirstEnabledOption(const EventView& event) {
 }
 
 std::string EventJson(const EventView& e) {
-    std::string out = "{\"number\":" + Num(e.number) + ",\"id\":" + Quoted(e.id) + ",\"title\":" + Quoted(e.title) +
+    std::string out = "{\"number\":" + Num(e.number) + ",\"id\":" + Quoted(e.id) +
+                      ",\"pending_id\":" + Num(e.pending_id) + ",\"title\":" + Quoted(e.title) +
                       ",\"description\":" + Quoted(e.description) + ",\"path\":" + Quoted(e.path) + ",\"options\":[";
     for (std::size_t i = 0; i < e.options.size(); ++i) {
         const EventOption& o = e.options[i];

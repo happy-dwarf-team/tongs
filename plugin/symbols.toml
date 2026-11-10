@@ -1675,6 +1675,17 @@ bytes = "48 8D 05 A6 98 C8 00 48 89 03 48 8D 05 84 98 C8 00 48 89 43 08 C7 43 30
 rva = 0x10B833B
 bytes = "48 8D 05 A6 98 C8 00 48 89 03 48 8D 05 84 98 C8 00 48 89 43 08 C7 43 30 FF FF FF FF 33 F6 48 89 73 38 48 89 7B 40 4C 89 7B 48"
 
+[symbol.option_window]
+# mov rcx,[rsi+40h]; mov rax,[rcx]; call [rax+80h]; mov rdi,rax; mov ecx,140h; call operator new;
+# mov [rbp+70h],rax; lea r8,[rsi+50h]; mov ecx,[rsi+120h]
+bytes = "48 8B 4E 40 48 8B 01 FF 90 80 00 00 00 48 8B F8 B9 40 01 00 00 E8 ?? ?? ?? ?? 48 89 45 70 4C 8D 46 50 8B 8E 20 01 00 00"
+memory = "code"
+values.pending = { at = 36, size = 4 }
+note = "CEventWindow::OptionSelected (the controller is the event window): the command takes the pending event's id at +0x120"
+build."eu4-1.37.5-steam-win64" = { rva = 0x10BC4AD }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x10BACAD }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x10BACAD }
+
 [symbol.event_window_store]
 bytes = "48 8D 54 24 50 41 FF D0 49 89 47 38"
 memory = "code"
