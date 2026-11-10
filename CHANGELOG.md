@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.30.0](https://github.com/happy-dwarf-team/tongs/compare/v0.29.0...v0.30.0) (2026-11-10)
+
+
+### Features
+
+* **input:** choose events through anvil-game.commands in run_until events=first ([#175](https://github.com/happy-dwarf-team/tongs/issues/175)) ([3c2afbf](https://github.com/happy-dwarf-team/tongs/commit/3c2afbf36443a22873422ae5c0d50a099671e207))
+
 ## [0.29.0](https://github.com/happy-dwarf-team/tongs/compare/v0.28.0...v0.29.0) (2026-11-09)
 
 ### Features
