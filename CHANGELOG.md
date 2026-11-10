@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.0](https://github.com/happy-dwarf-team/tongs/compare/v0.30.0...v0.31.0) (2026-11-10)
+
+
+### Features
+
+* **input:** drill, split and merge units through anvil-game.commands ([#180](https://github.com/happy-dwarf-team/tongs/issues/180)) ([cf8fafd](https://github.com/happy-dwarf-team/tongs/commit/cf8fafdc56a401940aeb79a0fb8e741e5cb1d478))
+
 ## [0.30.0](https://github.com/happy-dwarf-team/tongs/compare/v0.29.0...v0.30.0) (2026-11-10)
 
 ### Features
