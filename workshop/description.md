@@ -29,6 +29,9 @@ That is on purpose: Tongs starts switched off. Turn it on in Anvil's panel or in
 ### Can someone on the internet control my game?
 No. Tongs only answers programs running on your own computer under your own Windows user. The front gate stays shut, and the dwarf keeps the key.
 
+### Can it play through events while I am away?
+With input switched on, `run_until` runs the game to a date at the speed you ask and can choose the first option of each of your events on the way. With Anvil 1.17 or newer it chooses them the way the event's button does, so it works with the window minimized too; in our tests eight events in a row went through, two of them minimized. Your script can also switch the map mode, a plugin's map modes from Anvil 1.16 included.
+
 ### Does it work with my mods?
 It reads the interface the game is actually showing, so interface mods should not get in its way. The game itself has to be 1.37.5 (or GOG's 1.37.5.2 or 1.37.5.0).
 
