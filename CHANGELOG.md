@@ -2,10 +2,9 @@
 
 ## [0.31.0](https://github.com/happy-dwarf-team/tongs/compare/v0.30.0...v0.31.0) (2026-11-10)
 
-
 ### Features
 
-* **input:** drill, split and merge units through anvil-game.commands ([#180](https://github.com/happy-dwarf-team/tongs/issues/180)) ([cf8fafd](https://github.com/happy-dwarf-team/tongs/commit/cf8fafdc56a401940aeb79a0fb8e741e5cb1d478))
+* **input:** with Anvil 1.17.0 or later, Tongs can drill, split and merge the player's armies the way the unit panel's buttons do, through Anvil's `anvil-game.commands` service: `unit drill start|stop`, `unit split` and `unit merge` take unit ids or `selected` (`tongs_unit_drill`, `tongs_unit_split` and `tongs_unit_merge` in MCP). They need `input = true` and count as one input when something was posted, like an event option chosen through the service. The new `units [TAG]` command (`tongs_units`) lists a country's armies and navies with their location, mission, regiments, strength and leader; it is a world read and is not counted. Without these services Tongs answers `unavailable` and names the Anvil that has them. Tested in the lab on Steam 1.37.5 with Anvil 1.18 on the Russia save of 1719: `units` listed 62 units, a split and a merge changed the armies as the panel does, and wrong ids, armies in different provinces and an empty selection were refused. A drill started during a war is accepted and then dropped by the game, which hides the drill button at war. Not tested in the game: a drill at peace, `selected` with units selected, and GOG. ([#180](https://github.com/happy-dwarf-team/tongs/issues/180))
 
 ## [0.30.0](https://github.com/happy-dwarf-team/tongs/compare/v0.29.0...v0.30.0) (2026-11-10)
 
