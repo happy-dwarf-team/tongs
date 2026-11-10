@@ -33,7 +33,7 @@ No. Tongs only answers programs running on your own computer under your own Wind
 It reads the interface the game is actually showing, so interface mods should not get in its way. The game itself has to be 1.37.5 (or GOG's 1.37.5.2 or 1.37.5.0).
 
 ### I play on GOG. Can I use it?
-Yes, on the GOG builds 1.37.5.2 and 1.37.5.0 (1.37.5.0 needs Anvil 1.16 or newer). GOG has no Workshop, so install Tongs from the **Catalog** tab in Anvil Manager (Anvil 1.9 or newer), or from the release zip on [GitHub](https://github.com/happy-dwarf-team/tongs/releases). The tongs fit either hand.
+Yes, on the GOG builds 1.37.5.2 and 1.37.5.0 (1.37.5.0 needs Anvil 1.15 or newer). GOG has no Workshop, so install Tongs from the **Catalog** tab in Anvil Manager (Anvil 1.9 or newer), or from the release zip on [GitHub](https://github.com/happy-dwarf-team/tongs/releases). The tongs fit either hand.
 
 ### Something's wrong. Where do I ask?
 In **#help-and-bugs** on our [Discord server](https://discord.happydwarf.dev/) (pick the Tongs tag), or in a [GitHub issue](https://github.com/happy-dwarf-team/tongs/issues/new/choose). What we confirm on Discord goes to GitHub too.
