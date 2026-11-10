@@ -63,7 +63,7 @@ command, its answer and its options are in
 | World reads | `province`, `country`, `player`, `selection` | `enabled` |
 | Waiting and notifications | `wait_until`, `cancel`, `subscribe`, `unsubscribe` | `enabled` |
 | Keyboard and mouse | `pause`, `resume`, `speed`, `run_until`, `key`, `text`, `move`, `click`, `scroll`, `release`, `ui click`, `event choose` | `input` |
-| Navigation (client calls) | `province open`, `province goto` | `input` |
+| Navigation (client calls) | `province open`, `province goto`, `map_mode` | `input` |
 | Game calls | `console`, `save load` (**change game state**) | `game_calls` |
 
 Answers that carry the state name the game process (`pid`,
