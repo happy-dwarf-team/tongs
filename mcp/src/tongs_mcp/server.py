@@ -116,12 +116,12 @@ JSON answer unchanged; "ok": false answers come back as errors with an "error" f
   game was restarted and earlier answers describe another process. `session` is 1 for
   the first game of the process and +1 at every load: when it changes, the game state
   was replaced.
-- World reads (tongs_province, tongs_country, tongs_player, tongs_selection) answer the
-  game's own values by province ID or tag; they are not counted and never mark a run.
+- World reads (tongs_province, tongs_country, tongs_player, tongs_selection, tongs_units)
+  answer the game's own values by province ID or tag; they are not counted and never mark a run.
 - tongs_province_open and tongs_province_goto are client calls: they need input = true,
   change only the camera, the selection and open views, and count in "client_calls".
-- Input tools (pause, resume, speed, key, text, mouse, ui click, event choose, run_until)
-  work only with input = true in the plugin config and are counted in "inputs" of any
+- Input tools (pause, resume, speed, key, text, mouse, ui click, event choose, run_until,
+  unit drill / split / merge) work only with input = true in the plugin config and are counted in "inputs" of any
   wait in progress. tongs_console and tongs_save_load work only with game_calls = true,
   change game state and are counted in "game_calls". A run with inputs, client_calls or game_calls
   above 0 is a marked run, which measurements reject.
@@ -188,6 +188,8 @@ WorldTimeout = Annotated[
 ]
 ProvinceId = Annotated[int, Field(ge=1, description="Province ID, e.g. 295 (Moskva in vanilla).")]
 Tag = Annotated[str, Field(pattern=r"^[A-Za-z0-9]{3}$", description="Country tag, e.g. RUS or TUR.")]
+UnitId = Annotated[int, Field(ge=1, le=2**64 - 1, description="A unit id of the player's country, from tongs_units.")]
+UNITS_NOTE = "Leave it out for the armies and navies the player has selected."
 
 X = Annotated[int, Field(ge=0, description="Client x in pixels (see tongs_window, ui click_point).")]
 
@@ -708,6 +710,59 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         sometimes a load) and view {province, visible, path}. Only view.visible says whether a
         province view is open."""
         return await call(_line("selection", timeout=timeout))
+
+    @tool(READ)
+    async def tongs_units(tag: Tag | None = None, timeout: WorldTimeout = None) -> CallToolResult:
+        """A country's armies and navies (the player's without a tag), read through Anvil's
+        anvil-game.world (Anvil 1.15 or newer): tag and units, each with id, kind (army, navy), name,
+        location (a province ID, or null), mission (none, drill, siege, ... or unknown), subunits
+        (regiments or ships), strength (men for an army) and leader (an id, or null). The ids are
+        what the unit tools take."""
+        return await call(_line("units", tag, timeout=timeout))
+
+    # --- units ---
+
+    @tool(PLAYER, INPUT_NOTE)
+    async def tongs_unit_drill(
+        start: Annotated[bool, Field(description="true: start drilling; false: stop.")],
+        units: Annotated[list[UnitId] | None, Field(min_length=1, max_length=64, description=UNITS_NOTE)] = None,
+        timeout: WorldTimeout = None,
+    ) -> CallToolResult:
+        """Starts or stops drilling armies of the player's country as the unit panel's button does,
+        through Anvil's anvil-game.commands (Anvil 1.17 or newer). An intent, not a toggle: armies
+        already drilling (or not) count as skipped. Answers units, posted, skipped and refused; posted
+        means the command is queued, and the game checks it again when it runs: read tongs_units a few
+        frames later. Errors: unknown_unit, no_selection, not_found, invalid_argument (a navy, a unit
+        named twice), wrong_phase (try again), suspended, unavailable (an older Anvil)."""
+        return await call(_line("unit drill", "start" if start else "stop", *(units or ["selected"]), timeout=timeout))
+
+    @tool(PLAYER, INPUT_NOTE)
+    async def tongs_unit_split(
+        unit: Annotated[UnitId | None, Field(description="The army or navy to split. " + UNITS_NOTE)] = None,
+        timeout: WorldTimeout = None,
+    ) -> CallToolResult:
+        """Splits one army or navy of the player's country in half, rounded up, as the unit panel's
+        button does, through Anvil's anvil-game.commands (Anvil 1.17 or newer). Answers as
+        tongs_unit_drill does; the new unit's id comes from tongs_units afterwards."""
+        return await call(_line("unit split", unit or "selected", timeout=timeout))
+
+    @tool(PLAYER, INPUT_NOTE)
+    async def tongs_unit_merge(
+        units: Annotated[
+            list[UnitId] | None,
+            Field(
+                min_length=2,
+                max_length=64,
+                description="Two or more armies, or navies, in one province: into the first. " + UNITS_NOTE,
+            ),
+        ] = None,
+        timeout: WorldTimeout = None,
+    ) -> CallToolResult:
+        """Merges armies, or navies, of the player's country that stand in one province into the first,
+        as the unit panel's button does, through Anvil's anvil-game.commands (Anvil 1.17 or newer).
+        Answers as tongs_unit_drill does; invalid_argument for units in different provinces or of two
+        kinds."""
+        return await call(_line("unit merge", *(units or ["selected"]), timeout=timeout))
 
     # --- navigation ---
 

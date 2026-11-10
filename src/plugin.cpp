@@ -183,6 +183,28 @@ struct Tongs : anvil::Plugin {
                               tongs::kGameCommandsVersion);
                 }
             }
+            // Units (docs/design.md, "Units (0.31.0)"): anvil-game.world's units for `units`, and with
+            // input anvil-game.commands version 1 for `unit drill|split|merge`.
+            const auto* world_service =
+                host.service<tongs::GameWorldService>(tongs::kGameWorldService, tongs::kGameWorldVersion);
+            if (tongs::HasUnits(world_service)) {
+                handlers.read_units = [world_service](std::string_view tag, tongs::UnitsRaw& out) {
+                    return tongs::ReadUnits(world_service, tag, out);
+                };
+                if (config.input) {
+                    const auto* unit_commands = host.service<tongs::GameCommandsService>(
+                        tongs::kGameCommandsService, tongs::kGameCommandsVersionUnits);
+                    if (unit_commands != nullptr &&
+                        unit_commands->size >= offsetof(tongs::GameCommandsService, post) + sizeof(unit_commands->post)) {
+                        AnvilPlugin* self = host.self();
+                        handlers.post_units = [unit_commands, world_service, self](const tongs::UnitRequest& request) {
+                            return tongs::PostUnits(unit_commands, world_service, self, request);
+                        };
+                        host.info("unit drill, split and merge post through {} v{}", tongs::kGameCommandsService,
+                                  tongs::kGameCommandsVersionUnits);
+                    }
+                }
+            }
             // World reads (docs/design.md, "World reads (0.20.0)"): reads like ui, whatever the settings.
             const tongs::WorldLayout world = tongs::WorldLayout::Load();
             handlers.read_province = [image_base, world](std::int32_t id, tongs::ProvinceRaw& out) {
