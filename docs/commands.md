@@ -256,7 +256,9 @@ service the command answers `unavailable` and says which Anvil it needs.
   - The answer has `units` (how many the command named), `posted`, `skipped`
     and `refused`, and the state. `posted` means queued: the game runs the
     command at the next turn of its queue, also while paused, and checks it
-    again then. Read `units` a few frames later to see the result.
+    again then. Read `units` a few frames later to see the result. For example
+    `drill start` for a country at war is posted and then dropped by the game,
+    which hides the drill button during a war.
   - Refusals: `unknown_unit` (the player's country has no such unit),
     `no_selection`, `not_in_game`, and Anvil's answers `not_found` (the unit is
     gone or not the player's), `invalid_argument` (a navy for `drill`, units of
