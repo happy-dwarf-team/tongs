@@ -1845,6 +1845,148 @@ static void TestEventCommands() {
            Contains(out, "\"closed\":false"));
 }
 
+// units and unit drill|split|merge (docs/design.md, "Units (0.31.0)"): parsing, the
+// refusals before the main thread, the answers, and a posted command counted as an input.
+static void TestUnitCommands() {
+    // Parsing.
+    UnitRequest r;
+    std::string command;
+    assert(!ParseUnitRequest("drill start 12 34 timeout=5", r, command).failed());
+    assert(command == "unit drill" && r.start && r.ids == std::vector<std::uint64_t>({12, 34}) && r.timeout_ms == 5000);
+    assert(!ParseUnitRequest("drill stop selected", r, command).failed() && !r.start && r.selected && r.ids.empty());
+    assert(!ParseUnitRequest("split 7", r, command).failed() && r.verb == UnitRequest::Verb::Split);
+    assert(!ParseUnitRequest("merge 7 8", r, command).failed() && r.verb == UnitRequest::Verb::Merge);
+    assert(!ParseUnitRequest("merge selected", r, command).failed() && r.selected);
+    assert(ParseUnitRequest("", r, command).error == "bad_command");
+    assert(ParseUnitRequest("drill 12", r, command).error == "bad_command");
+    assert(ParseUnitRequest("drill start", r, command).error == "bad_command");
+    assert(ParseUnitRequest("split 7 8", r, command).error == "bad_command");
+    assert(ParseUnitRequest("merge 7", r, command).error == "bad_command");
+    assert(ParseUnitRequest("merge 7 7", r, command).error == "bad_command");
+    assert(ParseUnitRequest("split 07", r, command).error == "unknown_unit");
+    assert(ParseUnitRequest("split -1", r, command).error == "unknown_unit");
+    assert(ParseUnitRequest("split 0", r, command).error == "unknown_unit");
+    assert(ParseUnitRequest("split 99999999999999999999", r, command).error == "unknown_unit");
+    assert(ParseUnitRequest("drill start selected 12", r, command).error == "bad_command");
+    assert(ParseUnitRequest("drill start 12 selected", r, command).error == "bad_command");
+    assert(ParseUnitRequest("march 12", r, command).error == "bad_command" && command == "unit");
+    std::string many = "drill start";
+    for (int i = 1; i <= 65; ++i) many += " " + std::to_string(i);
+    assert(ParseUnitRequest(many, r, command).error == "bad_command");
+    UnitsRequest u;
+    assert(!ParseUnitsRequest("", u).failed() && u.tag.empty());
+    assert(!ParseUnitsRequest("rus timeout=3", u).failed() && u.tag == "RUS" && u.timeout_ms == 3000);
+    assert(ParseUnitsRequest("RUSS", u).error == "unknown_country");
+    assert(ParseUnitsRequest("RUS what", u).error == "bad_command");
+    assert(std::string(UnitResultName(11)) == "not_found" && std::string(UnitResultName(14)) == "limit");
+    assert(std::string(MissionName(15)) == "drill" && std::string(MissionName(-1)) == "unknown");
+
+    FakeScreen screen;
+    Handlers h = screen.Make();
+    FakeMainThread main(screen.dispatcher);
+
+    // Without the services: units unavailable, the unit commands too (input is on).
+    std::string out = HandleRequest("units", h);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"unavailable\"") && Contains(out, "\"command\":\"units\""));
+    out = HandleRequest("unit drill start 12", h);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"unavailable\"") && Contains(out, "Anvil 1.17") &&
+           Contains(out, "\"command\":\"unit drill\""));
+    assert(Contains(HandleRequest("unit drill 12", h), "\"error\":\"bad_command\""));
+
+    // units: the player's by default, the members of each unit.
+    std::vector<std::string> read_tags;
+    h.read_units = [&read_tags](std::string_view tag, UnitsRaw& raw) {
+        read_tags.emplace_back(tag);
+        if (tag == "XXX") return WorldFailure{"unknown_country", "the game has no country XXX"};
+        raw.tag = tag.empty() ? "RUS" : std::string(tag);
+        UnitInfo a;
+        a.id = 12;
+        a.name = "1st Army";
+        a.location = 295;
+        a.mission = 15;
+        a.subunits = 20;
+        a.strength = 20000;
+        a.leader = 77;
+        UnitInfo n;
+        n.id = 34;
+        n.kind = kUnitNavy;
+        n.name = "Baltic \"Fleet\"";
+        raw.units = {a, n};
+        return WorldFailure{};
+    };
+    out = HandleRequest("units", h);
+    assert(Contains(out, "{\"ok\":true,\"command\":\"units\",\"tag\":\"RUS\",\"units\":[{\"id\":12,\"kind\":\"army\","
+                         "\"name\":\"1st Army\",\"location\":295,\"mission\":\"drill\",\"subunits\":20,\"strength\":20000,"
+                         "\"leader\":77},{\"id\":34,\"kind\":\"navy\",\"name\":\"Baltic \\\"Fleet\\\"\",\"location\":null,"
+                         "\"mission\":\"unknown\",\"subunits\":0,\"strength\":0,\"leader\":null}]"));
+    assert(Contains(out, "\"in_game\":true") && Contains(out, "\"frame\":"));
+    out = HandleRequest("units xxx", h);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"unknown_country\""));
+    assert(read_tags == std::vector<std::string>({"", "XXX"}));
+
+    // unit: the request reaches the service on the main thread; posted counts as an input.
+    std::vector<UnitRequest> posted;
+    UnitPost answer;
+    h.post_units = [&posted, &answer](const UnitRequest& request) {
+        posted.push_back(request);
+        return answer;
+    };
+    answer.units = 2;
+    answer.posted = 1;
+    answer.skipped = 1;
+    out = HandleRequest("unit drill start 12 34", h);
+    assert(Contains(out, "{\"ok\":true,\"command\":\"unit drill\",\"units\":2,\"posted\":1,\"skipped\":1,\"refused\":0,"));
+    assert(posted.size() == 1 && posted[0].start && posted[0].ids == std::vector<std::uint64_t>({12, 34}));
+    // A result other than ANVIL_OK is the error, with the counts.
+    answer = {};
+    answer.result = 11;
+    answer.units = 1;
+    out = HandleRequest("unit split 99", h);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"not_found\"") && Contains(out, "\"command\":\"unit split\"") &&
+           Contains(out, "\"posted\":0"));
+    answer = {};
+    answer.failure = {"no_selection", "the player has selected no army or navy"};
+    out = HandleRequest("unit merge selected", h);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"no_selection\"") && posted.back().selected);
+    // Not in a game: refused on the main thread, nothing posted.
+    const std::size_t before = posted.size();
+    screen.game.state.in_game = false;
+    out = HandleRequest("unit split 12", h);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"not_in_game\"") && posted.size() == before);
+    screen.game.state.in_game = true;
+
+    // Suspended and input off: refused before the main thread.
+    bool suspended = true;
+    h.suspended = [&suspended] { return suspended; };
+    assert(Contains(HandleRequest("unit split 12", h), "{\"ok\":false,\"error\":\"suspended\""));
+    assert(Contains(HandleRequest("units", h), "{\"ok\":true"));  // a read: also while suspended
+    suspended = false;
+    Handlers off = h;
+    off.send_input = nullptr;
+    assert(Contains(HandleRequest("unit split 12", off), "{\"ok\":false,\"error\":\"input_disabled\""));
+    assert(posted.size() == before);
+
+    // Counted: a posted command is one input of a wait in progress, a command that posted nothing none.
+    screen.game.clock_runs_date = true;
+    screen.game.state.paused_flag = false;
+    screen.game.state.paused = false;
+    int ticks = 0;
+    answer = {};
+    answer.units = 1;
+    answer.posted = 1;
+    screen.game.on_sleep = [&] {
+        if (++ticks == 5) assert(Contains(HandleRequest("unit split 12", h), "\"ok\":true"));
+    };
+    out = HandleRequest("wait_until 1719.4.1", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"inputs\":1,\"client_calls\":0,\"game_calls\":0"));
+    ticks = 0;
+    answer.posted = 0;
+    answer.skipped = 1;
+    out = HandleRequest("wait_until 1719.4.15", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"inputs\":0,"));
+    screen.game.on_sleep = nullptr;
+}
+
 static void TestInputsCount() {
     FakeGame game = LoadedGame();
     game.clock_runs_date = true;
@@ -4622,6 +4764,7 @@ int main(int argc, char** argv) {
     TestEventChooseScrolls();
     TestEventCommands();
     TestInputsCount();
+    TestUnitCommands();
     TestRunUntilEventsFirst();
     TestRunUntilEventsFirstService();
     TestDate();

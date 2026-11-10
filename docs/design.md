@@ -3038,6 +3038,32 @@ Not checked on GOG: game calls (`console`, `save load`), key and mouse input
 other than clicks and speed buttons, events (none opened in the run),
 notifications and screenshots of other windows than the whole game.
 
+## Units (0.31.0)
+
+The map's decision (eu4-engine-lab#26, #127) is that Tongs acts on units through
+Anvil's `anvil-game.commands` rather than through addresses of its own: Anvil
+1.17 posts what the unit panel's drill, split and merge buttons post, checked in
+the game for those buttons (eu4-engine-lab#127, `docs/anvil-commands-game-test.md`
+in the lab). Tongs builds against an older SDK, so the structs it needs
+(`AnvilGameCommand` with `AnvilGameUnitRef`, `AnvilGameUnit` and
+`AnvilGameWorldService` up to `selected_units`) are copied into
+`src/game_commands.hpp`, as for the event option.
+
+- **Which units.** The commands take ids of the player's country (looked up with
+  `anvil-game.world`'s `unit` for their kind) or `selected` (its
+  `selected_units`). Ids of another country would be refused by the service
+  (`not_found`), so Tongs does not take a tag.
+- **Counting.** A unit command is an input, not a game call: it posts the same
+  command, through the same session queue, as the player's click on the button,
+  and runs no game code of its own (design principle: layers 2 and 3 act as the
+  player). It needs `input = true`, takes the input lock and counts once in
+  `inputs` when the service posted something (`CountedInput` wraps
+  `post_units`), as `run_until events=first` counts a choice through the service.
+- **Thread.** The service wants the main thread after an outer frame, so the
+  post runs as a dispatcher job (`Kind::Read`), after the state on the same frame
+  said in game.
+- **`units`** is a world read through `anvil-game.world`, not counted.
+
 ## Releases
 
 Each release is one PR with its live checks done before it merges; the order

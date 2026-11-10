@@ -24,6 +24,7 @@ connection can instead carry notifications (see [Notifications](#notifications))
 | `country TAG [timeout=S]` | one country by tag: whether it exists, its provinces and its capital |
 | `player [timeout=S]` | the player's country |
 | `selection [timeout=S]` | the last selected province and whether a province view shows one |
+| `units [TAG] [timeout=S]` | a country's armies and navies (the player's without `TAG`), through Anvil's `anvil-game.world` (see [Units](#units)) |
 | `wait_until DATE [timeout=S] [max_pause=S]` | waits (without touching the game) until the date reaches `DATE` (`1720.1.1` or `1720.1.1.12`); answers with the timing below |
 | `cancel` | ends every `wait_until` / `run_until` in progress and withdraws main-thread jobs still waiting for a frame (`withdrawn`) |
 | `subscribe KINDS [date=day\|month\|year]` | turns the connection into a stream of notifications (see [Notifications](#notifications)); `unsubscribe` ends it |
@@ -47,6 +48,9 @@ With `input = true` in the settings, also:
 | `event choose N\|text^="..." [event=N\|event=title^="..."] [timeout=S]` | clicks an option of an open event (see [Events](#events)) |
 | `province open ID [timeout=S]` | opens the province's view and moves the camera to it, as the game's links do (see [Navigation](#navigation)) |
 | `province goto ID [timeout=S]` | moves the camera to the province |
+| `unit drill start\|stop UNITS [timeout=S]` | starts or stops drilling the armies, as the unit panel's button does (see [Units](#units)) |
+| `unit split UNIT [timeout=S]` | splits one army or navy in half, rounded up |
+| `unit merge UNITS [timeout=S]` | merges armies, or navies, in one province into the first |
 | `map_mode MODE [timeout=S]` | a client call: shows a map mode as the minimap's button does. `MODE` is a mode of the game's tabs by name (`political`, `religion`, `trade_goods`: the game's enum names in lower case) or number, or a plugin mode by its id (`player-cores.cores`, with `anvil-map`); answers its `number`, `client_calls_total` and the state read after it |
 
 With `game_calls = true` in the settings, also (see [Console](#console)):
@@ -219,6 +223,54 @@ included, carries the fields of `state` read on the same frame, and
 #  "base_tax":4,"base_production":7,"base_manpower":4,"development":15,"land":true,"wasteland":false,"in_game":true,...}
 .\scripts\tongs.ps1 'country SWE'
 # {"ok":true,"command":"country","tag":"SWE","exists":false,"province_count":0,"provinces":[],"capital":1,"observer":false,...}
+```
+
+## Units
+
+`units [TAG]` reads a country's armies and navies, and `unit drill`, `unit
+split` and `unit merge` post the commands the unit panel's buttons post. Both go
+through Anvil's standard plugin anvil-game: the read through `anvil-game.world`
+(Anvil 1.15 or newer), the commands through `anvil-game.commands` version 1
+(Anvil 1.17 or newer). Tongs keeps no address of its own for them. Without the
+service the command answers `unavailable` and says which Anvil it needs.
+
+- **`units [TAG] [timeout=S]`** is a world read: it needs only `enabled`, is not
+  counted, and runs while suspended and during a `run_until`. It answers `tag`
+  (as asked, or the player's) and `units`, each with `id`, `kind` (`army`,
+  `navy`), `name`, `location` (a province ID, or `null`), `mission` (`none`,
+  `drill`, `siege`, … the game's own missions, or `unknown`), `subunits`
+  (regiments or ships), `strength` (the regiments' strength × 1000: men for an
+  army) and `leader` (an id, or `null`). `unknown_country` for a tag the game
+  does not know.
+- **`unit drill start|stop UNITS`**, **`unit split UNIT`**, **`unit merge
+  UNITS`**, each with `timeout=S`:
+  - `UNITS` are unit ids of the player's country (from `units`), up to 64, or
+    the word `selected` for the armies and navies the player has selected (the
+    game's selection, read when the command runs). `merge` takes two or more.
+  - Inputs: they need `input = true`, take turns with the other inputs and
+    count in `inputs` when something was posted, as an event option chosen
+    through Anvil does. They are what a player's click on the button posts,
+    through the same session queue, so they are not game calls.
+  - `drill` is an intent, not a toggle: armies that already drill (`start`) or
+    do not (`stop`) count as `skipped`, and nothing is posted for them.
+  - The answer has `units` (how many the command named), `posted`, `skipped`
+    and `refused`, and the state. `posted` means queued: the game runs the
+    command at the next turn of its queue, also while paused, and checks it
+    again then. Read `units` a few frames later to see the result. For example
+    `drill start` for a country at war is posted and then dropped by the game,
+    which hides the drill button during a war.
+  - Refusals: `unknown_unit` (the player's country has no such unit),
+    `no_selection`, `not_in_game`, and Anvil's answers `not_found` (the unit is
+    gone or not the player's), `invalid_argument` (a navy for `drill`, units of
+    two kinds or provinces for `merge`, a unit named twice), `wrong_phase` (a
+    hot-join, or not between frames: try again), `limit` (more than 256
+    commands in one frame), `suspended`, `not_declared` (this game build lacks
+    the command's symbols).
+
+```powershell
+.\scripts\tongs.ps1 'units' 'unit drill start 12884901889' 'unit split selected'
+# {"ok":true,"command":"units","tag":"RUS","units":[{"id":12884901889,"kind":"army","name":"1st Army",...}],...}
+# {"ok":true,"command":"unit drill","units":1,"posted":1,"skipped":0,"refused":0,"in_game":true,...}
 ```
 
 ## Navigation

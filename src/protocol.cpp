@@ -122,6 +122,14 @@ public:
                 return p;
             };
         }
+        // A unit command the service posted counts as the button press it stands for.
+        if (h.post_units) {
+            handlers_.post_units = [this, post = h.post_units](const UnitRequest& request) {
+                UnitPost p = post(request);
+                if (!p.failure.failed() && p.posted != 0) sent_ = true;
+                return p;
+            };
+        }
         // A choice the service made counts as the click it stands for.
         if (h.choose_option) {
             handlers_.choose_option = [this, choose = h.choose_option](std::int32_t pending, std::int32_t option) {
@@ -1596,6 +1604,103 @@ std::string WorldCommand(const Handlers& h, std::string_view command, std::strin
     return "{\"ok\":true,\"command\":" + Quote(command) + members + tail + "}";
 }
 
+// units [TAG] [timeout=S]: a country's armies and navies through anvil-game.world, a
+// world read (not counted, needs only `enabled`).
+std::string UnitsCommand(const Handlers& h, std::string_view argument) {
+    const std::string command = "units";
+    UnitsRequest request;
+    WorldFailure failure = ParseUnitsRequest(argument, request);
+    if (!failure.failed() && (!h.dispatcher || !h.read_state || !h.now_ms || !h.read_units)) {
+        failure = {"unavailable", h.dispatcher ? "the units need anvil-game.world of Anvil 1.15 or newer" : kNoDispatch};
+    }
+    const auto state_tail = [&h] { return h.read_state ? "," + StateFields(h.read_state()) : std::string(); };
+    const auto refuse = [&](const WorldFailure& f, const std::string& tail) {
+        return "{\"ok\":false,\"error\":" + Quote(f.error) + ",\"detail\":" + Quote(f.detail) + ",\"command\":" +
+               Quote(command) + tail + "}";
+    };
+    if (failure.failed()) return refuse(failure, state_tail());
+    UnitsRaw raw;
+    StateSnapshot state;
+    const Dispatcher::Outcome outcome = h.dispatcher->Run(
+        Dispatcher::Kind::Read,
+        [&] {
+            state = h.read_state();
+            if (!state.in_game) {
+                failure = {"not_in_game", state.reason ? state.reason : "no game loaded"};
+                return std::string();
+            }
+            failure = h.read_units(request.tag, raw);
+            return std::string();
+        },
+        request.timeout_ms > 0 ? request.timeout_ms : h.dispatch_timeout_ms);
+    if (!outcome.ran) {
+        return "{\"ok\":false,\"error\":" + Quote(outcome.error) + ",\"command\":" + Quote(command) +
+               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + state_tail() + "}";
+    }
+    const std::string tail = "," + StateFields(state) + DispatchTimes(outcome);
+    if (failure.failed()) return refuse(failure, tail);
+    return "{\"ok\":true,\"command\":" + Quote(command) + UnitsJson(raw) + tail + "}";
+}
+
+// unit drill start|stop UNITS / unit split UNIT / unit merge UNITS [timeout=S]: what the
+// unit panel's buttons post, through anvil-game.commands version 1 (Anvil 1.17). An input
+// (needs `input = true`, counted in `inputs` when something was posted), as an event
+// option chosen through the service is.
+std::string UnitCommand(const Handlers& h, std::string_view argument) {
+    UnitRequest request;
+    std::string command;
+    const WorldFailure parse = ParseUnitRequest(argument, request, command);
+    const auto state_tail = [&h] { return h.read_state ? "," + StateFields(h.read_state()) : std::string(); };
+    const auto refuse = [&](const std::string& error, const std::string& detail, const std::string& tail) {
+        return "{\"ok\":false,\"error\":" + Quote(error) + ",\"detail\":" + Quote(detail) + ",\"command\":" +
+               Quote(command) + tail + "}";
+    };
+    if (parse.failed()) return refuse(parse.error, parse.detail, state_tail());
+    if (!InputReady(h)) return refuse("input_disabled", kInputDisabled, state_tail());
+    if (Suspended(h)) return refuse("suspended", kSuspended, state_tail());
+    if (!h.dispatcher || !h.read_state || !h.now_ms || !h.post_units) {
+        return refuse("unavailable",
+                      h.dispatcher ? "the unit commands need anvil-game.commands of Anvil 1.17 or newer" : kNoDispatch,
+                      state_tail());
+    }
+    std::lock_guard lock(g_input_mutex);  // the unit commands take turns with input
+    const CountedInput counted(h, command);
+    const auto& post = counted.handlers().post_units;
+    UnitPost result;
+    StateSnapshot state;
+    const Dispatcher::Outcome outcome = h.dispatcher->Run(
+        Dispatcher::Kind::Read,
+        [&] {
+            state = h.read_state();
+            if (!state.in_game) {
+                result.failure = {"not_in_game", state.reason ? state.reason : "no game loaded"};
+                return std::string();
+            }
+            result = post(request);
+            return std::string();
+        },
+        request.timeout_ms > 0 ? request.timeout_ms : h.dispatch_timeout_ms);
+    if (!outcome.ran) {
+        return "{\"ok\":false,\"error\":" + Quote(outcome.error) + ",\"command\":" + Quote(command) +
+               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + state_tail() + "}";
+    }
+    const std::string tail = "," + StateFields(state) + DispatchTimes(outcome);
+    if (result.failure.failed()) return refuse(result.failure.error, result.failure.detail, tail);
+    const std::string counts = ",\"units\":" + std::to_string(result.units) + ",\"posted\":" +
+                               std::to_string(result.posted) + ",\"skipped\":" + std::to_string(result.skipped) +
+                               ",\"refused\":" + std::to_string(result.refused);
+    if (h.log) {
+        h.log(1, command + " (pipe " + std::to_string(t_client) + "): " + UnitResultName(result.result) + ", " +
+                     std::to_string(result.units) + " units, posted " + std::to_string(result.posted) + ", skipped " +
+                     std::to_string(result.skipped) + ", refused " + std::to_string(result.refused));
+    }
+    if (result.result != 0) {
+        return refuse(UnitResultName(result.result),
+                      std::string("anvil-game.commands answered ") + UnitResultName(result.result), counts + tail);
+    }
+    return "{\"ok\":true,\"command\":" + Quote(command) + counts + tail + "}";
+}
+
 constexpr std::size_t kLogText = 200;  // characters of a game call's text in the log
 
 // `mode` in a game call's answer (ADR 0001): with a switch on, once the main
@@ -2440,9 +2545,9 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
         return "{\"ok\":true," + WindowFields(handlers.read_window()) + "}";
     }
     if (command == "help" && argument.empty()) {
-        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"frames\",\"ui\",\"event\",\"province\",\"country\",\"player\",\"selection\",\"help\",") +
+        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"frames\",\"ui\",\"event\",\"province\",\"country\",\"player\",\"selection\",\"units\",\"help\",") +
                "\"wait_until\",\"cancel\",\"key\",\"text\",\"move\",\"click\",\"scroll\",\"release\",\"pause\",\"resume\",\"speed\"," +
-               "\"run_until\",\"console\",\"save\",\"map_mode\",\"subscribe\",\"unsubscribe\"],\"input\":" + Bool(InputReady(handlers)) + ",\"main_thread\":" +
+               "\"run_until\",\"unit\",\"console\",\"save\",\"map_mode\",\"subscribe\",\"unsubscribe\"],\"input\":" + Bool(InputReady(handlers)) + ",\"main_thread\":" +
                Bool(handlers.dispatcher != nullptr) + ",\"game_calls\":" + Bool(handlers.game_calls.enabled) +
                ",\"game_calls_tripped\":" + Bool(g_game_calls_tripped.load()) +
                ",\"suspended\":" + Bool(Suspended(handlers)) + "}";
@@ -2458,6 +2563,8 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
     if (command == "province" || command == "country" || command == "player" || command == "selection") {
         return WorldCommand(handlers, command, argument);
     }
+    if (command == "units") return UnitsCommand(handlers, argument);
+    if (command == "unit") return UnitCommand(handlers, argument);
     if (command == "map_mode") return MapModeCommand(handlers, argument);
     if (command == "console") return ConsoleCall(handlers, argument, client).Run();
     if (command == "save") {

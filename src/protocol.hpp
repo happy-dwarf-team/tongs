@@ -9,6 +9,7 @@
 #include "notifications.hpp"
 #include "save_meta.hpp"
 #include "ui_tree.hpp"
+#include "units.hpp"
 #include "world.hpp"
 
 #include <cstdint>
@@ -103,9 +104,9 @@ struct SpeedButtonPress {
 
 // Protocol: UTF-8 lines. A request is one command line; the answer is one
 // JSON object on one line. Commands: ping, state, window, threads, screenshot,
-// frames, ui, event, province, country, player, selection, help, wait_until, cancel,
+// frames, ui, event, province, country, player, selection, units, help, wait_until, cancel,
 // subscribe (see below), and with input enabled key, text, move, click, scroll,
-// release, pause, resume, speed, run_until, ui click, event choose, province open/goto,
+// release, pause, resume, speed, run_until, ui click, event choose, province open/goto, unit,
 // and with game calls enabled console. Input commands and game calls answer with
 // the state read after the action; they take turns across clients.
 // What anvil-game.commands answered for an event option (include/anvil/anvil_game.h of Anvil).
@@ -185,6 +186,12 @@ struct Handlers {
     // `pending` as its button does (game_commands.cpp). Null without input or without
     // the service; `available` false when the service lacks the type on this build.
     std::function<ServiceChoice(std::int32_t pending, std::int32_t option)> choose_option;
+    // Main thread: the units (units.hpp, game_commands.cpp). read_units reads a country's
+    // armies and navies through anvil-game.world (an empty tag: the player's); post_units
+    // posts a unit command through anvil-game.commands version 1, as the unit panel's
+    // buttons do. Null without the services (post_units also without input): unavailable.
+    std::function<WorldFailure(std::string_view tag, UnitsRaw&)> read_units;
+    std::function<UnitPost(const UnitRequest&)> post_units;
     // Pipe thread, one word: entries in the session's event window list; -1 = unreadable.
     // run_until events=first reads the events on the main thread only while it is above 0.
     std::function<int()> count_event_windows;
