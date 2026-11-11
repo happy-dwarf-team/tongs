@@ -2749,9 +2749,19 @@ hand it one of their own.
 - They stay world reads: not counted, never marking a run, also in ironman and
   multiplayer and while Anvil suspends Tongs.
 
-Checked in the game: not yet (it needs Anvil 1.20, unreleased at the time;
-compare with `print_flags` / `print_prov_flags` on a vanilla save, on Steam and
-GOG).
+Checked in the game (11 November 2026), with Anvil built from `main` (e035589,
+before the 1.20 release) in a lab copy of the Steam build, on a vanilla save of
+17 March 1719:
+
+| Check | Result |
+| --- | --- |
+| `country` for every country in the save (RUS: 110 flags, 47 variables) | names, dates and values equal to the save's `flags` / `variables` |
+| `province` for every province with flags or variables | equal to the save |
+| `game_calls_total`, `client_calls_total` after the reads | 0 and 0 |
+
+Not checked yet: the GOG builds, the `missing` answer with Anvil 1.19, and a
+comparison with `print_flags` / `print_prov_flags` (a game call; the save the
+game wrote is the reference used instead).
 
 ## Navigation (0.21.0)
 
