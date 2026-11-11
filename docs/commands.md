@@ -38,7 +38,7 @@ With `input = true` in the settings, also:
 | `resume` | presses the pause button if the player pause is on, then waits until the game runs; refuses when something else holds the game paused |
 | `speed N` | presses the speed up / down button one step at a time until the speed is `N` (1–5, as in the UI); works while paused |
 | `run_until DATE [speed=N] [timeout=S] [max_pause=S] [events=first\|stop]` | sets the speed, resumes, waits for the date and pauses again; for measuring how fast the game runs. `events=first` chooses the first enabled option of every event that opens on the way |
-| `key NAME` | presses one key: `a`–`z`, `0`–`9`, `f1`–`f12`, `space`, `return`, `escape`, `tab`, `backspace`, `delete`, `minus`, `equals`, `grave` (the console key on a US layout), `kp_plus`, `kp_minus`, `kp_enter`, arrows (`up`, `down`, `left`, `right`), `home`, `end`, `page_up`, `page_down` |
+| `key [MOD+]NAME` | presses one key: `a`–`z`, `0`–`9`, `f1`–`f12`, `space`, `return`, `escape`, `tab`, `backspace`, `delete`, `minus`, `equals`, `grave` (the console key on a US layout), `kp_plus`, `kp_minus`, `kp_enter`, arrows (`up`, `down`, `left`, `right`), `home`, `end`, `page_up`, `page_down`, and the left `shift`, `ctrl`, `alt` alone; with modifiers held while it is pressed, `MOD+` once each of `shift`, `ctrl` (or `control`), `alt`, in any order: `shift+left`, `ctrl+a`, `ctrl+shift+end` (see [Keys](#keys)) |
 | `text STRING` | types the rest of the line into the focused text field (characters U+0020–U+007E and U+00A0–U+00FF) |
 | `move X Y` | points the mouse at client coordinates `X Y` (hovering shows tooltips) |
 | `click X Y [left\|right\|middle] [double]` | moves there and clicks |
@@ -121,6 +121,41 @@ Right after a save loads, the game handles input only once an outer frame of
 the new session has run; the commands wait for it, and the
 [ready wait](#sessions-and-the-ready-wait) waits for that frame first. While
 the Esc menu is open, Space does not resume the game.
+
+## Keys
+
+`key` sends what the player's keyboard sends, in the game's own SDL queue:
+the key down, its character, the key up. The key code (`sym`) and the
+physical key (`scancode`) are those of a US layout, whatever layout the game
+runs with: shortcuts follow the key code, and `key z` is the `z` shortcut and
+types `z` on a German or Polish (214) layout too, where the key in that place
+is `y`. A key's character is the one it has without modifiers; `text` types
+any character from U+0020–U+007E and U+00A0–U+00FF, whatever the layout, so
+`key a` and `text a` put the same `a` into a field.
+
+With modifiers (`key shift+left`), the modifier keys go down first (Ctrl,
+Alt, Shift), then the key, then the modifier keys come up in reverse order;
+each event carries the modifiers held at that moment. The game keeps its own
+record of the keys held from these events and asks it for Shift, Ctrl and Alt,
+so a chord does what the player's does. Shift alone with a letter types the
+capital letter; other chords type nothing (a shifted digit or sign depends on
+the layout: use `text`).
+
+In a text field (an edit box with the focus: the find box, the console, the
+year in the lobby) the keys do what the game's own text fields do for a
+player (see [design.md](design.md#key-chords)):
+
+- `left` and `right` move the cursor, `backspace` and `delete` delete a
+  character, `ctrl+backspace` the word before the cursor, and a `click` in
+  the field puts the cursor there;
+- `home` and `end` select from the cursor to the start or the end of the
+  text, with Shift or without, so the next character typed replaces that
+  part;
+- the game has no other selection: `shift+left`, `shift+right` and `ctrl+a`
+  do nothing in its fields;
+- `ctrl+c`, `ctrl+x` and `ctrl+v` are the game's copy, cut and paste (read
+  from its code, not tried: they use the Windows clipboard, which is the
+  player's).
 
 ## Sessions and the ready wait
 
@@ -332,7 +367,7 @@ multiplayer they follow input: Anvil's allow lists apply.
   | `not_selectable` | `open` | a sea, a lake or a wasteland |
   | `terra_incognita` | `open` | the player has not discovered it (an observer passes) |
   | `selection_blocked` | `open` | the game selects nothing now (a province-picking mode, the tutorial) |
-  | `camera_locked` | `goto` | the camera is locked: `debug_lockcamera`, or a window that holds it (the in-game menu does) |
+  | `camera_locked` | `goto` | the camera is locked: `debug_lockcamera`, a window that holds it (the in-game menu does), or the game window is minimized (the game holds the camera until it is restored; the detail says so) |
   | `needs_game_calls` | `open` | the discover case above without `game_calls = true` |
 
   For a province without an owner the game shows its colonisation panel

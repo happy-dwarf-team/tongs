@@ -704,6 +704,38 @@ static void TestKeys() {
     assert(FindKey("escape")->sym == 27 && FindKey("return")->sym == '\r');
     assert(FindKey("grave")->sym == '`' && FindKey("grave")->scancode == 53 && FindKey("grave")->text == '`');
     assert(FindKey(kPauseKeyName) && FindKey(kSpeedUpKeyName) && FindKey(kSpeedDownKeyName));
+
+    // Chords: modifiers in any order and case, each once.
+    assert(FindKeyChord("a")->mods == 0 && FindKeyChord("a")->key.sym == 'a');
+    assert(FindKeyChord("ctrl+a")->mods == kModCtrl && FindKeyChord("ctrl+a")->key.scancode == 4);
+    assert(FindKeyChord("Shift+Ctrl+End")->mods == (kModShift | kModCtrl));
+    assert(FindKeyChord("control+alt+shift+f1")->mods == (kModShift | kModCtrl | kModAlt));
+    assert(FindKeyChord("shift")->key.sym == 0x400000E1 && FindKeyChord("shift")->key.scancode == 225);
+    assert(FindKeyChord("ctrl")->key.scancode == 224 && FindKeyChord("alt")->key.scancode == 226);
+    assert(!FindKeyChord("ctrl+ctrl+a") && !FindKeyChord("meta+a") && !FindKeyChord("ctrl+") &&
+           !FindKeyChord("+a") && !FindKeyChord("ctrl+spacebar") && !FindKeyChord(""));
+
+    // shift+left: Shift down, Left down / up with Shift held, Shift up with nothing held.
+    const std::vector<InputEvent> select = KeyChordEvents(*FindKeyChord("shift+left"));
+    assert(select.size() == 4);
+    assert(select[0].type == InputEvent::Type::KeyDown && select[0].key.scancode == 225 && select[0].key.mod == kModShift);
+    assert(select[1].type == InputEvent::Type::KeyDown && select[1].key.scancode == 80 && select[1].key.mod == kModShift);
+    assert(select[2].type == InputEvent::Type::KeyUp && select[2].key.scancode == 80 && select[2].key.mod == kModShift);
+    assert(select[3].type == InputEvent::Type::KeyUp && select[3].key.scancode == 225 && select[3].key.mod == 0);
+    // Shift alone gives the upper-case letter; Ctrl gives no character.
+    const std::vector<InputEvent> upper = KeyChordEvents(*FindKeyChord("shift+q"));
+    assert(upper.size() == 5 && upper[2].type == InputEvent::Type::Text && upper[2].text[0] == 'Q' && upper[2].text[1] == 0);
+    const std::vector<InputEvent> all = KeyChordEvents(*FindKeyChord("ctrl+shift+a"));
+    assert(all.size() == 6);
+    for (const InputEvent& e : all) assert(e.type != InputEvent::Type::Text);
+    assert(all[0].key.scancode == 224 && all[0].key.mod == kModCtrl);
+    assert(all[1].key.scancode == 225 && all[1].key.mod == (kModCtrl | kModShift));
+    assert(all[4].key.scancode == 225 && all[4].key.mod == kModCtrl);
+    assert(all[5].key.scancode == 224 && all[5].key.mod == 0);
+    // Without modifiers: the events of KeyPressEvents.
+    const std::vector<InputEvent> plain = KeyChordEvents(*FindKeyChord("space"));
+    assert(plain.size() == 3 && plain[1].type == InputEvent::Type::Text && plain[1].text[0] == ' ' && plain[0].key.mod == 0);
+    assert(KeyChordEvents(*FindKeyChord("shift+1")).size() == 4);  // a shifted digit depends on the layout: no character
 }
 
 // A game that reacts to pause and speed keys a few polls after each press,
@@ -4087,6 +4119,11 @@ static void TestNavigationRules() {
     f.selection_blocked = false;
     f.camera_locked = true;  // goto refuses; open still opens
     assert(NavigationRefusal(false, f).error == "camera_locked" && !NavigationRefusal(true, f).failed());
+    assert(NavigationRefusal(false, f).detail.starts_with("the camera is locked"));
+    f.minimized = true;  // the game locks the camera while its window is minimized
+    assert(NavigationRefusal(false, f).error == "camera_locked" &&
+           NavigationRefusal(false, f).detail.starts_with("the game window is minimized"));
+    f.minimized = false;
 
     CameraRaw c;
     c.x = 1000.4f;

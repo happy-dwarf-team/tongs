@@ -588,9 +588,10 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         name: Annotated[
             str,
             Field(
-                pattern=r"^[a-z0-9_]{1,16}$",
+                pattern=r"^((ctrl|control|alt|shift)\+){0,3}[a-z0-9_]{1,16}$",
                 description="a-z, 0-9, f1-f12, space, return, escape, tab, backspace, delete, minus, equals, grave, "
-                "kp_plus, kp_minus, kp_enter, up, down, left, right, home, end, page_up, page_down.",
+                "kp_plus, kp_minus, kp_enter, up, down, left, right, home, end, page_up, page_down, shift, ctrl, "
+                "alt; with modifiers held: ctrl+a, shift+left, ctrl+shift+end.",
             ),
         ],
     ) -> CallToolResult:

@@ -41,13 +41,21 @@ constexpr std::array kNamedKeys = {
     Special("kp_minus", 86, '-'),
     Special("kp_plus", 87, '+'),
     Special("kp_enter", 88),
+    Special("ctrl", 224),   // SDL_SCANCODE_LCTRL
+    Special("shift", 225),  // SDL_SCANCODE_LSHIFT
+    Special("alt", 226),    // SDL_SCANCODE_LALT
 };
+
+std::string Lower(std::string_view text) {
+    std::string lower(text);
+    for (char& ch : lower) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    return lower;
+}
 
 }  // namespace
 
 std::optional<KeyPress> FindKey(std::string_view name) {
-    std::string lower(name);
-    for (char& ch : lower) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    const std::string lower = Lower(name);
 
     if (lower.size() == 1) {
         const char ch = lower[0];
@@ -71,6 +79,28 @@ std::optional<KeyPress> FindKey(std::string_view name) {
         if (named.name == lower) return named.key;
     }
     return std::nullopt;
+}
+
+std::optional<KeyChord> FindKeyChord(std::string_view text) {
+    KeyChord chord;
+    for (;;) {
+        const std::size_t plus = text.find('+');
+        // A `+` at the very end is part of no name (there is no `+` key); `kp_plus` is spelled out.
+        if (plus == std::string_view::npos || plus == 0) break;
+        const std::string mod = Lower(text.substr(0, plus));
+        std::uint16_t bit = 0;
+        if (mod == "shift") bit = kModShift;
+        else if (mod == "ctrl" || mod == "control") bit = kModCtrl;
+        else if (mod == "alt") bit = kModAlt;
+        else return std::nullopt;
+        if ((chord.mods & bit) != 0) return std::nullopt;
+        chord.mods |= bit;
+        text.remove_prefix(plus + 1);
+    }
+    const auto key = FindKey(text);
+    if (!key) return std::nullopt;
+    chord.key = *key;
+    return chord;
 }
 
 }  // namespace tongs
