@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 namespace tongs {
@@ -19,5 +20,11 @@ void SetVirtualCursor(int x, int y);
 void ReleaseVirtualCursor();
 // False after `release`, and once the hook saw the real cursor move and handed it back.
 bool VirtualCursorHeld();
+
+// Where the game's interface sees the pointer: Tongs' virtual pointer while it is held,
+// else the real cursor in the game window's client pixels (the focused path of the
+// cursor query; without focus the game asks SDL's mouse state, which follows the same
+// pointer). False when the window is not found.
+bool ReadGuiPointer(std::uintptr_t window, int& x, int& y, bool& tongs_pointer);
 
 }  // namespace tongs

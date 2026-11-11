@@ -1,6 +1,7 @@
 // Tongs — Anvil plugin entry point (plugin API 2).
 #include "game_commands.hpp"
 #include "game_console.hpp"
+#include "game_map.hpp"
 #include "game_map_mode.hpp"
 #include "game_cursor.hpp"
 #include "game_events.hpp"
@@ -218,6 +219,14 @@ struct Tongs : anvil::Plugin {
             };
             handlers.read_selection = [image_base, world](tongs::SelectionRaw& out) {
                 return tongs::ReadSelection(image_base, world, out);
+            };
+            // cursor (docs/design.md, "Cursor (0.32.0)"): the pointer and what the map has under it.
+            handlers.read_pointer = [](int& x, int& y, bool& tongs_pointer) {
+                return tongs::ReadGuiPointer(tongs::ReadGameWindow().handle, x, y, tongs_pointer);
+            };
+            const tongs::MapLayout map_layout = tongs::MapLayout::Load();
+            handlers.pick_map = [image_base, map_layout](int x, int y, tongs::MapPickRaw& out) {
+                return tongs::PickAtPoint(image_base, map_layout, x, y, out);
             };
             if (config.game_calls.enabled) {
                 // Loading a save (docs/design.md, "Loading a save (0.22.0)"): a game call.

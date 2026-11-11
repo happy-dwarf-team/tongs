@@ -72,4 +72,21 @@ void ReleaseVirtualCursor() { g_active.store(false, std::memory_order_release); 
 
 bool VirtualCursorHeld() { return g_active.load(std::memory_order_acquire); }
 
+bool ReadGuiPointer(std::uintptr_t window, int& x, int& y, bool& tongs_pointer) {
+    if (g_active.load(std::memory_order_acquire) && RealCursor() == g_real_at_set.load(std::memory_order_relaxed)) {
+        const std::uint64_t v = g_virtual.load(std::memory_order_relaxed);
+        x = High(v);
+        y = Low(v);
+        tongs_pointer = true;
+        return true;
+    }
+    if (window == 0) return false;
+    POINT p{};
+    if (!GetCursorPos(&p) || !ScreenToClient(reinterpret_cast<HWND>(window), &p)) return false;
+    x = p.x;
+    y = p.y;
+    tongs_pointer = false;
+    return true;
+}
+
 }  // namespace tongs
