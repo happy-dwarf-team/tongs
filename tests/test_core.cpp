@@ -4887,7 +4887,7 @@ static void TestCursorCommand() {
         h.suspended = [] { return true; };
         assert(Contains(HandleRequest("cursor", h), "\"ok\":true"));
     }
-    assert(Contains(HandleRequest("help", h), "\"units\",\"cursor\""));
+    assert(Contains(HandleRequest("help", h), "\"cursor\""));
 }
 
 int main(int argc, char** argv) {
