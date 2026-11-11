@@ -29,6 +29,14 @@ struct InputEvent {
 // one, key-up.
 std::vector<InputEvent> KeyPressEvents(const KeyPress& key);
 
+// A chord as a player types it: each modifier key down (Ctrl, Alt, Shift),
+// the key down, its character, the key up, the modifier keys up in reverse;
+// every event's `mod` holds the modifiers down at that moment. The character
+// is the key's own without modifiers, an upper-case letter with Shift alone,
+// and none otherwise (characters a layout gives a shifted key are typed with
+// `text`). Without modifiers the same events as KeyPressEvents.
+std::vector<InputEvent> KeyChordEvents(const KeyChord& chord);
+
 // One Text event per character. The game decodes only the first byte or
 // two of SDL_TEXTINPUT into one 8-bit character, so only U+0020-U+007E and
 // U+00A0-U+00FF arrive intact; returns an error text for anything else.

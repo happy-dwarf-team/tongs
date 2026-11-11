@@ -33,11 +33,12 @@ SdlEvent ToSdl(const InputEvent& in) {
     switch (in.type) {
         case InputEvent::Type::KeyDown:
         case InputEvent::Type::KeyUp:
-            // SDL_KeyboardEvent: state +0x0C, repeat +0x0D, keysym {scancode +0x10, sym +0x14, mod +0x18 (0)}.
+            // SDL_KeyboardEvent: state +0x0C, repeat +0x0D, keysym {scancode +0x10, sym +0x14, mod +0x18}.
             e.Put(0x00, in.type == InputEvent::Type::KeyDown ? kKeyDown : kKeyUp);
             e.Put<std::uint8_t>(0x0C, in.type == InputEvent::Type::KeyDown ? 1 : 0);  // SDL_PRESSED / SDL_RELEASED
             e.Put(0x10, in.key.scancode);
             e.Put(0x14, in.key.sym);
+            e.Put(0x18, in.key.mod);
             break;
         case InputEvent::Type::Text:
             // SDL_TextInputEvent: char text[32] at +0x0C, UTF-8, zero-terminated.

@@ -2603,9 +2603,9 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
         const CountedInput counted(handlers, command);
         Actions actions(counted.handlers());
         if (command == "key") {
-            const auto key = FindKey(argument);
-            if (!key) return Error("unknown key: " + std::string(argument.substr(0, 32)));
-            return ActionJson(command, actions.Settled(KeyPressEvents(*key), 1));
+            const auto chord = FindKeyChord(argument);
+            if (!chord) return Error("unknown key: " + std::string(argument.substr(0, 32)));
+            return ActionJson(command, actions.Settled(KeyChordEvents(*chord), 1));
         }
         if (command == "speed") {
             if (argument.size() != 1 || argument[0] < '1' || argument[0] > '5') {

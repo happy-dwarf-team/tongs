@@ -3,6 +3,18 @@
 #include <cstdio>
 
 namespace tongs {
+namespace {
+
+std::uint16_t ModifierBit(std::int32_t scancode) {
+    switch (scancode) {
+        case 224: return kModCtrl;
+        case 225: return kModShift;
+        case 226: return kModAlt;
+        default: return 0;
+    }
+}
+
+}  // namespace
 
 std::vector<InputEvent> KeyPressEvents(const KeyPress& key) {
     std::vector<InputEvent> events;
@@ -19,6 +31,48 @@ std::vector<InputEvent> KeyPressEvents(const KeyPress& key) {
     InputEvent up = down;
     up.type = InputEvent::Type::KeyUp;
     events.push_back(up);
+    return events;
+}
+
+std::vector<InputEvent> KeyChordEvents(const KeyChord& chord) {
+    struct Modifier {
+        std::uint16_t bit;
+        const char* name;
+    };
+    static constexpr Modifier kOrder[] = {{kModCtrl, "ctrl"}, {kModAlt, "alt"}, {kModShift, "shift"}};
+    std::vector<InputEvent> events;
+    std::vector<KeyPress> held;
+    std::uint16_t mods = 0;
+    for (const Modifier& m : kOrder) {
+        if ((chord.mods & m.bit) == 0) continue;
+        mods |= m.bit;
+        KeyPress modifier = *FindKey(m.name);
+        modifier.mod = mods;
+        InputEvent down;
+        down.type = InputEvent::Type::KeyDown;
+        down.key = modifier;
+        events.push_back(down);
+        held.push_back(modifier);
+    }
+    KeyPress key = chord.key;
+    key.mod = mods;
+    if (mods == kModShift && key.text >= 'a' && key.text <= 'z') {
+        key.text = static_cast<char>(key.text - 'a' + 'A');
+    } else if (mods != 0) {
+        key.text = 0;
+    }
+    for (InputEvent& event : KeyPressEvents(key)) events.push_back(event);
+    for (auto it = held.rbegin(); it != held.rend(); ++it) {
+        InputEvent up;
+        up.type = InputEvent::Type::KeyUp;
+        up.key = *it;
+        events.push_back(up);
+    }
+    // A key-up carries the modifiers still down after it, as SDL reports them.
+    for (std::size_t i = events.size() - held.size(); i < events.size(); ++i) {
+        mods = static_cast<std::uint16_t>(mods & ~ModifierBit(events[i].key.scancode));
+        events[i].key.mod = mods;
+    }
     return events;
 }
 
