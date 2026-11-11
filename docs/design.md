@@ -3087,8 +3087,8 @@ RVAs are the Steam build's, `plugin/symbols.toml` holds all three builds.
   floats, an empty selection list, `false`, `true`. The map's click
   (`CInGameMapInput::DoSingleSelectionAt`, `0x11706C0`) calls the same
   function with the click point. `GetSelectable` casts the pick ray of the
-  camera (`CCamera::CalcPickRay`) through the point and returns the unit whose
-  icon or model it meets, or the province, as the selectable object the
+  camera (`CCamera::CalcPickRay`) through the point and returns the unit it meets
+  there, or the province, as the selectable object the
   selection list keeps: slot 1 of its vtable answers the kind as a constant
   (0 army, 1 navy, 2 province; anvil-game reads the same slot of the
   selection's objects). An army or navy is the unit object itself, with its
@@ -3103,6 +3103,32 @@ RVAs are the Steam build's, `plugin/symbols.toml` holds all three builds.
   `CEU3GraphicalMap` (`graphical_map_vtable`) and calls both functions under
   `__try`. A unit is reported only when anvil-game.world's `units` of its tag
   list its id, so a misread object cannot pass for a unit.
+
+### Live check (2026-11-11)
+
+Steam 1.37.5, Anvil 1.19.0, this branch with the input and journal branches
+of the same release merged for the test (the start of "Input gaps, round 2"
+on the input branch), the Ottoman campaign at 1445.1.1, 3440x1440.
+
+- **Province.** At eight points and after zooming in and out, `move` then
+  `cursor` named the province, and a `click` at the same point selected it
+  on land (151 Constantinople, 3000 Nis, 332 Marash, 2998, 2196, 149, 2750
+  Filibe); on seas `cursor` named the sea (`land: false`: Eastern Black Sea,
+  Gulf of Taranto, Adriatic Sea, Bay of Alexandria), which a click does not
+  select.
+- **Unit.** A grid of points every 20 px around the capital found the army
+  Anadolu Ordusu (id 231928234038, as `units` lists it) at two points, with
+  no widget hovered; a `click` there selected it (the single unit panel). At
+  (2600, 1100) `cursor` named a foreign army (Marash Ordusu of DUL) over
+  Marash. Units' map icons are widgets (`unit_mapicon[n]`): over one,
+  `widget` names it and `over_map` is false; whether the map also picks the
+  unit there was not tried.
+- **Widget.** Over the speed-up button `widget` was
+  `speed_controls/button_speedup` and `over_map` false, with the province
+  under the button still named (Lower Yik).
+- **Pointer.** After a mouse command `pointer` was `tongs` at its point; after
+  `release` it was `mouse`, at the real cursor's place.
+- **Minimized.** `cursor` answered `inside: false` with nothing picked.
 
 ## Releases
 
