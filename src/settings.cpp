@@ -18,6 +18,7 @@ Config FromAnvil() {
     Config config;
     config.enabled = cfg::enabled.get();
     config.input = cfg::input.get();
+    config.journal = cfg::journal.get();
     config.game_calls.enabled = cfg::game_calls.get();
     config.game_calls.ironman = cfg::game_calls_ironman.get();
     config.game_calls.multiplayer = cfg::game_calls_multiplayer.get();
@@ -43,6 +44,7 @@ Config Merge(const Config& legacy, const Config& current) {
     if (Overridden(cfg::console_allow)) out.game_calls.allow = current.game_calls.allow;
     if (Overridden(cfg::game_calls_ironman)) out.game_calls.ironman = current.game_calls.ironman;
     if (Overridden(cfg::game_calls_multiplayer)) out.game_calls.multiplayer = current.game_calls.multiplayer;
+    out.journal = current.journal;  // config.toml had no journal
     out.notes = current.notes;
     for (const std::string& note : legacy.notes) out.notes.push_back("config.toml: " + note);
     return out;

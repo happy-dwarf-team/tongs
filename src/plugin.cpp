@@ -1,5 +1,6 @@
 // Tongs — Anvil plugin entry point (plugin API 2).
 #include "game_commands.hpp"
+#include "journal.hpp"
 #include "game_console.hpp"
 #include "game_map.hpp"
 #include "game_map_mode.hpp"
@@ -52,6 +53,14 @@ std::uint64_t ProcessStartMs() {
     return ticks > kUnixEpochTicks ? (ticks - kUnixEpochTicks) / 10'000 : 0;
 }
 
+// Now as Unix milliseconds.
+std::uint64_t UnixNowMs() {
+    FILETIME now{};
+    GetSystemTimeAsFileTime(&now);
+    const std::uint64_t ticks = (static_cast<std::uint64_t>(now.dwHighDateTime) << 32) | now.dwLowDateTime;
+    return (ticks - 116'444'736'000'000'000ULL) / 10'000;
+}
+
 // anvil.suspended / anvil.resumed: Anvil took Tongs' hooks out of an ironman
 // or multiplayer game the player did not allow it in (docs/design.md, "Gameplay").
 std::atomic<bool> g_suspended{false};
@@ -97,6 +106,18 @@ struct Tongs : anvil::Plugin {
         tongs::Handlers handlers;
         handlers.process_id = GetCurrentProcessId();
         handlers.process_start_ms = ProcessStartMs();
+        // The command journal (docs/commands.md, "Journal"): outside the game, never in its saves.
+        static tongs::Journal journal;
+        if (config.journal) {
+            if (const std::string error = journal.Open(data_dir / "journal", TONGS_VERSION, handlers.process_id,
+                                                       handlers.process_start_ms, UnixNowMs());
+                error.empty()) {
+                handlers.journal = &journal;
+                host.info("command journal: {}", journal.Path());
+            } else {
+                host.warn("command journal off: {}", error);
+            }
+        }
         handlers.log = [](int level, const std::string& message) { Log(level, message); };
         handlers.game_calls = config.game_calls;
         // Every state read also tells LoadWatch whether a game was loaded: the `session` number,

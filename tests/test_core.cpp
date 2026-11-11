@@ -1,6 +1,7 @@
 #include "config.hpp"
 #include "console.hpp"
 #include "game_date.hpp"
+#include "journal.hpp"
 #include "load_watch.hpp"
 #include "navigation.hpp"
 #include "navigation_service.hpp"
@@ -25,6 +26,8 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <stdexcept>
 #include <string>
@@ -4890,6 +4893,84 @@ static void TestCursorCommand() {
     assert(Contains(HandleRequest("help", h), "\"cursor\""));
 }
 
+static void TestJournal() {
+    assert(std::string_view(JournalKind("key space")) == "input");
+    assert(std::string_view(JournalKind("  ui click speed_controls/button_speedup")) == "input");
+    assert(std::string_view(JournalKind("ui find //x")) == "read");
+    assert(std::string_view(JournalKind("event choose 1")) == "input");
+    assert(std::string_view(JournalKind("event list")) == "read");
+    assert(std::string_view(JournalKind("province open 295")) == "client_call");
+    assert(std::string_view(JournalKind("province 295")) == "read");
+    assert(std::string_view(JournalKind("map_mode political")) == "client_call");
+    assert(std::string_view(JournalKind("console echo a")) == "game_call");
+    assert(std::string_view(JournalKind("save load x")) == "game_call");
+    assert(std::string_view(JournalKind("unit split 5")) == "input");
+    assert(std::string_view(JournalKind("units")) == "read");
+    assert(std::string_view(JournalKind("subscribe all")) == "stream");
+    assert(std::string_view(JournalKind("")) == "read");
+
+    JournalEntry e;
+    e.unix_ms = 1'792'418'572'041;
+    e.client = 3;
+    e.request = "text M\xC3\xBCn \"x\"";
+    e.reply = "{\"ok\":true,\"command\":\"text\",\"in_game\":true,\"date\":\"1719.3.17\",\"session\":2,\"pid\":7}";
+    e.ms = 105;
+    assert(JournalLine(4, e) ==
+           "{\"seq\":4,\"t\":1792418572041,\"client\":3,\"kind\":\"input\",\"request\":\"text M\xC3\xBCn \\\"x\\\"\","
+           "\"ms\":105,\"ok\":true,\"error\":null,\"date\":\"1719.3.17\",\"session\":2}");
+    e.request = "speed 9";
+    e.reply = "{\"ok\":false,\"error\":\"speed takes one number from 1 to 5\"}";
+    assert(JournalLine(5, e) == "{\"seq\":5,\"t\":1792418572041,\"client\":3,\"kind\":\"input\",\"request\":\"speed 9\","
+                                "\"ms\":105,\"ok\":false,\"error\":\"speed takes one number from 1 to 5\",\"date\":null,"
+                                "\"session\":null}");
+    assert(JournalHeader("0.32.0", 7, 99, 100) ==
+           "{\"journal\":1,\"tongs\":\"0.32.0\",\"pid\":7,\"process_start_ms\":99,\"opened\":100}");
+    assert(JournalFileName(7, 1792418572041) == "journal-1792418572041-7.jsonl");
+
+    // A file per process; the oldest go past kJournalFiles.
+    const std::filesystem::path folder = std::filesystem::temp_directory_path() / L"tongs-test-journal";
+    std::error_code ec;
+    std::filesystem::remove_all(folder, ec);
+    std::filesystem::create_directories(folder);
+    for (int i = 0; i < kJournalFiles + 3; ++i) {
+        std::ofstream(folder / JournalFileName(1, 1'700'000'000'000ull + i)) << "{}\n";
+    }
+    std::ofstream(folder / L"notes.txt") << "kept";
+    {
+        Journal journal;
+        assert(journal.Open(folder, "0.32.0", 7, 1'800'000'000'000ull, 1'800'000'000'500ull).empty());
+        assert(journal.IsOpen() && journal.Lines() == 0 && !journal.Truncated());
+        e.request = "state";
+        e.reply = "{\"ok\":true,\"command\":\"state\",\"in_game\":false}";
+        journal.Record(e);
+        journal.Record(e);
+        assert(journal.Lines() == 2);
+        Handlers h;
+        assert(Contains(HandleRequest("journal", h), "{\"ok\":true,\"command\":\"journal\",\"enabled\":false}"));
+        h.journal = &journal;
+        const std::string out = HandleRequest("journal", h);
+        assert(Contains(out, "\"enabled\":true,\"path\":\"") && Contains(out, "journal-1800000000000-7.jsonl") &&
+               Contains(out, "\"lines\":2,\"truncated\":false}"));
+        assert(Contains(HandleRequest("help", h), "\"journal\""));
+    }
+    int journals = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(folder)) {
+        if (entry.path().extension() == L".jsonl") ++journals;
+    }
+    assert(journals == kJournalFiles && std::filesystem::exists(folder / L"notes.txt") &&
+           std::filesystem::exists(folder / JournalFileName(7, 1'800'000'000'000ull)) &&
+           !std::filesystem::exists(folder / JournalFileName(1, 1'700'000'000'000ull)));
+    std::ifstream in(folder / JournalFileName(7, 1'800'000'000'000ull));
+    std::string header, first, second, extra;
+    std::getline(in, header);
+    std::getline(in, first);
+    std::getline(in, second);
+    assert(header == "{\"journal\":1,\"tongs\":\"0.32.0\",\"pid\":7,\"process_start_ms\":1800000000000,\"opened\":1800000000500}");
+    assert(first.starts_with("{\"seq\":1,") && second.starts_with("{\"seq\":2,") && !std::getline(in, extra));
+    in.close();
+    std::filesystem::remove_all(folder, ec);
+}
+
 int main(int argc, char** argv) {
     // A process of its own: a fault trips game calls for the rest of the process.
     if (argc > 1 && std::string_view(argv[1]) == "save-load-fault") {
@@ -4948,6 +5029,7 @@ int main(int argc, char** argv) {
     TestWaitUntil();
     TestRunUntil();
     TestConfig();
+    TestJournal();
     TestProtocol();
     TestKeys();
     TestInputDisabled();

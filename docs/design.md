@@ -3129,6 +3129,45 @@ on the input branch), the Ottoman campaign at 1445.1.1, 3440x1440.
 - **Pointer.** After a mouse command `pointer` was `tongs` at its point; after
   `release` it was `mouse`, at the real cursor's place.
 - **Minimized.** `cursor` answered `inside: false` with nothing picked.
+## Journal (0.32.0)
+
+The pipe server writes each request and its answer's outcome to the journal
+(`src/journal.cpp`) right after the answer is built, on the client's own
+thread, under one lock: lines from different clients come in the order their
+answers were sent, and `seq` numbers them. A line has what a test needs to be
+followed and repeated (the request as sent, when it came, how long it took,
+`ok` / `error`, and the `date` and `session` of the answer), not the whole
+answer: `ui tree` and `subscribe` answers can be large, and the file is for
+reading next to the game's own logs.
+
+- **Where.** `anvil/data/tongs/journal/`, a file per game process, named by the
+  process's start time and PID like the `pid` / `process_start_ms` pair the
+  answers carry, so a client finds the file of the game it talked to. The
+  newest 20 files are kept; a file stops at 64 MB.
+- **Outside the game.** Nothing is written into the game's memory, its user
+  folder or its saves, and nothing goes through the game's code: the journal
+  cannot change a save or what multiplayer compares (out-of-sync checks),
+  and it runs the same in ironman and multiplayer, where Anvil suspends the
+  rest of Tongs.
+- **Off.** `journal = false`, or the pipe off (`enabled = false`: no
+  requests, no file).
+- **`kind`** comes from the command word, before the command runs, so a
+  refused input is still an `input`: a replay can send it again and expect
+  the same refusal.
+
+### Live check (2026-11-11)
+
+Steam 1.37.5, Anvil 1.19.0, this branch with the input and `cursor` branches
+of the same release merged for the test, one start of about 12 minutes. The
+Anvil log named the file
+(`anvil/data/tongs/journal/journal-1794374692680-29856.jsonl`, the start time
+and PID that `ping` answered). It held the header and 2085 lines with `seq`
+1 to 2085 without gaps, from seven pipe instances: 1610 `read`, 462 `input`,
+12 `client_call`, 1 `game_call` (`console echo hi`), most of the reads being
+the ready waits' `state` polls. Refusals had `ok: false` and the error (a
+`screenshot` and `key` with the window minimized, a `wait_until` timeout),
+answers in the menu `date: null` and `session: null`, answers in the game
+the date and session 1. The second start wrote a file of its own.
 
 ## Releases
 

@@ -29,6 +29,7 @@ connection can instead carry notifications (see [Notifications](#notifications))
 | `wait_until DATE [timeout=S] [max_pause=S]` | waits (without touching the game) until the date reaches `DATE` (`1720.1.1` or `1720.1.1.12`); answers with the timing below |
 | `cancel` | ends every `wait_until` / `run_until` in progress and withdraws main-thread jobs still waiting for a frame (`withdrawn`) |
 | `subscribe KINDS [date=day\|month\|year]` | turns the connection into a stream of notifications (see [Notifications](#notifications)); `unsubscribe` ends it |
+| `journal` | the command journal of this game start: `enabled`, its `path`, `lines` and `truncated` (see [Journal](#journal)) |
 | `help` | list of commands, whether input commands are enabled and whether Anvil suspended Tongs (`suspended`, see [Safety](../README.md#safety)) |
 
 With `input = true` in the settings, also:
@@ -624,6 +625,46 @@ is `all` or a list such as `state,date,event`:
   `{"notification":"overflow","dropped":N}` comes before the next one.
 - A subscription holds one of the 8 pipe instances, so use a connection of its
   own for it.
+
+## Journal
+
+With `journal = true` (the default) Tongs writes every request any client
+sends on the pipe to a journal, so the course of a test can be read and
+repeated afterwards. It is a file of its own for each game start,
+`anvil/data/tongs/journal/journal-<process_start_ms>-<pid>.jsonl`, and the
+newest 20 are kept. It lives only in that file: nothing of it is in the
+game's memory, its saves or what multiplayer compares, and it records the
+same whether the commands are reads or inputs.
+
+The first line names the file's process:
+`{"journal":1,"tongs":"0.32.0","pid":21384,"process_start_ms":1792418572041,"opened":1792418573311}`.
+Then one line per request, in the order the answers were sent:
+
+| Field | What it is |
+| --- | --- |
+| `seq` | from 1, without gaps |
+| `t` | when the request came, Unix ms |
+| `client` | the pipe instance that sent it (connections keep theirs while they last) |
+| `kind` | `read`, `input` (the input commands, `ui click`, `event choose`, `unit`), `client_call` (`province open`, `province goto`, `map_mode`), `game_call` (`console`, `save load`) or `stream` (`subscribe`, `unsubscribe`) |
+| `request` | the line as sent |
+| `ms` | from the request to its answer |
+| `ok`, `error` | the answer's; `error` is `null` when it was `ok` |
+| `date`, `session` | the game date and session the answer carries, or `null` |
+
+`kind` is taken from the command word, before the command runs: a refused
+input is an `input` with `ok: false`. Notifications are not written; their
+`subscribe` is. Each line is flushed as it is written, so a game that crashes
+keeps what came before. A file stops at 64 MB with
+`{"truncated":true,"seq":N}`. `journal` answers where the file is:
+
+```powershell
+.\scripts\tongs.ps1 journal
+# {"ok":true,"command":"journal","enabled":true,"path":"C:\\...\\anvil\\data\\tongs\\journal\\journal-1792418572041-21384.jsonl","lines":12,"truncated":false}
+```
+
+To repeat a test, send the `request` of its `input`, `client_call` and
+`game_call` lines in order, after the same save and the ready wait, and
+compare the `date` of each answer.
 
 ## Loading a save
 

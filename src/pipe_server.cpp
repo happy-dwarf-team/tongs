@@ -1,5 +1,7 @@
 #include "pipe_server.hpp"
 
+#include "journal.hpp"
+
 #include <anvil/anvil_plugin.h>
 
 #include <windows.h>
@@ -50,6 +52,13 @@ HANDLE CreatePipeInstance(Server& server, bool first) {
                             kMaxClients, kBufferSize, kBufferSize, 0, &server.security);
 }
 
+std::uint64_t UnixMs() {
+    FILETIME ft{};
+    GetSystemTimeAsFileTime(&ft);
+    const std::uint64_t ticks = (static_cast<std::uint64_t>(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+    return ticks / 10000 - 11644473600000ull;  // 100 ns since 1601 -> ms since 1970
+}
+
 bool WriteAll(HANDLE pipe, const std::string& text) {
     DWORD written = 0;
     return WriteFile(pipe, text.data(), static_cast<DWORD>(text.size()), &written, nullptr) &&
@@ -75,12 +84,17 @@ void ServeClient(Server& server, HANDLE pipe, int number) {
         for (std::size_t eol; (eol = pending.find('\n')) != std::string::npos;) {
             const std::string_view line = std::string_view(pending).substr(0, eol);
             std::string reply;
+            const std::uint64_t asked_unix_ms = UnixMs();
+            const ULONGLONG asked = GetTickCount64();
             if (subscription) {
                 reply = SubscribedRequest(line, server.handlers, subscription);
             } else if (IsSubscribe(line)) {
                 reply = Subscribe(line, server.handlers, subscription);
             } else {
                 reply = HandleRequest(line, server.handlers, number);
+            }
+            if (server.handlers.journal != nullptr) {
+                server.handlers.journal->Record({asked_unix_ms, number, line, reply, GetTickCount64() - asked});
             }
             pending.erase(0, eol + 1);
             if (!WriteAll(pipe, reply + "\n")) return end();
