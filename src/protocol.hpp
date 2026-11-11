@@ -117,6 +117,8 @@ struct ServiceChoice {
     std::uint32_t posted = 0, skipped = 0, refused = 0;
 };
 
+class Journal;
+
 struct Handlers {
     std::function<StateSnapshot()> read_state;
     std::function<WindowSnapshot()> read_window;
@@ -231,6 +233,9 @@ struct Handlers {
     // The Anvil log (level as AnvilLogLevel: 1 info, 2 warning, 3 error); optional.
     std::function<void(int level, const std::string& message)> log;
     std::uint32_t process_id = 0;
+    // The command journal (journal.hpp), or null with `journal = false`; the pipe server
+    // records every request in it, and `journal` reports it.
+    Journal* journal = nullptr;
     std::uint64_t process_start_ms = 0;  // creation time of the game process (Unix ms); 0 when unknown
     // How long pause/resume/speed wait for the game to react. Right after a save
     // loads, the main loop handled a key press only 2-7 s later.

@@ -1,5 +1,7 @@
 #include "protocol.hpp"
 
+#include "journal.hpp"
+
 #include "map_modes.hpp"
 
 #include "game_date.hpp"
@@ -2617,12 +2619,20 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
         return "{\"ok\":true," + WindowFields(handlers.read_window()) + "}";
     }
     if (command == "help" && argument.empty()) {
-        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"frames\",\"ui\",\"event\",\"province\",\"country\",\"player\",\"selection\",\"units\",\"cursor\",\"help\",") +
+        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"frames\",\"ui\",\"event\",\"province\",\"country\",\"player\",\"selection\",\"units\",\"cursor\",\"journal\",\"help\",") +
                "\"wait_until\",\"cancel\",\"key\",\"text\",\"move\",\"click\",\"scroll\",\"release\",\"pause\",\"resume\",\"speed\"," +
                "\"run_until\",\"unit\",\"console\",\"save\",\"map_mode\",\"subscribe\",\"unsubscribe\"],\"input\":" + Bool(InputReady(handlers)) + ",\"main_thread\":" +
                Bool(handlers.dispatcher != nullptr) + ",\"game_calls\":" + Bool(handlers.game_calls.enabled) +
                ",\"game_calls_tripped\":" + Bool(g_game_calls_tripped.load()) +
                ",\"suspended\":" + Bool(Suspended(handlers)) + "}";
+    }
+    if (command == "journal" && argument.empty()) {
+        if (handlers.journal == nullptr || !handlers.journal->IsOpen()) {
+            return "{\"ok\":true,\"command\":\"journal\",\"enabled\":false}";
+        }
+        return "{\"ok\":true,\"command\":\"journal\",\"enabled\":true,\"path\":\"" +
+               JsonEscape(handlers.journal->Path()) + "\",\"lines\":" + std::to_string(handlers.journal->Lines()) +
+               ",\"truncated\":" + Bool(handlers.journal->Truncated()) + "}";
     }
     if (command == "cancel" && argument.empty()) {
         g_cancel_generation.fetch_add(1);
