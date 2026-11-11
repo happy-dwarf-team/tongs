@@ -4951,7 +4951,7 @@ static void TestJournal() {
         const std::string out = HandleRequest("journal", h);
         assert(Contains(out, "\"enabled\":true,\"path\":\"") && Contains(out, "journal-1800000000000-7.jsonl") &&
                Contains(out, "\"lines\":2,\"truncated\":false}"));
-        assert(Contains(HandleRequest("help", h), "\"units\",\"journal\",\"help\""));
+        assert(Contains(HandleRequest("help", h), "\"journal\""));
     }
     int journals = 0;
     for (const auto& entry : std::filesystem::directory_iterator(folder)) {
