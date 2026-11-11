@@ -153,9 +153,9 @@ player (see [design.md](design.md#key-chords)):
   part;
 - the game has no other selection: `shift+left`, `shift+right` and `ctrl+a`
   do nothing in its fields;
-- `ctrl+c`, `ctrl+x` and `ctrl+v` (and `shift+delete`, `shift+insert`... the
-  game's own copy, cut and paste) use the Windows clipboard, which is the
-  player's.
+- `ctrl+c`, `ctrl+x` and `ctrl+v` are the game's copy, cut and paste (read
+  from its code, not tried: they use the Windows clipboard, which is the
+  player's).
 
 ## Sessions and the ready wait
 
