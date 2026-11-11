@@ -463,10 +463,10 @@ Not blocking any release:
 - World reads offered to other plugins as an in-process service, like
   `tongs.ui`: no consumer yet, and it needs its own ADR.
 - Several scenarios sharing one game launch by loading saves by name: v1 keeps
-  one launch per scenario. (Tongs 0.33 has what a runner needs for it: `save
+  one launch per scenario. (Tongs 0.32 has what a runner needs for it: `save
   load` from the main menu and in a game; docs/commands.md, "Loading a save".)
 - Loading a save from the main menu without a restart: v1 starts from a save
-  with `continue=`. (Done in Tongs 0.33: `save load` in the main menu.)
+  with `continue=`. (Done in Tongs 0.32: `save load` in the main menu.)
 - Saves in subfolders of `save games` and Steam cloud saves: v1 takes
   top-level local names.
 - Other views by ID (country view, outliner, ledger): no consumer in v1, and

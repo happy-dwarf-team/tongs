@@ -2895,7 +2895,7 @@ game wrote beside it.
 | `timeout=1` on an 8 s load | `timeout` with `started: true` after 1 s; `ready(session=6)` then found the loaded save |
 | counts and `session` | `game_calls_total` 1 and `client_calls_total` 0 after each load, `session` +1 per load (2 … 6); `entered_game` with `loaded_by: "tongs"` and the new `session`, an `activity` with `what: "game_call"`; the player's load through the UI (0.19's check, `t111-live1`) leaves `game_calls_total` 0 |
 
-## Loading from the main menu (0.33.0)
+## Loading from the main menu (0.32.0)
 
 `save load` in the main menu uses the menu's own Continue, the path a start
 with `continue=` takes. Read from the code (Ghidra with the names of the GOG
