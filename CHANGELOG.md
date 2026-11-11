@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.32.0](https://github.com/happy-dwarf-team/tongs/compare/v0.31.0...v0.32.0) (2026-11-11)
+
+
+### Features
+
+* **cursor:** cursor tells the widget, province and unit under the game's pointer ([#184](https://github.com/happy-dwarf-team/tongs/issues/184)) ([f4bb4a3](https://github.com/happy-dwarf-team/tongs/commit/f4bb4a39e5746c63bb1beed1388ad0d78ebc0085))
+* **input:** key chords with Shift, Ctrl and Alt (key shift+left, key ctrl+a) ([#183](https://github.com/happy-dwarf-team/tongs/issues/183)) ([3259790](https://github.com/happy-dwarf-team/tongs/commit/32597901b56d03f2274fcfb9b84d2dd030317c94))
+* **pipe:** journal every pipe command in anvil/data/tongs/journal ([#185](https://github.com/happy-dwarf-team/tongs/issues/185)) ([bd74597](https://github.com/happy-dwarf-team/tongs/commit/bd74597cf7ddb8910bcfa032061bad31433b9bef))
+* **pipe:** save load from the main menu, through the menu's own Continue ([#187](https://github.com/happy-dwarf-team/tongs/issues/187)) ([1106120](https://github.com/happy-dwarf-team/tongs/commit/1106120c02d40c7895659b9c744fb9ab6797c6a6))
+
 ## [0.31.0](https://github.com/happy-dwarf-team/tongs/compare/v0.30.0...v0.31.0) (2026-11-10)
 
 ### Features
