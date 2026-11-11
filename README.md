@@ -58,7 +58,7 @@ command, its answer and its options are in
 
 | What | Commands | Needs |
 | --- | --- | --- |
-| Game state | `ping`, `state`, `window`, `threads`, `frames`, `screenshot`, `help` | `enabled` |
+| Game state | `ping`, `state`, `window`, `threads`, `frames`, `screenshot`, `journal`, `help` | `enabled` |
 | Interface and events | `ui find`, `ui tree`, `event list` | `enabled` |
 | World reads | `province`, `country`, `player`, `selection`, `units`, `cursor` | `enabled` |
 | Waiting and notifications | `wait_until`, `cancel`, `subscribe`, `unsubscribe` | `enabled` |
@@ -175,7 +175,9 @@ discover a capital is refused. Header:
   reads go on. The player can allow Tongs there in `anvil/anvil.toml`
   (`allow_ironman = ["tongs"]`, `allow_multiplayer = ["tongs"]`); game calls
   then still need Tongs' own `game_calls_ironman` / `game_calls_multiplayer`.
-- Screenshots are written only to the plugin's data folder.
+- Screenshots and the command journal are written only to the plugin's data folder
+  (`anvil/data/tongs/screenshots/`, `anvil/data/tongs/journal/`), never into the
+  game, its saves or what multiplayer compares.
 - Notifications only read: the state, the event list (on the main thread,
   like `event list`) and the game's `error.log`, which is opened for each
   read with every sharing mode, so the game can still write, move or delete
@@ -205,7 +207,7 @@ Turn it on on the Manager's **Settings** tab or in
 ## Settings
 
 `plugin/settings.toml` (in the plugin folder) declares the switches and their
-defaults, all off. Your values go into `anvil/data/tongs/settings.toml`, one
+defaults, all off but the journal. Your values go into `anvil/data/tongs/settings.toml`, one
 `name = value` per line, only those that differ from the default:
 
 ```toml
@@ -215,6 +217,7 @@ game_calls = true   # console commands (they change game state)
 console_allow = "leak"          # danger commands game calls may run, separated by commas
 game_calls_ironman = false      # game calls in ironman (Anvil must also allow Tongs there)
 game_calls_multiplayer = false  # game calls in multiplayer (likewise)
+journal = true      # the command journal in anvil/data/tongs/journal/ (on by default)
 ```
 
 Tongs reads them when the game starts. `ANVIL_TONGS_<NAME>` environment

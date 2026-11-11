@@ -476,6 +476,14 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         return await call("threads")
 
     @tool(READ)
+    async def tongs_journal() -> CallToolResult:
+        """The command journal of this game start: enabled, path (a JSON Lines file under
+        anvil/data/tongs/journal/ with every command any client sent on the pipe: seq, t, client, kind
+        read|input|client_call|game_call|stream, request, ms, ok, error, date, session), lines and
+        truncated. Read it to follow or repeat a test; it never enters the game or its saves."""
+        return await call("journal")
+
+    @tool(READ)
     async def tongs_frames(timeout: Timeout = None) -> CallToolResult:
         """Frame statistics read on the game's main thread after a main-loop frame: frames per second,
         counts and the longest gap since the previous call, and the state on that frame (with its

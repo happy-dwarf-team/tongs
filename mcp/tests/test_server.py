@@ -66,7 +66,7 @@ async def call(pipe: FakePipe, tool: str, args: dict | None = None, **kwargs):
 
 
 ALL_TOOLS = {
-    "tongs_state", "tongs_ready", "tongs_window", "tongs_threads", "tongs_frames", "tongs_screenshot",
+    "tongs_state", "tongs_ready", "tongs_window", "tongs_threads", "tongs_journal", "tongs_frames", "tongs_screenshot",
     "tongs_wait_until", "tongs_run_until", "tongs_cancel",
     "tongs_pause", "tongs_resume", "tongs_speed", "tongs_key", "tongs_text",
     "tongs_move", "tongs_click_point", "tongs_scroll", "tongs_release",
@@ -88,6 +88,7 @@ LINES = [
     ("tongs_state", {}, "state"),
     ("tongs_window", {}, "window"),
     ("tongs_threads", {}, "threads"),
+    ("tongs_journal", {}, "journal"),
     ("tongs_frames", {}, "frames"),
     ("tongs_frames", {"timeout": 30}, "frames timeout=30"),
     ("tongs_screenshot", {}, "screenshot"),
@@ -189,7 +190,7 @@ DESTRUCTIVE_TOOLS = {
     "tongs_unit_drill", "tongs_unit_split", "tongs_unit_merge",
 }  # fmt: skip
 READ_ONLY_TOOLS = {
-    "tongs_state", "tongs_window", "tongs_threads", "tongs_frames",
+    "tongs_state", "tongs_window", "tongs_threads", "tongs_journal", "tongs_frames",
     "tongs_ui_find", "tongs_ui_tree", "tongs_event_list",
     "tongs_province", "tongs_country", "tongs_player", "tongs_selection", "tongs_units", "tongs_cursor",
 }  # fmt: skip

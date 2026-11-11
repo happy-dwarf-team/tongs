@@ -94,6 +94,7 @@ npx @modelcontextprotocol/inspector uv run --frozen --directory C:\path\to\tongs
 | Tool | Command | Notes |
 | --- | --- | --- |
 | `tongs_state`, `tongs_window`, `tongs_threads` | `state`, `window`, `threads` | read only |
+| `tongs_journal` | `journal` | the command journal's file and line count; read only |
 | `tongs_ready` | `state`, `frames`, then `speed N` with `speed` | waits until the game is ready after a start or a load, without a fixed sleep; input only with `speed` |
 | `tongs_frames` | `frames [timeout=S]` | read on the main thread |
 | `tongs_screenshot` | `screenshot [NAME]` | answers with `path`; `image=true` attaches the PNG when small enough |
