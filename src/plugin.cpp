@@ -1,5 +1,6 @@
 // Tongs — Anvil plugin entry point (plugin API 2).
 #include "game_commands.hpp"
+#include "world_flags.hpp"
 #include "journal.hpp"
 #include "game_console.hpp"
 #include "game_map.hpp"
@@ -229,11 +230,16 @@ struct Tongs : anvil::Plugin {
             }
             // World reads (docs/design.md, "World reads (0.20.0)"): reads like ui, whatever the settings.
             const tongs::WorldLayout world = tongs::WorldLayout::Load();
-            handlers.read_province = [image_base, world](std::int32_t id, tongs::ProvinceRaw& out) {
-                return tongs::ReadProvince(image_base, world, id, out);
+            // Their flags and variables come from anvil-game.world (Anvil 1.20; "Flags and variables").
+            handlers.read_province = [image_base, world, world_service](std::int32_t id, tongs::ProvinceRaw& out) {
+                tongs::WorldFailure f = tongs::ReadProvince(image_base, world, id, out);
+                if (!f.failed()) tongs::ReadProvinceExtras(world_service, out.id, out.extras);
+                return f;
             };
-            handlers.read_country = [image_base, world](std::string_view tag, tongs::CountryRaw& out) {
-                return tongs::ReadCountry(image_base, world, tag, out);
+            handlers.read_country = [image_base, world, world_service](std::string_view tag, tongs::CountryRaw& out) {
+                tongs::WorldFailure f = tongs::ReadCountry(image_base, world, tag, out);
+                if (!f.failed()) tongs::ReadCountryExtras(world_service, out.tag, out.extras);
+                return f;
             };
             handlers.read_player = [image_base, world](tongs::PlayerRaw& out) {
                 return tongs::ReadPlayer(image_base, world, out);

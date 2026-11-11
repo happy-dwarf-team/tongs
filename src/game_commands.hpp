@@ -69,8 +69,24 @@ struct GameUnit {  // AnvilGameUnit
     std::uint64_t leader;
 };
 
-// AnvilGameWorldService up to selected_units (anvil-game 1.15); the members Tongs
-// does not call are kept as plain pointers so the offsets match.
+struct WorldDate {  // AnvilGameDate
+    std::uint32_t size;
+    std::int32_t year;
+    std::uint32_t month;
+    std::uint32_t day;
+    std::uint64_t session;
+};
+
+struct GameFlag {  // AnvilGameFlag (anvil-game 1.20)
+    std::int32_t id;
+    std::uint32_t reserved;
+    WorldDate date;
+};
+static_assert(sizeof(GameFlag) == 32);
+
+// AnvilGameWorldService up to province_variable_names (anvil-game 1.20); the
+// members Tongs does not call are kept as plain pointers so the offsets match.
+// Older tables are shorter: HasUnits and HasFlags / HasVariables check `size`.
 struct GameWorldService {
     std::uint32_t size;
     int (*player)(GameTag* out);
@@ -92,6 +108,20 @@ struct GameWorldService {
     int (*unit_name)(const char* tag, std::uint64_t id, char* utf8, std::uint32_t capacity, std::uint32_t* length);
     void* unit_leader_name;
     int (*selected_units)(GameUnitRef* out, std::uint32_t capacity, std::uint32_t* count);
+    // anvil-game 1.20
+    void* monarch;
+    void* monarch_name;
+    void* monarch_dynasty;
+    void* flag_id;
+    int (*flag_name)(std::int32_t id, char* utf8, std::uint32_t capacity, std::uint32_t* length);
+    int (*country_flags)(const char* tag, GameFlag* out, std::uint32_t capacity, std::uint32_t* count);
+    int (*province_flags)(std::int32_t province, GameFlag* out, std::uint32_t capacity, std::uint32_t* count);
+    void* monarch_flags;
+    void* global_flags;
+    int (*country_variable)(const char* tag, const char* name, std::int32_t* value);
+    int (*province_variable)(std::int32_t province, const char* name, std::int32_t* value);
+    int (*country_variable_names)(const char* tag, char* names, std::uint32_t capacity, std::uint32_t* length);
+    int (*province_variable_names)(std::int32_t province, char* names, std::uint32_t capacity, std::uint32_t* length);
 };
 
 constexpr const char* kGameWorldService = "anvil-game.world";

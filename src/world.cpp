@@ -119,6 +119,39 @@ std::string Thousandths(std::int64_t raw) {
     return out;
 }
 
+std::string ExtrasMembers(const ScopeExtras& e) {
+    std::string out = ",\"flags\":";
+    if (e.flags_read) {
+        out += "[";
+        for (std::size_t i = 0; i < e.flags.size(); ++i) {
+            const FlagRaw& f = e.flags[i];
+            out += std::string(i ? "," : "") + "{\"name\":" + Quote(f.name) + ",\"date\":\"" + std::to_string(f.year) +
+                   "." + std::to_string(f.month) + "." + std::to_string(f.day) + "\"}";
+        }
+        out += "]";
+    } else {
+        out += "null";
+    }
+    out += ",\"variables\":";
+    if (e.variables_read) {
+        out += "[";
+        for (std::size_t i = 0; i < e.variables.size(); ++i) {
+            out += std::string(i ? "," : "") + "{\"name\":" + Quote(e.variables[i].name) +
+                   ",\"value\":" + Thousandths(e.variables[i].value) + "}";
+        }
+        out += "]";
+    } else {
+        out += "null";
+    }
+    if (!e.flags_read || !e.variables_read) {
+        out += ",\"missing\":{";
+        if (!e.flags_read) out += "\"flags\":" + Quote(e.flags_missing);
+        if (!e.variables_read) out += std::string(e.flags_read ? "" : ",") + "\"variables\":" + Quote(e.variables_missing);
+        out += "}";
+    }
+    return out;
+}
+
 std::string ProvinceMembers(const ProvinceRaw& p) {
     std::string out = ",\"id\":" + std::to_string(p.id) + ",\"name\":" + Quote(p.name);
     out += ",\"owner\":" + TagOrNull(p.owner) + ",\"controller\":" + TagOrNull(p.controller) + ",\"cores\":[";
@@ -127,7 +160,7 @@ std::string ProvinceMembers(const ProvinceRaw& p) {
            ",\"base_manpower\":" + Thousandths(p.base_manpower);
     out += ",\"development\":" +
            Thousandths(static_cast<std::int64_t>(p.base_tax) + p.base_production + p.base_manpower);
-    return out + ",\"land\":" + Bool(p.land) + ",\"wasteland\":" + Bool(p.wasteland);
+    return out + ",\"land\":" + Bool(p.land) + ",\"wasteland\":" + Bool(p.wasteland) + ExtrasMembers(p.extras);
 }
 
 std::string CountryMembers(const CountryRaw& c) {
@@ -135,7 +168,7 @@ std::string CountryMembers(const CountryRaw& c) {
     out += ",\"province_count\":" + std::to_string(c.province_count) + ",\"provinces\":[";
     for (std::size_t i = 0; i < c.provinces.size(); ++i) out += (i ? "," : "") + std::to_string(c.provinces[i]);
     out += "],\"capital\":" + (c.capital_valid ? std::to_string(c.capital) : std::string("null"));
-    return out + ",\"observer\":" + Bool(c.observer);
+    return out + ",\"observer\":" + Bool(c.observer) + ExtrasMembers(c.extras);
 }
 
 std::string PlayerMembers(const PlayerRaw& p) {

@@ -20,8 +20,8 @@ connection can instead carry notifications (see [Notifications](#notifications))
 | `ui find SEL [all] [stale] [limit=N]` | widgets that match the selector `SEL` (see [Widgets](#widgets)): `count`, `truncated` and up to 50 `matches` (`limit=` up to 5000), each with `path`, `type`, `visible`, `rect` and `click_point` in client pixels, and `text` / `enabled` / `stale` where they apply; `ui_scale` is the game's GUI scale (`game_ui_scale`) the rects were converted by. Read on the main thread, like `frames` |
 | `ui tree [SEL] [depth=N] [limit=N] [all]` | the widget tree from the top-level windows, or from the matches of `SEL`, as nested `widgets` (up to 200, `limit=` up to 5000); `depth=N` gives deeper levels only as `children_count` |
 | `event list [timeout=S]` | the open events, topmost first (see [Events](#events)), read on the main thread |
-| `province ID [timeout=S]` | one province by ID: name, owner, controller, cores, development, land and wasteland (see [World reads](#world-reads)) |
-| `country TAG [timeout=S]` | one country by tag: whether it exists, its provinces and its capital |
+| `province ID [timeout=S]` | one province by ID: name, owner, controller, cores, development, land and wasteland, its flags and variables (see [World reads](#world-reads)) |
+| `country TAG [timeout=S]` | one country by tag: whether it exists, its provinces, its capital, its flags and variables |
 | `player [timeout=S]` | the player's country |
 | `selection [timeout=S]` | the last selected province and whether a province view shows one |
 | `units [TAG] [timeout=S]` | a country's armies and navies (the player's without `TAG`), through Anvil's `anvil-game.world` (see [Units](#units)) |
@@ -219,8 +219,8 @@ included, carries the fields of `state` read on the same frame, and
 
 | Command | Answer |
 | --- | --- |
-| `province ID` | `id`, `name`, `owner`, `controller` (a tag, or `null` for none), `cores` (tags), `base_tax`, `base_production`, `base_manpower` and `development` (their sum), `land`, `wasteland` |
-| `country TAG` | `tag`, `exists` (it owns a province), `province_count`, `provinces` (their IDs, in the game's order), `capital` (an ID, or `null` when none), `observer` |
+| `province ID` | `id`, `name`, `owner`, `controller` (a tag, or `null` for none), `cores` (tags), `base_tax`, `base_production`, `base_manpower` and `development` (their sum), `land`, `wasteland`, `flags`, `variables` (see below) |
+| `country TAG` | `tag`, `exists` (it owns a province), `province_count`, `provinces` (their IDs, in the game's order), `capital` (an ID, or `null` when none), `observer`, `flags`, `variables` |
 | `player` | `tag` (the country the game treats as the player's), `player_tag` and `observed_tag` (as the game stores them; `observed_tag` is `null` when none), `observer` |
 | `selection` | `last_selected` (a province ID, or `null`) and `view`: `province` (the one the province view shows, or `null`), `visible`, `path` (the widget path of the window that shows it while it is visible, else `null`: `provinceview`, or `colonisationpanel` for a province without an owner) |
 
@@ -246,6 +246,20 @@ included, carries the fields of `state` read on the same frame, and
   when the player is the observer and an observed tag is set, else
   `player_tag`. In the game only `observe` (the spectator `O00`) was seen;
   the observed-tag path was never seen written.
+- **Flags and variables.** `flags` lists the
+  flags set now, in the game's order, each with its `name` (as the game's
+  files and effects write it) and the `date` it was set (`"1719.3.17"`); for a
+  province they are what `has_province_flag` sees, its own flags and its
+  permanent ones. `variables` lists each variable with its `name` and its
+  `value` (a number, as the game's triggers compare it: `1.25`). Both come
+  from Anvil's `anvil-game.world` (Anvil 1.20 or newer), not from addresses of
+  Tongs, and are as cheap as the rest of the read. When a list cannot be read
+  it is `null`, never an empty list, and `missing` says why for each one:
+  `{"flags":"anvil-game.world has no flags: they need Anvil 1.20 or newer"}`
+  with an older Anvil, `this game build has no flag symbols (...)` on a build
+  whose port declared them absent, or the call's result code when a read
+  failed. The rest of the answer is not affected; `missing` is left out when
+  both lists were read.
 - **Errors** (`error`, with a `detail` for people): `bad_command` (a bad
   option, or a word after `province` other than `open` and `goto`),
   `unknown_province`, `unknown_country`, `not_in_game`, `main thread busy`
@@ -257,9 +271,11 @@ included, carries the fields of `state` read on the same frame, and
 ```powershell
 .\scripts\tongs.ps1 'province 1754'
 # {"ok":true,"command":"province","id":1754,"name":"Murom","owner":"RUS","controller":"RUS","cores":["RUS"],
-#  "base_tax":4,"base_production":7,"base_manpower":4,"development":15,"land":true,"wasteland":false,"in_game":true,...}
+#  "base_tax":4,"base_production":7,"base_manpower":4,"development":15,"land":true,"wasteland":false,
+#  "flags":[],"variables":[],"in_game":true,...}
 .\scripts\tongs.ps1 'country SWE'
-# {"ok":true,"command":"country","tag":"SWE","exists":false,"province_count":0,"provinces":[],"capital":1,"observer":false,...}
+# {"ok":true,"command":"country","tag":"SWE","exists":false,"province_count":0,"provinces":[],"capital":1,"observer":false,
+#  "flags":[],"variables":[],...}
 ```
 
 ## Units
