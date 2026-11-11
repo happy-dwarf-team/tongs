@@ -1910,6 +1910,7 @@ std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
                 return std::string();
             }
             refusal = h.read_navigation(request.id, facts);
+            facts.minimized = h.read_window && h.read_window().minimized;
             if (!refusal.failed()) refusal = NavigationRefusal(open, facts);
             if (!refusal.failed() && open && facts.discover) {
                 // Opening this view posts a command: a game call (ADR 0003, promotion).

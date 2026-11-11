@@ -4119,6 +4119,11 @@ static void TestNavigationRules() {
     f.selection_blocked = false;
     f.camera_locked = true;  // goto refuses; open still opens
     assert(NavigationRefusal(false, f).error == "camera_locked" && !NavigationRefusal(true, f).failed());
+    assert(NavigationRefusal(false, f).detail.starts_with("the camera is locked"));
+    f.minimized = true;  // the game locks the camera while its window is minimized
+    assert(NavigationRefusal(false, f).error == "camera_locked" &&
+           NavigationRefusal(false, f).detail.starts_with("the game window is minimized"));
+    f.minimized = false;
 
     CameraRaw c;
     c.x = 1000.4f;

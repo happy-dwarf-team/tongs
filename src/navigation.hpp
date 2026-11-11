@@ -19,6 +19,7 @@ struct NavigationFacts {
     bool terra_incognita = false;    // the province links' test fails: the game would do nothing
     bool selection_blocked = false;  // session mode 0x25 or the tutorial guard: selecting does nothing
     bool camera_locked = false;      // debug_lockcamera
+    bool minimized = false;          // the game window is minimized: the game keeps the camera locked then
     bool discover = false;           // opening the view would post the discover-capital command
     // For the call: the province, the session and its selection object.
     std::uintptr_t province = 0;

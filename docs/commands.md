@@ -356,7 +356,7 @@ multiplayer they follow input: Anvil's allow lists apply.
   | `not_selectable` | `open` | a sea, a lake or a wasteland |
   | `terra_incognita` | `open` | the player has not discovered it (an observer passes) |
   | `selection_blocked` | `open` | the game selects nothing now (a province-picking mode, the tutorial) |
-  | `camera_locked` | `goto` | the camera is locked: `debug_lockcamera`, or a window that holds it (the in-game menu does) |
+  | `camera_locked` | `goto` | the camera is locked: `debug_lockcamera`, a window that holds it (the in-game menu does), or the game window is minimized (the game holds the camera until it is restored; the detail says so) |
   | `needs_game_calls` | `open` | the discover case above without `game_calls = true` |
 
   For a province without an owner the game shows its colonisation panel

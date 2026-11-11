@@ -20,6 +20,10 @@ std::string Number(float value) {
 WorldFailure NavigationRefusal(bool open, const NavigationFacts& f) {
     const std::string province = "province " + std::to_string(f.id);
     if (!open) {
+        if (f.camera_locked && f.minimized) {
+            return {"camera_locked",
+                    "the game window is minimized: the game holds the camera until it is restored (province open still works)"};
+        }
         if (f.camera_locked) {
             return {"camera_locked", "the camera is locked (debug_lockcamera, or a window that holds it such as the in-game menu)"};
         }
