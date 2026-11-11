@@ -2926,6 +2926,16 @@ with `continue=` takes. Read from the code (Ghidra with the names of the GOG
   session past the one before, in game and not loading, and checks the date
   and player as for a load in game.
 
+Checked in the game (Steam 1.37.5, `9AD3EFE1…771A`, Anvil 1.19.0, 11.11.2026),
+each time from a fresh start without `continue=`:
+
+| Case | Result |
+| --- | --- |
+| `save load autosave` in the main menu, whose Continue named the 1719 save | `ok` with `via: "menu"`, `session` 1, `save_date` 1445.1.1, `player` TUR, `load_ms` 4204, paused at the save's speed 5; `ready(session=1)` at once; `continue_game.json` unchanged |
+| then `save load mp_Russia1719_03_17` in that game | the in-game path as before (no `via`), `session` 2, RUS 1719.3.17; the journal shows both loads as `game_call` |
+| `save load` with the single-player lobby open | `not_taken`, `called: true`, nothing loaded, still in the lobby |
+| "Back" from the lobby, and "Exit to Menu" → "Quit" in a game | the game restarts itself in a new process (without Tongs too; only a menu-patch plugin keeps the process), so the menu path is the start's menu |
+
 ## The tongs.navigation service (0.24.0)
 
 Other plugins select a province and read the province view through the

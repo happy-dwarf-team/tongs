@@ -683,13 +683,18 @@ when Tongs called the game's loader. A run with it is a marked run.
   or characters outside printable ASCII and Latin-1 is `bad_name`.
 - **In a game, paused; or in the main menu.** In a game it must be paused, as
   it is in the Load dialog (`not_paused` otherwise). In the main menu it needs
-  no pause (see below). Other menu screens (the lobby, the settings) refuse.
+  no pause (see below). Other menu screens (the single-player lobby, the
+  settings) refuse.
 - **From the main menu** Tongs makes the save the menu's Continue save and asks
   the menu to continue it, as a start with `continue=` does: the game reads the
-  save's header, then the menu loads it on the frames after, behind its
-  loading screen. The answer comes once a frame shows the new session in game
-  and not loading, with the save's date and player, and has `via: "menu"`.
-  The menu's Continue button names that save afterwards (in memory only).
+  save's header, then the menu loads it on the frames after. The answer comes
+  once a frame shows the new session in game and not loading, with the save's
+  date and player, and has `via: "menu"`. The menu's Continue button names
+  that save afterwards; `continue_game.json` is left as it was.
+  The menu meant here is the one the game starts to: without a plugin that
+  keeps the process (a menu-patch plugin), "Exit to Menu" and "Back"
+  from the country selection restart the game in a new process, so a client
+  that went back to the menu waits for the new `pid` first.
   Refusals: `not_in_menu` (the game shows neither a game nor its main menu;
   nothing called), `not_taken` (the main menu did not take the load on its
   next frame because another screen is open; Tongs took it back and nothing
@@ -743,9 +748,9 @@ when Tongs called the game's loader. A run with it is a marked run.
   `session`, the scenario; then `save load B` from the paused game, the ready
   wait for the next `session`, and so on. Each load discards the game before
   it and starts `game_calls_total` and `client_calls_total` again, so a
-  scenario's waits count only its own calls. What a load does not reset:
-  the speed and the camera come from the save, the map mode and the game's
-  settings stay as the last scenario left them.
+  scenario's waits count only its own calls. The speed comes from the save;
+  what lives outside it, such as the game's settings, stays as the last
+  scenario left it.
 
 ```powershell
 .\scripts\tongs.ps1 'save load mp_Russia1719_03_17'
