@@ -75,6 +75,28 @@ bool Load(const SaveLayout& l, std::uintptr_t base, std::uintptr_t session, cons
     }
 }
 
+using UpdateContinueFn = void (*)(void* application, void* path);
+
+// No C++ objects with destructors here: the body runs under __try.
+bool MenuLoad(const SaveLayout& l, std::uintptr_t base, std::uintptr_t application, const char* path, std::size_t size,
+              LoadCall* out) {
+    unsigned char text[0x20];
+    std::memset(text, 0, sizeof text);
+    const std::uint64_t empty_capacity = 15;  // an empty std::string: size 0, the inline buffer
+    std::memcpy(text + 0x18, &empty_capacity, 8);
+    __try {
+        reinterpret_cast<AssignFn>(base + l.assign_rva)(text, path, size);
+        reinterpret_cast<UpdateContinueFn>(base + l.update_continue_rva)(reinterpret_cast<void*>(application), text);
+        reinterpret_cast<FreeFn>(base + l.string_free_rva)(text);
+        *reinterpret_cast<volatile std::uint8_t*>(base + l.continue_flag_rva) = 1;
+        out->result = 0;
+        return true;
+    } __except (out->fault_code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        out->faulted = true;
+        return false;
+    }
+}
+
 bool Hide(const SaveLayout& l, std::uintptr_t base, std::uintptr_t session, unsigned long* code) {
     __try {
         reinterpret_cast<SessionFn>(base + l.hide_rva)(reinterpret_cast<void*>(session));
@@ -146,6 +168,31 @@ LoadCall CallLoad(std::uintptr_t base, const SaveLayout& l, const std::string& n
     }
     Load(l, base, session, name.c_str(), name.size(), &out);
     return out;
+}
+
+LoadCall CallMenuLoad(std::uintptr_t base, const SaveLayout& l, const std::string& name) {
+    LoadCall out;
+    std::uintptr_t frontend = 0, vtable = 0, application = 0;
+    if (!Session(base, l, frontend) || !Read(frontend, vtable) || vtable != base + l.frontend_vtable_rva ||
+        !Read(frontend + l.frontend_application, application) || application == 0) {
+        out.result = 4;  // not the main menu: nothing called
+        return out;
+    }
+    // The path continue= gives the game: "save games/" + the file name.
+    const std::string path = "save games/" + name + ".eu4";
+    MenuLoad(l, base, application, path.c_str(), path.size(), &out);
+    return out;
+}
+
+bool ReadContinueFlag(std::uintptr_t base, const SaveLayout& l, bool& set) {
+    std::uint8_t flag = 0;
+    if (!Read(base + l.continue_flag_rva, flag)) return false;
+    set = flag != 0;
+    return true;
+}
+
+void ClearContinueFlag(std::uintptr_t base, const SaveLayout& l) {
+    *reinterpret_cast<volatile std::uint8_t*>(base + l.continue_flag_rva) = 0;
 }
 
 bool HideWindows(std::uintptr_t base, const SaveLayout& l, unsigned long& fault_code) {

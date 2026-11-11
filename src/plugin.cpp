@@ -261,6 +261,11 @@ struct Tongs : anvil::Plugin {
                     return tongs::ReadRunningVersion(image_base, save, out);
                 };
                 handlers.call_load = [image_base, save](const std::string& name) { return tongs::CallLoad(image_base, save, name); };
+                handlers.call_menu_load = [image_base, save](const std::string& name) {
+                    return tongs::CallMenuLoad(image_base, save, name);
+                };
+                handlers.read_continue_flag = [image_base, save](bool& set) { return tongs::ReadContinueFlag(image_base, save, set); };
+                handlers.clear_continue = [image_base, save] { tongs::ClearContinueFlag(image_base, save); };
                 handlers.close_windows = [image_base, save](unsigned long& code) {
                     return tongs::HideWindows(image_base, save, code);
                 };

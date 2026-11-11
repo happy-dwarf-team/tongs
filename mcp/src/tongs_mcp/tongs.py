@@ -428,8 +428,10 @@ class Tongs:
     # Loading a save (docs/commands.md, "Loading a save"): a game call.
 
     def load_save(self, name, timeout=None):
-        """Loads `save games/<name>.eu4` in the running game, discarding it without saving. The
-        answer's `session` is the new session: pass it to ready(session=...)."""
+        """Loads `save games/<name>.eu4` in the running game, discarding it without saving, or from
+        the main menu (via: "menu"). The answer's `session` is the new session: pass it to
+        ready(session=...). One start can run several scenarios this way (docs/commands.md,
+        "Loading a save")."""
         quoted = f'"{name}"' if any(c in name for c in " \t") else name
         return self.call(line("save load", quoted, timeout=timeout), check=True)
 

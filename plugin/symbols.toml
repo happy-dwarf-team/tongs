@@ -2592,6 +2592,61 @@ build."eu4-1.37.5-steam-win64" = { rva = 0x82AEE0 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x82A240 }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x82A240 }
 
+# Loading from the main menu (docs/design.md, "Loading from the main menu (0.33.0)"): the menu's
+# own Continue, which a start with continue= triggers too.
+
+[symbol.frontend_vtable]
+memory = "read"
+note = "CFrontEnd's vtable: the object at root+0x1E00 while the game shows its main menu (in game: the session)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1D5A8C8, points_to = 0x10D2C00 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1D43318, points_to = 0x10D1400 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1D43318, points_to = 0x10D1400 }
+
+[symbol.frontend_application]
+memory = "code"
+values.application = { at = 11, size = 4 }
+note = "CFrontEndState::ContinueGame: GetContinueSave(*(frontend+0x330)), the application object that keeps the Continue save"
+
+[symbol.frontend_application.build."eu4-1.37.5-steam-win64"]
+rva = 0x10EF432
+bytes = "48 8B 41 08 48 8D 55 80 48 8B 88 30 03 00 00"
+
+[symbol.frontend_application.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x10ED432
+bytes = "48 8B 41 08 48 8D 55 80 48 8B 88 28 03 00 00"
+
+[symbol.frontend_application.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x10ED432
+bytes = "48 8B 41 08 48 8D 55 80 48 8B 88 28 03 00 00"
+
+[symbol.update_continue_save]
+# mov [rsp+8],rbx; push rdi; sub rsp,20h; mov rbx,rcx; mov rdi,rdx; mov rcx,[rcx+5D0h]
+bytes = "48 89 5C 24 08 57 48 83 EC 20 48 8B D9 48 8B FA 48 8B 89 D0 05 00 00"
+memory = "code"
+signature = "void (void* application, void* path)"
+note = "CEU4Application::UpdateContinueSave(const std::string&): waits for the application's save task, then SetNewContinueSave reads the save's header into the Continue save; InitGame calls SetNewContinueSave with the path of continue= (\"save games/\" + NAME)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x2110C0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x211080 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x211080 }
+
+[symbol.continue_requested]
+# push rbx; sub rsp,20h; cmp byte [flag],0; mov rbx,rcx; je +11h; mov byte [flag],0
+memory = "code"
+values.flag = { at = 8, rip_relative = 13 }
+note = "CFrontEndState::CheckContinueGame, from the main menu's Update every frame: while the byte is set it clears it and continues the Continue save (TryContinue); SDL_main sets it for continue="
+
+[symbol.continue_requested.build."eu4-1.37.5-steam-win64"]
+rva = 0x10EDB80
+bytes = "40 53 48 83 EC 20 80 3D 0F 23 25 01 00 48 8B D9 74 11 C6 05 03 23 25 01 00"
+
+[symbol.continue_requested.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x10EBCA0
+bytes = "40 53 48 83 EC 20 80 3D A4 80 23 01 00 48 8B D9 74 11 C6 05 98 80 23 01 00"
+
+[symbol.continue_requested.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x10EBCA0
+bytes = "40 53 48 83 EC 20 80 3D A4 80 23 01 00 48 8B D9 74 11 C6 05 98 80 23 01 00"
+
 [symbol.string_assign]
 bytes = "48 89 5C 24 10 48 89 6C 24 18 56 57 41 57 48 83 EC 20 48 8B 69 18 49 8B F0"
 memory = "code"

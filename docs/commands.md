@@ -60,7 +60,7 @@ With `game_calls = true` in the settings, also (see [Console](#console)):
 | Command | What it does |
 | --- | --- |
 | `console LINE` | runs one console command line in the game, on its main thread, and answers with the game's text and the state afterwards. **Changes game state** |
-| `save load NAME [timeout=S]` | loads a save from `save games` in the running game, as the Load dialog does (see [Loading a save](#loading-a-save)). **Discards the running game without saving** |
+| `save load NAME [timeout=S]` | loads a save from `save games` in the running game, as the Load dialog does, or from the main menu, as its Continue does (see [Loading a save](#loading-a-save)). **Discards the running game without saving** |
 
 Input commands answer once the game has reacted (or after 10 s) with
 `command`, `presses`, `waited_ms` and the fields of `state`. A pause (also
@@ -669,7 +669,8 @@ compare the `date` of each answer.
 ## Loading a save
 
 `save load NAME [timeout=S]` loads a save in the running game, as the in-game
-Load dialog does, without clicking through the dialog. It is a **game call**
+Load dialog does, or from the main menu, as the menu's Continue does, without
+clicking through either. It is a **game call**
 ([ADR 0001](adr/0001-game-calls-in-tongs.md)): it needs `game_calls = true`,
 takes the console's refusals in ironman and multiplayer, is logged to the
 Anvil log and counts once in `game_calls` (with an `activity` notification)
@@ -680,9 +681,24 @@ when Tongs called the game's loader. A run with it is a marked run.
   quoted when it has spaces: `save load "Russia test"`. No display names, no
   subfolders, no Steam cloud saves. A name that is empty or has `/`, `\`, `..`
   or characters outside printable ASCII and Latin-1 is `bad_name`.
-- **In game only, paused.** The game must be paused, as it is in the Load
-  dialog (`not_paused` otherwise). A save to start a scenario from is the
-  launcher's `continue=`.
+- **In a game, paused; or in the main menu.** In a game it must be paused, as
+  it is in the Load dialog (`not_paused` otherwise). In the main menu it needs
+  no pause (see below). Other menu screens (the single-player lobby, the
+  settings) refuse.
+- **From the main menu** Tongs makes the save the menu's Continue save and asks
+  the menu to continue it, as a start with `continue=` does: the game reads the
+  save's header, then the menu loads it on the frames after. The answer comes
+  once a frame shows the new session in game and not loading, with the save's
+  date and player, and has `via: "menu"`. The menu's Continue button names
+  that save afterwards; `continue_game.json` is left as it was.
+  The menu meant here is the one the game starts to: without a plugin that
+  keeps the process (a menu-patch plugin), "Exit to Menu" and "Back"
+  from the country selection restart the game in a new process, so a client
+  that went back to the menu waits for the new `pid` first.
+  Refusals: `not_in_menu` (the game shows neither a game nor its main menu;
+  nothing called), `not_taken` (the main menu did not take the load on its
+  next frame because another screen is open; Tongs took it back and nothing
+  was loaded, `called: true`).
 - **What it discards.** The running game is discarded **without saving and
   without a warning**, as the Load dialog does; Tongs never saves the game.
   Tongs then hides the in-game windows, as the game does when it resets a
@@ -726,6 +742,15 @@ when Tongs called the game's loader. A run with it is a marked run.
   `session` (see [Sessions](#sessions-and-the-ready-wait)); the `state`
   notification `entered_game` says `loaded_by: "tongs"`, and `null` after a
   load by the player or a start.
+- **Several scenarios on one start.** A test that would start the game once
+  per save can start it once, to the main menu (no `continue=`), and load each
+  scenario's save in turn: `save load A` from the menu, the ready wait for its
+  `session`, the scenario; then `save load B` from the paused game, the ready
+  wait for the next `session`, and so on. Each load discards the game before
+  it and starts `game_calls_total` and `client_calls_total` again, so a
+  scenario's waits count only its own calls. The speed comes from the save;
+  what lives outside it, such as the game's settings, stays as the last
+  scenario left it.
 
 ```powershell
 .\scripts\tongs.ps1 'save load mp_Russia1719_03_17'
