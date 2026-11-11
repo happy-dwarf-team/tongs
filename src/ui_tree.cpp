@@ -656,6 +656,14 @@ bool LetsClickThrough(const UiWidget& w) {
 
 }  // namespace
 
+std::string WidgetPathOf(const UiTree& tree, std::uintptr_t address) {
+    const int hit = WidgetAt(tree, address);
+    if (hit == -1) return {};
+    const UiView view(tree, false, true);
+    if (view.Visible(hit)) return view.PathOf(hit);
+    return UiView(tree, true, true).PathOf(hit);
+}
+
 UiCoverCheck CheckCover(const UiTree& tree, std::uintptr_t target, std::uintptr_t hovered,
                         const std::vector<std::uintptr_t>& under_pointer) {
     UiCoverCheck c;

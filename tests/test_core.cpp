@@ -4757,6 +4757,139 @@ static void TestNavigationServiceTripped() {
     assert(service.ProvinceView(&view) == ANVIL_OK);
 }
 
+static void TestCursorCommand() {
+    Handlers h;
+    h.now_ms = SteadyMs;
+    assert(Contains(HandleRequest("cursor", h), "{\"ok\":false,\"error\":\"unavailable\""));
+    assert(Contains(HandleRequest("cursor fast", h), "\"error\":\"bad_command\""));
+    assert(Contains(HandleRequest("cursor timeout=99", h), "\"error\":\"bad_command\""));
+    Dispatcher d(SteadyMs);
+    h.dispatcher = &d;
+    StateSnapshot game;
+    game.in_game = true;
+    game.date_raw = 58'860'240;
+    game.load = 1;
+    h.read_state = [&game] { return game; };
+    // A widget tree with one button at 0x5000 under a top-level window.
+    UiTree tree;
+    UiWidget top;
+    top.name = "topbar";
+    top.address = 0x4000;
+    top.type = UiType::Window;
+    top.shown = true;
+    top.rect = {0, 0, 1920, 60};
+    top.children = {1};
+    UiWidget button;
+    button.name = "button_speedup";
+    button.address = 0x5000;
+    button.type = UiType::Button;
+    button.shown = true;
+    button.rect = {10, 10, 30, 30};
+    tree.widgets = {top, button};
+    tree.roots = {0};
+    h.read_ui = [&tree](UiTree& out) {
+        out = tree;
+        return std::string();
+    };
+    std::uintptr_t hovered = 0;
+    h.read_hovered = [&hovered] { return hovered; };
+    int px = 100, py = 200;
+    bool tongs_pointer = true;
+    h.read_pointer = [&](int& x, int& y, bool& t) {
+        x = px;
+        y = py;
+        t = tongs_pointer;
+        return true;
+    };
+    WindowSnapshot window;
+    window.found = true;
+    window.width = 1920;
+    window.height = 1080;
+    h.read_window = [&window] { return window; };
+    MapPickRaw pick;
+    pick.province = 295;
+    pick.pick_kind = 2;
+    int picks = 0;
+    h.pick_map = [&](int x, int y, MapPickRaw& out) {
+        ++picks;
+        assert(x == px && y == py);
+        out = pick;
+        return std::string();
+    };
+    h.read_province = [](std::int32_t id, ProvinceRaw& p) -> WorldFailure {
+        p.id = id;
+        p.name = "Moskva";
+        p.owner = "RUS";
+        p.land = true;
+        return {};
+    };
+    h.read_units = [](std::string_view tag, UnitsRaw& out) -> WorldFailure {
+        out.tag = std::string(tag);
+        UnitInfo u;
+        u.id = 12884901889ull;
+        u.kind = kUnitArmy;
+        u.name = "1st Army";
+        u.location = 295;
+        out.units = {u};
+        return {};
+    };
+    {
+        FakeMainThread main(d);
+        // Over the map: no widget, the province under the point.
+        std::string out = HandleRequest("cursor", h);
+        assert(Contains(out, "{\"ok\":true,\"command\":\"cursor\",\"point\":{\"x\":100,\"y\":200},\"pointer\":\"tongs\","
+                             "\"inside\":true,\"widget\":null,\"over_map\":true,"
+                             "\"province\":{\"id\":295,\"name\":\"Moskva\",\"owner\":\"RUS\",\"land\":true},\"unit\":null"));
+        assert(Contains(out, "\"in_game\":true") && Contains(out, "\"frame\":"));
+        // An army picked there, found in its country's units.
+        pick.pick_kind = 0;
+        pick.unit_id = 12884901889ull;
+        std::memcpy(pick.unit_tag, "RUS", 4);
+        out = HandleRequest("cursor", h);
+        assert(Contains(out, "\"unit\":{\"id\":12884901889,\"kind\":\"army\",\"tag\":\"RUS\",\"name\":\"1st Army\",\"location\":295}"));
+        // A unit id that its country does not list is not reported.
+        pick.unit_id = 5;
+        assert(Contains(HandleRequest("cursor", h), "\"unit\":null"));
+        // A widget under the pointer: its path; the map does not get the pointer.
+        hovered = 0x5000;
+        tongs_pointer = false;
+        out = HandleRequest("cursor", h);
+        assert(Contains(out, "\"pointer\":\"mouse\",\"inside\":true,\"widget\":\"topbar/button_speedup\",\"over_map\":false"));
+        // Outside the client area: nothing is picked.
+        hovered = 0;
+        px = 5000;
+        const int before = picks;
+        out = HandleRequest("cursor", h);
+        assert(Contains(out, "\"inside\":false,\"widget\":null,\"over_map\":false,\"province\":null,\"unit\":null") &&
+               picks == before);
+        px = 100;
+        // Off the map (the sky at the edge): no province.
+        pick = MapPickRaw{};
+        assert(Contains(HandleRequest("cursor", h), "\"over_map\":true,\"province\":null,\"unit\":null"));
+        // No map yet, and a failed pick.
+        h.pick_map = [](int, int, MapPickRaw&) { return std::string("no_map"); };
+        assert(Contains(HandleRequest("cursor", h), "{\"ok\":true,\"command\":\"cursor\"") &&
+               Contains(HandleRequest("cursor", h), "\"over_map\":false,\"province\":null"));
+        h.pick_map = [](int, int, MapPickRaw&) { return std::string("the map pick faulted (0xC0000005)"); };
+        assert(Contains(HandleRequest("cursor", h), "{\"ok\":false,\"error\":\"read_failed\",\"detail\":\"the map pick faulted"));
+        // In the menu: the widget only, the map is not asked.
+        game.in_game = false;
+        game.reason = "no game loaded";
+        hovered = 0x5000;
+        out = HandleRequest("cursor", h);
+        assert(Contains(out, "{\"ok\":true,\"command\":\"cursor\"") && Contains(out, "\"widget\":\"topbar/button_speedup\"") &&
+               Contains(out, "\"in_game\":false"));
+        // Minimized: the point is outside the 0x0 client area.
+        game.in_game = true;
+        window.minimized = true;
+        assert(Contains(HandleRequest("cursor", h), "\"inside\":false"));
+        // Reads go on while suspended.
+        h.suspended = [] { return true; };
+        assert(Contains(HandleRequest("cursor", h), "\"ok\":true"));
+    }
+    assert(Contains(HandleRequest("help", h), "\"cursor\""));
+}
+
 int main(int argc, char** argv) {
     // A process of its own: a fault trips game calls for the rest of the process.
     if (argc > 1 && std::string_view(argv[1]) == "save-load-fault") {
@@ -4767,6 +4900,7 @@ int main(int argc, char** argv) {
     TestWorldParsing();
     TestWorldAnswers();
     TestWorldCommands();
+    TestCursorCommand();
     TestNavigationRules();
     TestSaveMeta();
     TestSubscribeParsing();

@@ -255,6 +255,11 @@ void FitRects(UiTree& tree, UiRect client);
 // bytes (§ £ ¤), with at least one sequence of three or four bytes or one for
 // U+0080-U+00FF; the lone bytes in it are still Windows-1252 (docs/design.md,
 // "Text encoding").
+// The path of the widget at `address` (the hovered widget), named as CheckCover names
+// widgets: its visible path, or its path among all widgets when it is hidden; empty when
+// the tree does not have it.
+std::string WidgetPathOf(const UiTree& tree, std::uintptr_t address);
+
 std::string GameTextToUtf8(std::string_view text, bool colour_codes = false);
 
 }  // namespace tongs

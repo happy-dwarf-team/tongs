@@ -74,7 +74,7 @@ ALL_TOOLS = {
     "tongs_event_list", "tongs_event_choose", "tongs_console", "tongs_raw",
     "tongs_province", "tongs_country", "tongs_player", "tongs_selection",
     "tongs_province_open", "tongs_province_goto", "tongs_map_mode", "tongs_save_load",
-    "tongs_units", "tongs_unit_drill", "tongs_unit_split", "tongs_unit_merge",
+    "tongs_units", "tongs_unit_drill", "tongs_unit_split", "tongs_unit_merge", "tongs_cursor",
 }  # fmt: skip
 
 INPUT_TOOLS = {
@@ -142,6 +142,8 @@ LINES = [
     ("tongs_province_open", {"province_id": 295, "timeout": 30}, "province open 295 timeout=30"),
     ("tongs_province_goto", {"province_id": 1252}, "province goto 1252"),
     ("tongs_units", {}, "units"),
+    ("tongs_cursor", {}, "cursor"),
+    ("tongs_cursor", {"timeout": 3}, "cursor timeout=3"),
     ("tongs_units", {"tag": "TUR", "timeout": 5}, "units TUR timeout=5"),
     ("tongs_unit_drill", {"start": True, "units": [12, 34]}, "unit drill start 12 34"),
     ("tongs_unit_drill", {"start": False}, "unit drill stop selected"),
@@ -189,7 +191,7 @@ DESTRUCTIVE_TOOLS = {
 READ_ONLY_TOOLS = {
     "tongs_state", "tongs_window", "tongs_threads", "tongs_frames",
     "tongs_ui_find", "tongs_ui_tree", "tongs_event_list",
-    "tongs_province", "tongs_country", "tongs_player", "tongs_selection", "tongs_units",
+    "tongs_province", "tongs_country", "tongs_player", "tongs_selection", "tongs_units", "tongs_cursor",
 }  # fmt: skip
 
 

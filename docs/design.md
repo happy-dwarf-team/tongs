@@ -3064,6 +3064,72 @@ in the lab). Tongs builds against an older SDK, so the structs it needs
   said in game.
 - **`units`** is a world read through `anvil-game.world`, not counted.
 
+## Cursor (0.32.0)
+
+`cursor` answers what the game has under its pointer from the game's own
+state. Read from the code (Ghidra with the names of the GOG `eu4.pdb`); the
+RVAs are the Steam build's, `plugin/symbols.toml` holds all three builds.
+
+- **The point.** The interface takes the pointer from `gui_cursor`
+  (`0x14E5E50`, see [Mouse](#mouse)): Tongs' virtual pointer while a mouse
+  command holds it, else `GetCursorPos` in client coordinates (with focus) or
+  SDL's mouse state (without). `cursor` answers the virtual pointer while it
+  holds (the same check the hook makes: the real cursor has not moved since
+  it was set), else the real cursor through `GetCursorPos` and
+  `ScreenToClient` of the game window.
+- **The widget.** The GUI manager writes the topmost widget under the pointer
+  once per frame (`hover_callback`, mgr+0x130); `cursor` names it by its path
+  in the widget tree read on the same frame, as `ui click` names `covered_by`.
+- **The map.** `CInGameMapInput::UpdateCursor` (`0x116E910`) runs every
+  frame for the map's cursor: it takes the session's graphical map
+  (`*(*(session+0x330)+0x360)`, GOG `+0x328`; `map_of_session`) and calls
+  `CEU3GraphicalMap::GetSelectable` (`0x10A46C0`) with the pointer as two
+  floats, an empty selection list, `false`, `true`. The map's click
+  (`CInGameMapInput::DoSingleSelectionAt`, `0x11706C0`) calls the same
+  function with the click point. `GetSelectable` casts the pick ray of the
+  camera (`CCamera::CalcPickRay`) through the point and returns the unit it meets
+  there, or the province, as the selectable object the
+  selection list keeps: slot 1 of its vtable answers the kind as a constant
+  (0 army, 1 navy, 2 province; anvil-game reads the same slot of the
+  selection's objects). An army or navy is the unit object itself, with its
+  id at +0x20 and its country's tag at +0xD0 (`unit_id`, `unit_country`, as
+  Anvil declares them). `CEU3GraphicalMap::GetProvinceIDFromMouse`
+  (`0x10A3DD0`) gives the province under the point through the same ray: the
+  height intersection with the terrain, then the province bitmap of the map
+  (`map+0x30`: ids as int16 at `+0x10`, width `+0x28`, height `+0x2C`); -1 off
+  the map or without a session (`root+0x1E00`). Both only read: the camera,
+  the terrain heights, the bitmap and the units' map positions.
+- **Guards.** Tongs checks that the object at the map path has the vtable of
+  `CEU3GraphicalMap` (`graphical_map_vtable`) and calls both functions under
+  `__try`. A unit is reported only when anvil-game.world's `units` of its tag
+  list its id, so a misread object cannot pass for a unit.
+
+### Live check (2026-11-11)
+
+Steam 1.37.5, Anvil 1.19.0, this branch with the input and journal branches
+of the same release merged for the test (the start of "Input gaps, round 2"
+on the input branch), the Ottoman campaign at 1445.1.1, 3440x1440.
+
+- **Province.** At eight points and after zooming in and out, `move` then
+  `cursor` named the province, and a `click` at the same point selected it
+  on land (151 Constantinople, 3000 Nis, 332 Marash, 2998, 2196, 149, 2750
+  Filibe); on seas `cursor` named the sea (`land: false`: Eastern Black Sea,
+  Gulf of Taranto, Adriatic Sea, Bay of Alexandria), which a click does not
+  select.
+- **Unit.** A grid of points every 20 px around the capital found the army
+  Anadolu Ordusu (id 231928234038, as `units` lists it) at two points, with
+  no widget hovered; a `click` there selected it (the single unit panel). At
+  (2600, 1100) `cursor` named a foreign army (Marash Ordusu of DUL) over
+  Marash. Units' map icons are widgets (`unit_mapicon[n]`): over one,
+  `widget` names it and `over_map` is false; whether the map also picks the
+  unit there was not tried.
+- **Widget.** Over the speed-up button `widget` was
+  `speed_controls/button_speedup` and `over_map` false, with the province
+  under the button still named (Lower Yik).
+- **Pointer.** After a mouse command `pointer` was `tongs` at its point; after
+  `release` it was `mouse`, at the real cursor's place.
+- **Minimized.** `cursor` answered `inside: false` with nothing picked.
+
 ## Releases
 
 Each release is one PR with its live checks done before it merges; the order

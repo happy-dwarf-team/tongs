@@ -1642,6 +1642,77 @@ std::string UnitsCommand(const Handlers& h, std::string_view argument) {
     return "{\"ok\":true,\"command\":" + Quote(command) + UnitsJson(raw) + tail + "}";
 }
 
+// cursor [timeout=S]: what the game has under its pointer, read on one frame: the point the
+// interface sees, the widget it hovers there, and what the game's map picks at it (the
+// province, an army or a navy). A world read: not counted, needs only `enabled`.
+std::string CursorCommand(const Handlers& h, std::string_view argument) {
+    const std::string command = "cursor";
+    int timeout_ms = 0;
+    WorldFailure failure = ParseCursorRequest(argument, timeout_ms);
+    if (!failure.failed() && (!h.dispatcher || !h.read_state || !h.read_ui || !h.read_hovered || !h.read_pointer)) {
+        failure = {"unavailable", h.dispatcher ? "the cursor read is not set up" : kNoDispatch};
+    }
+    const auto state_tail = [&h] { return h.read_state ? "," + StateFields(h.read_state()) : std::string(); };
+    const auto refuse = [&](const WorldFailure& f, const std::string& tail) {
+        return "{\"ok\":false,\"error\":" + Quote(f.error) + ",\"detail\":" + Quote(f.detail) + ",\"command\":" +
+               Quote(command) + tail + "}";
+    };
+    if (failure.failed()) return refuse(failure, state_tail());
+    CursorRaw raw;
+    StateSnapshot state;
+    std::string pick_error;
+    const Dispatcher::Outcome outcome = h.dispatcher->Run(
+        Dispatcher::Kind::Read,
+        [&] {
+            state = h.read_state();
+            if (!h.read_pointer(raw.x, raw.y, raw.tongs_pointer)) {
+                failure = {"read_failed", "the game window is not found"};
+                return std::string();
+            }
+            const WindowSnapshot window = h.read_window ? h.read_window() : WindowSnapshot{};
+            raw.inside = window.found && !window.minimized && raw.x >= 0 && raw.y >= 0 && raw.x < window.width &&
+                         raw.y < window.height;
+            raw.hovered = h.read_hovered();
+            if (raw.hovered != 0) {
+                UiTree tree;
+                if (std::string error = h.read_ui(tree); error.empty()) raw.widget = WidgetPathOf(tree, raw.hovered);
+            }
+            if (!state.in_game || !raw.inside || !h.pick_map) return std::string();
+            pick_error = h.pick_map(raw.x, raw.y, raw.pick);
+            if (pick_error == "no_map") {
+                pick_error.clear();
+                return std::string();
+            }
+            if (!pick_error.empty()) return std::string();
+            raw.map_read = true;
+            if (raw.pick.province > 0 && h.read_province) {
+                raw.province_read = !h.read_province(raw.pick.province, raw.province).failed();
+            }
+            if ((raw.pick.pick_kind == 0 || raw.pick.pick_kind == 1) && raw.pick.unit_tag[0] != 0 && h.read_units) {
+                UnitsRaw units;
+                if (!h.read_units(raw.pick.unit_tag, units).failed()) {
+                    for (const UnitInfo& u : units.units) {
+                        if (u.id != raw.pick.unit_id) continue;
+                        raw.unit_found = true;
+                        raw.unit = u;
+                        raw.unit_tag = units.tag;
+                        break;
+                    }
+                }
+            }
+            return std::string();
+        },
+        timeout_ms > 0 ? timeout_ms : h.dispatch_timeout_ms);
+    if (!outcome.ran) {
+        return "{\"ok\":false,\"error\":" + Quote(outcome.error) + ",\"command\":" + Quote(command) +
+               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + state_tail() + "}";
+    }
+    const std::string tail = "," + StateFields(state) + DispatchTimes(outcome);
+    if (failure.failed()) return refuse(failure, tail);
+    if (!pick_error.empty()) return refuse({"read_failed", pick_error}, tail);
+    return "{\"ok\":true,\"command\":" + Quote(command) + CursorMembers(raw) + tail + "}";
+}
+
 // unit drill start|stop UNITS / unit split UNIT / unit merge UNITS [timeout=S]: what the
 // unit panel's buttons post, through anvil-game.commands version 1 (Anvil 1.17). An input
 // (needs `input = true`, counted in `inputs` when something was posted), as an event
@@ -2546,7 +2617,7 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
         return "{\"ok\":true," + WindowFields(handlers.read_window()) + "}";
     }
     if (command == "help" && argument.empty()) {
-        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"frames\",\"ui\",\"event\",\"province\",\"country\",\"player\",\"selection\",\"units\",\"help\",") +
+        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"frames\",\"ui\",\"event\",\"province\",\"country\",\"player\",\"selection\",\"units\",\"cursor\",\"help\",") +
                "\"wait_until\",\"cancel\",\"key\",\"text\",\"move\",\"click\",\"scroll\",\"release\",\"pause\",\"resume\",\"speed\"," +
                "\"run_until\",\"unit\",\"console\",\"save\",\"map_mode\",\"subscribe\",\"unsubscribe\"],\"input\":" + Bool(InputReady(handlers)) + ",\"main_thread\":" +
                Bool(handlers.dispatcher != nullptr) + ",\"game_calls\":" + Bool(handlers.game_calls.enabled) +
@@ -2565,6 +2636,7 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
         return WorldCommand(handlers, command, argument);
     }
     if (command == "units") return UnitsCommand(handlers, argument);
+    if (command == "cursor") return CursorCommand(handlers, argument);
     if (command == "unit") return UnitCommand(handlers, argument);
     if (command == "map_mode") return MapModeCommand(handlers, argument);
     if (command == "console") return ConsoleCall(handlers, argument, client).Run();

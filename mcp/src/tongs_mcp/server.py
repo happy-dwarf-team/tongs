@@ -116,7 +116,7 @@ JSON answer unchanged; "ok": false answers come back as errors with an "error" f
   game was restarted and earlier answers describe another process. `session` is 1 for
   the first game of the process and +1 at every load: when it changes, the game state
   was replaced.
-- World reads (tongs_province, tongs_country, tongs_player, tongs_selection, tongs_units)
+- World reads (tongs_province, tongs_country, tongs_player, tongs_selection, tongs_units, tongs_cursor)
   answer the game's own values by province ID or tag; they are not counted and never mark a run.
 - tongs_province_open and tongs_province_goto are client calls: they need input = true,
   change only the camera, the selection and open views, and count in "client_calls".
@@ -720,6 +720,17 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         (regiments or ships), strength (men for an army) and leader (an id, or null). The ids are
         what the unit tools take."""
         return await call(_line("units", tag, timeout=timeout))
+
+    @tool(READ)
+    async def tongs_cursor(timeout: WorldTimeout = None) -> CallToolResult:
+        """What the game has under its pointer, read on one frame from the game itself (not from a
+        screenshot): point (client pixels) and pointer ("tongs" after a mouse tool, else "mouse"),
+        inside (in the client area), widget (the path of the widget the interface hovers, or null),
+        over_map (no widget takes the pointer there: a click goes to the map), province ({id, name,
+        owner, land} of the map under the point, or null off the map) and unit ({id, kind, tag, name,
+        location} of the army or navy the map picks there, or null). Move the pointer first with
+        tongs_move to ask about a point. Not counted."""
+        return await call(_line("cursor", timeout=timeout))
 
     # --- units ---
 

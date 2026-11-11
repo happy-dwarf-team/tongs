@@ -106,6 +106,7 @@ npx @modelcontextprotocol/inspector uv run --frozen --directory C:\path\to\tongs
 | `tongs_ui_click` | `ui click SEL [timeout=S]` | input |
 | `tongs_event_list` | `event list [timeout=S]` | read on the main thread |
 | `tongs_province`, `tongs_country`, `tongs_player`, `tongs_selection`, `tongs_units` | `province ID`, `country TAG`, `player`, `selection`, `units [TAG]` (each `[timeout=S]`) | world reads on the main thread; not counted |
+| `tongs_cursor` | `cursor [timeout=S]` | what the game has under its pointer (widget, province, unit); read on the main thread, not counted |
 | `tongs_province_open`, `tongs_province_goto`, `tongs_map_mode` | `province open ID`, `province goto ID`, `map_mode MODE` (each `[timeout=S]`) | client calls: need `input = true`, count in `client_calls` |
 | `tongs_event_choose` | `event choose N\|text^="..." [event=...] [timeout=S]` | input |
 | `tongs_unit_drill`, `tongs_unit_split`, `tongs_unit_merge` | `unit drill start\|stop UNITS`, `unit split UNIT`, `unit merge UNITS` (UNITS: ids or `selected`; each `[timeout=S]`) | input, through Anvil's `anvil-game.commands` (Anvil 1.17+) |

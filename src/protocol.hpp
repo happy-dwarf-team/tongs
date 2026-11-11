@@ -1,6 +1,7 @@
 #pragma once
 
 #include "console.hpp"
+#include "cursor.hpp"
 #include "dispatcher.hpp"
 #include "events.hpp"
 #include "frame_stats.hpp"
@@ -191,6 +192,12 @@ struct Handlers {
     // posts a unit command through anvil-game.commands version 1, as the unit panel's
     // buttons do. Null without the services (post_units also without input): unavailable.
     std::function<WorldFailure(std::string_view tag, UnitsRaw&)> read_units;
+    // Main thread, for `cursor`: the point where the interface sees the pointer, in client
+    // pixels, and whether it is Tongs' virtual pointer (game_cursor.cpp); false when the
+    // window is not found. pick_map asks the game's map what lies at a client point
+    // (game_map.cpp): empty on success, "no_map" without a map, else why it failed.
+    std::function<bool(int& x, int& y, bool& tongs_pointer)> read_pointer;
+    std::function<std::string(int x, int y, MapPickRaw&)> pick_map;
     std::function<UnitPost(const UnitRequest&)> post_units;
     // Pipe thread, one word: entries in the session's event window list; -1 = unreadable.
     // run_until events=first reads the events on the main thread only while it is above 0.
