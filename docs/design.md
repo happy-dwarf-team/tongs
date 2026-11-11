@@ -3155,6 +3155,20 @@ reading next to the game's own logs.
   refused input is still an `input`: a replay can send it again and expect
   the same refusal.
 
+### Live check (2026-11-11)
+
+Steam 1.37.5, Anvil 1.19.0, this branch with the input and `cursor` branches
+of the same release merged for the test, one start of about 12 minutes. The
+Anvil log named the file
+(`anvil/data/tongs/journal/journal-1794374692680-29856.jsonl`, the start time
+and PID that `ping` answered). It held the header and 2085 lines with `seq`
+1 to 2085 without gaps, from seven pipe instances: 1610 `read`, 462 `input`,
+12 `client_call`, 1 `game_call` (`console echo hi`), most of the reads being
+the ready waits' `state` polls. Refusals had `ok: false` and the error (a
+`screenshot` and `key` with the window minimized, a `wait_until` timeout),
+answers in the menu `date: null` and `session: null`, answers in the game
+the date and session 1. The second start wrote a file of its own.
+
 ## Releases
 
 Each release is one PR with its live checks done before it merges; the order
