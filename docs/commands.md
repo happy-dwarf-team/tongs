@@ -142,9 +142,20 @@ capital letter; other chords type nothing (a shifted digit or sign depends on
 the layout: use `text`).
 
 In a text field (an edit box with the focus: the find box, the console, the
-year in the lobby) `home`, `end`, `left`, `right`, `backspace` and `delete`
-move and delete as the player's keys do, and `shift` with an arrow, `home` or
-`end` selects (see [design.md](design.md#key-chords)).
+year in the lobby) the keys do what the game's own text fields do for a
+player (see [design.md](design.md#key-chords)):
+
+- `left` and `right` move the cursor, `backspace` and `delete` delete a
+  character, `ctrl+backspace` the word before the cursor, and a `click` in
+  the field puts the cursor there;
+- `home` and `end` select from the cursor to the start or the end of the
+  text, with Shift or without, so the next character typed replaces that
+  part;
+- the game has no other selection: `shift+left`, `shift+right` and `ctrl+a`
+  do nothing in its fields;
+- `ctrl+c`, `ctrl+x` and `ctrl+v` (and `shift+delete`, `shift+insert`... the
+  game's own copy, cut and paste) use the Windows clipboard, which is the
+  player's.
 
 ## Sessions and the ready wait
 

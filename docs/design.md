@@ -3161,6 +3161,89 @@ query `0x14E5E50` ran.
   and the same `run_until` chose the event's option in the visible window and
   reached 1445.1.1 (`inputs: 1`).
 
+## Key chords
+
+The game keeps its own record of the keys held: `CPdxKeyBoard::Refresh`
+(`0x162DB20`) sets a key code's entry in a map when its `SDL_KEYDOWN` comes
+and clears it at `SDL_KEYUP`, and `IsShiftDown`, `IsControlDown` and
+`IsAltDown` (`0x162DB70`, `0x162DBB0`, `0x162DC30`) ask it for the left or
+right key. For every `SDL_KEYDOWN` the event loop builds the key event with
+`CKeyEvent::SetModifierKeys` (`0x155FCB0`): a mask of Ctrl 1, Alt 2, Shift 4
+and the OS key 8, from that record, not from the event's `mod` and not from
+SDL's own keyboard state (which `SDL_PushEvent` does not change). So a chord
+is queued as a player types it, the modifier keys down first; Tongs also sets
+`mod` in each event, as SDL would.
+
+Text fields hand their keys to `CTextBuffer::HandleKeyEvent` (`0x15366C0`),
+which compares the mask exactly: Backspace and Ctrl+Backspace (the word),
+Delete, Return, the four arrows, Home and End (mask 0, and with Shift: both
+select to the start or the end), Ctrl+C or Ctrl+Insert (copy), Ctrl+V or
+Shift+Insert (paste), Ctrl+X or Shift+Delete (cut). Any other key goes to the
+field's listeners. There is no Shift+arrow selection and no Ctrl+A.
+
+## Input gaps, round 2 (2026-11-11)
+
+The input paths round 1 left open: selection in text fields, the German and
+Polish (214) layouts, whether a click on the map lands on the province under
+the point, and every command with a minimized window.
+
+### Live check
+
+Steam `eu4.exe` 1.37.5 (`9AD3EFE1…771A`, unchanged) from a lab copy of the
+game folder, Anvil 1.19.0, Tongs 0.31.0 with the branches of this change,
+`cursor` and the journal merged for the test; a private vanilla profile
+(3440x1440, `game_ui_scale` 1) and the Ottoman campaign of round 1 (1445.1.1,
+from the menu's Continue). Two starts under the lab game lock, each closed
+after the PID, path and start-time check; `settings.txt` differed only in
+`graceful_exit` (restored). The game window had the focus throughout.
+
+- **Text fields** (the find box, `f`). `text Mosk` and `text va` typed
+  `Moskva`, `key backspace` gave `Moskv`; `left`, `right` and typing gave
+  `abXc`, `abXcY`; `delete` deleted the character after the cursor and
+  `ctrl+backspace` the word before it; a `click` at the left edge of the field
+  put the cursor before the first character. `home` from the end, then `text
+  X`, left `X`: the field highlighted `abXcY` on a screenshot, so Home selects
+  to the start, and `end` from the second character likewise selected to the
+  end; with Shift they did the same. `shift+left` (also twice) and `ctrl+a`
+  changed nothing: the next character went where the cursor was. That is the
+  game's text buffer (above), not the input: the first `home` came before any
+  chord was sent. The clipboard keys were not tried, to leave the player's
+  clipboard alone.
+- **Layouts.** The German (`00000407`) and then the Polish (214,
+  `00010415`, both QWERTZ) layout were loaded into the session and given to
+  the game's window thread alone (`WM_INPUTLANGCHANGEREQUEST`), then the
+  Polish (programmers) layout was given back and both unloaded; the user's
+  layout list was the same before and after. With either, `text yz`, `key y`,
+  `key z`, `key minus` and `text -` typed `yzyz--`, `text äöüß` (German) and
+  `text óÓ` (Polish) typed those letters, and `key shift+q` / `key shift+a`
+  the capital. `key f` opened the find box, `key q` showed the terrain map
+  mode and `key w` the political one, and `key grave` opened and closed the
+  console: shortcuts follow the key code Tongs sends, whatever the layout, as
+  with AZERTY in round 1.
+- **Map.** At eight points over the map (camera on 151, nothing hovered),
+  `move` and `cursor`, then `click` and `selection`: on the five points on
+  land the click selected the province `cursor` named (151, 3000, 332, 2998,
+  2196); the three on seas (1324, 1311, 1309) selected nothing, as a player's
+  click on a sea does. Right after `scroll ±6` and `±3` (the zoom still
+  gliding) and again after 1.5 s, the clicks on land selected what `cursor`
+  named. A click on the army `cursor` named (Anadolu Ordusu, id
+  231928234038, in 149) selected it: the single unit panel and its name
+  showed.
+- **Minimized** (`SW_SHOWMINNOACTIVE`; `window`: `minimized: true`, 0x0):
+  every command answered within 0.2 s, nothing hung. `ping`, `state`,
+  `window`, `threads`, `frames`, `ui find`, `ui tree`, `event list`, the world
+  reads, `units`, `cursor` (`inside: false`), `journal`, `help`,
+  `wait_until`, `map_mode political`, `province open 149` and `console echo
+  hi` worked; `pause`, `resume`, `speed 2` / `speed 1` worked through the
+  buttons and `run_until 1445.1.15 speed=5` reached its date; `key`, `key
+  shift+left`, `text`, `move`, `click`, `scroll` and `ui click` refused with
+  `presses: 0` as round 1 made them; `screenshot` refused. `province goto`
+  refused `camera_locked`: the game holds the camera while its window is
+  minimized (the same goto worked once it was restored), and the detail named
+  `debug_lockcamera` and the in-game menu. It now says that the window is
+  minimized; the second start showed the new detail for `province goto 149`
+  and `151`, and the goto worked again after the restore.
+
 ## Not verified yet
 
 - Anvil 1.0 (plugin API 2): nothing of it ran in the game yet. To check:
@@ -3181,8 +3264,10 @@ query `0x14E5E50` ran.
 - `paused` for pauses not caused by the pause button: message pop-ups set
   `paused_flag` (hardening pass); events that pause, menus and multiplayer
   were not seen.
-- Keyboard layouts other than AZERTY and the lab's Polish (programmers)
-  layout, which is US for the keys Tongs sends ("Input gaps (2026-11-09)").
+- Keyboard layouts with an IME (Mei's chat input is mei#10); layouts other
+  than AZERTY, German, Polish (214) and the lab's Polish (programmers).
+- The game's copy, cut and paste chords in text fields (they use the
+  player's clipboard).
 - Whether the speed keys need `SDL_TEXTINPUT` alone or both events; both are
   sent, as SDL does for a real key.
 - The speed buttons in a multiplayer game with a second player (ADR 0005):
