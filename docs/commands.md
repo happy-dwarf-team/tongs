@@ -38,7 +38,7 @@ With `input = true` in the settings, also:
 | `resume` | presses the pause button if the player pause is on, then waits until the game runs; refuses when something else holds the game paused |
 | `speed N` | presses the speed up / down button one step at a time until the speed is `N` (1–5, as in the UI); works while paused |
 | `run_until DATE [speed=N] [timeout=S] [max_pause=S] [events=first\|stop]` | sets the speed, resumes, waits for the date and pauses again; for measuring how fast the game runs. `events=first` chooses the first enabled option of every event that opens on the way |
-| `key NAME` | presses one key: `a`–`z`, `0`–`9`, `f1`–`f12`, `space`, `return`, `escape`, `tab`, `backspace`, `delete`, `minus`, `equals`, `grave` (the console key on a US layout), `kp_plus`, `kp_minus`, `kp_enter`, arrows (`up`, `down`, `left`, `right`), `home`, `end`, `page_up`, `page_down` |
+| `key [MOD+]NAME` | presses one key: `a`–`z`, `0`–`9`, `f1`–`f12`, `space`, `return`, `escape`, `tab`, `backspace`, `delete`, `minus`, `equals`, `grave` (the console key on a US layout), `kp_plus`, `kp_minus`, `kp_enter`, arrows (`up`, `down`, `left`, `right`), `home`, `end`, `page_up`, `page_down`, and the left `shift`, `ctrl`, `alt` alone; with modifiers held while it is pressed, `MOD+` once each of `shift`, `ctrl` (or `control`), `alt`, in any order: `shift+left`, `ctrl+a`, `ctrl+shift+end` (see [Keys](#keys)) |
 | `text STRING` | types the rest of the line into the focused text field (characters U+0020–U+007E and U+00A0–U+00FF) |
 | `move X Y` | points the mouse at client coordinates `X Y` (hovering shows tooltips) |
 | `click X Y [left\|right\|middle] [double]` | moves there and clicks |
@@ -121,6 +121,30 @@ Right after a save loads, the game handles input only once an outer frame of
 the new session has run; the commands wait for it, and the
 [ready wait](#sessions-and-the-ready-wait) waits for that frame first. While
 the Esc menu is open, Space does not resume the game.
+
+## Keys
+
+`key` sends what the player's keyboard sends, in the game's own SDL queue:
+the key down, its character, the key up. The key code (`sym`) and the
+physical key (`scancode`) are those of a US layout, whatever layout the game
+runs with: shortcuts follow the key code, and `key z` is the `z` shortcut and
+types `z` on a German or Polish (214) layout too, where the key in that place
+is `y`. A key's character is the one it has without modifiers; `text` types
+any character from U+0020–U+007E and U+00A0–U+00FF, whatever the layout, so
+`key a` and `text a` put the same `a` into a field.
+
+With modifiers (`key shift+left`), the modifier keys go down first (Ctrl,
+Alt, Shift), then the key, then the modifier keys come up in reverse order;
+each event carries the modifiers held at that moment. The game keeps its own
+record of the keys held from these events and asks it for Shift, Ctrl and Alt,
+so a chord does what the player's does. Shift alone with a letter types the
+capital letter; other chords type nothing (a shifted digit or sign depends on
+the layout: use `text`).
+
+In a text field (an edit box with the focus: the find box, the console, the
+year in the lobby) `home`, `end`, `left`, `right`, `backspace` and `delete`
+move and delete as the player's keys do, and `shift` with an arrow, `home` or
+`end` selects (see [design.md](design.md#key-chords)).
 
 ## Sessions and the ready wait
 
