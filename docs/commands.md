@@ -25,6 +25,7 @@ connection can instead carry notifications (see [Notifications](#notifications))
 | `player [timeout=S]` | the player's country |
 | `selection [timeout=S]` | the last selected province and whether a province view shows one |
 | `units [TAG] [timeout=S]` | a country's armies and navies (the player's without `TAG`), through Anvil's `anvil-game.world` (see [Units](#units)) |
+| `cursor [timeout=S]` | what the game has under its pointer: the widget, the province and the army or navy, from the game's own state (see [Cursor](#cursor)) |
 | `wait_until DATE [timeout=S] [max_pause=S]` | waits (without touching the game) until the date reaches `DATE` (`1720.1.1` or `1720.1.1.12`); answers with the timing below |
 | `cancel` | ends every `wait_until` / `run_until` in progress and withdraws main-thread jobs still waiting for a frame (`withdrawn`) |
 | `subscribe KINDS [date=day\|month\|year]` | turns the connection into a stream of notifications (see [Notifications](#notifications)); `unsubscribe` ends it |
@@ -306,6 +307,48 @@ service the command answers `unavailable` and says which Anvil it needs.
 .\scripts\tongs.ps1 'units' 'unit drill start 12884901889' 'unit split selected'
 # {"ok":true,"command":"units","tag":"RUS","units":[{"id":12884901889,"kind":"army","name":"1st Army",...}],...}
 # {"ok":true,"command":"unit drill","units":1,"posted":1,"skipped":0,"refused":0,"in_game":true,...}
+```
+
+## Cursor
+
+`cursor [timeout=S]` answers what the game has under its pointer, read on the
+main thread on one frame, from the game's own state rather than from a
+screenshot. It is a world read: it needs only `enabled`, is not counted, and
+runs while suspended and during a `run_until`.
+
+| Field | What it is |
+| --- | --- |
+| `point` | `{"x": …, "y": …}`: where the interface sees the pointer, in client pixels |
+| `pointer` | `"tongs"` while the pointer of a mouse command holds (until `release` or until the real mouse moves), else `"mouse"` |
+| `inside` | the point lies in the client area (`false` while the window is minimized) |
+| `widget` | the path of the widget the interface hovers there (as `ui find` gives it), or `null` |
+| `over_map` | no widget takes the pointer there: a click there goes to the map |
+| `province` | the province the map has under the point, `{"id", "name", "owner", "land"}` (`owner` `null` for none; seas and lakes have `land: false`), or `null` off the map (the edge of the world, outside a game) |
+| `unit` | the army or navy the map picks at the point, as `units` gives it: `{"id", "kind", "tag", "name", "location"}`, or `null` |
+
+- **To ask about a point**, move the pointer there first: `move X Y`, then
+  `cursor` (the interface updates its hover on its next frame, so `cursor`
+  waits for one). A mouse command's pointer holds until `release` or until the
+  real mouse moves; after that `cursor` reports the real mouse.
+- **The province** is the one the game's map shows under the point: the pick
+  ray from the camera through the point meets the terrain, and the province
+  bitmap answers there. It is there also when a widget covers the point: read
+  `widget` and `over_map` to tell whether a click would reach the map.
+- **The unit** is what the map's click would select there: an army's or a
+  navy's map icon, or its model. It is reported only when the unit is in its
+  country's `units` (Anvil 1.15 or newer); without `anvil-game.world` `unit`
+  is always `null`.
+- **Outside a game** (the menu, the lobby) only `point`, `pointer`, `inside`
+  and `widget` have values.
+- **Errors**: `bad_command`, `main thread busy` (no frame within `timeout=`,
+  default 10 s, up to 60), `read_failed` (the game window was not found, or
+  the map's pick faulted or failed a guard), `unavailable`.
+
+```powershell
+.\scripts\tongs.ps1 'move 1720 720' 'cursor'
+# {"ok":true,"command":"move",...}
+# {"ok":true,"command":"cursor","point":{"x":1720,"y":720},"pointer":"tongs","inside":true,"widget":null,"over_map":true,
+#  "province":{"id":295,"name":"Moskva","owner":"RUS","land":true},"unit":null,"in_game":true,...}
 ```
 
 ## Navigation
