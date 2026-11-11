@@ -2301,6 +2301,7 @@ std::string SaveLoad(const Handlers& h, std::string_view argument, int client) {
         std::condition_variable done_cv;
         bool done = false;
         bool called = false;     // the loader was called
+        bool menu = false;       // the main menu was asked to continue the save (the load runs on later frames)
         bool abandoned = false;  // the answer went out at the timeout: the thread counts the call
         Dispatcher::Outcome outcome;
         std::string refusal, refusal_detail;
@@ -2326,7 +2327,23 @@ std::string SaveLoad(const Handlers& h, std::string_view argument, int client) {
                     call->refusal_detail = std::move(detail);
                     return std::string();
                 };
-                if (!before.in_game) return refused("not_in_game", before.reason ? before.reason : "no game loaded");
+                if (!before.in_game) {
+                    // The main menu: its own Continue, as a start with continue= (ADR 0001 game call).
+                    if (!hh.call_menu_load || !hh.read_continue_flag || !hh.clear_continue) {
+                        return refused("not_in_game", before.reason ? before.reason : "no game loaded");
+                    }
+                    if (g_game_calls_tripped.load()) return refused("game_calls_tripped", "game calls are off until the game exits");
+                    const LoadCall posted = hh.call_menu_load(name);
+                    if (!posted.faulted && posted.result == 4) {
+                        return refused("not_in_menu", "the game shows neither a game nor its main menu");
+                    }
+                    g_tongs_load.store(before.load + 1);
+                    call->called = true;
+                    call->menu = true;
+                    call->load = posted;
+                    if (posted.faulted) g_game_calls_tripped.store(true);
+                    return std::string();
+                }
                 if (!before.paused) return refused("not_paused", "the game runs; a player loads from the paused in-game menu");
                 if (hh.read_console) {
                     ConsoleRaw raw;
@@ -2382,7 +2399,7 @@ std::string SaveLoad(const Handlers& h, std::string_view argument, int client) {
     // Called: one game call, counted in the session it made (game_calls_total is 1 afterwards).
     const std::uint64_t calls = g_game_calls.fetch_add(1) + 1;
     PublishActivity(h, activity + ",\"game_calls\":" + std::to_string(calls));
-    const std::string called = ",\"called\":true,\"load_ms\":" + std::to_string(call->load_ms) + meta_members + call->mode;
+    std::string called = ",\"called\":true,\"load_ms\":" + std::to_string(call->load_ms) + meta_members + call->mode;
     if (call->load.faulted) {
         char code[16];
         std::snprintf(code, sizeof code, "0x%08lX", call->load.fault_code);
@@ -2392,7 +2409,47 @@ std::string SaveLoad(const Handlers& h, std::string_view argument, int client) {
         return refuse("faulted", std::string("exception ") + code + " in the game's loader; game calls are off until the game exits",
                       called + ",\"game_calls_total\":" + std::to_string(total));
     }
-    if (call->load.result != 0) {
+    if (call->menu) {
+        // Posted: the menu takes it on its next frame (its Update clears the flag), then loads.
+        bool taken = false;
+        const Dispatcher::Outcome next = h.dispatcher->Run(
+            Dispatcher::Kind::Read,
+            [&] {
+                bool set = true;
+                taken = h.read_continue_flag(set) && !set;
+                if (!taken) h.clear_continue();  // another menu screen: take it back
+                return std::string();
+            },
+            deadline > h.now_ms() ? static_cast<int>(deadline - h.now_ms()) : 1);
+        if (!next.ran || !taken) {
+            if (!next.ran) h.clear_continue();
+            const std::uint64_t total = AddTotalCall(g_game_total, call->before);
+            return refuse("not_taken",
+                          "the main menu did not take the load on its next frame (another menu screen such as the lobby or the "
+                          "settings is open); nothing was loaded",
+                          called + ",\"game_calls_total\":" + std::to_string(total));
+        }
+        // The load: wait for the new session in game, past its loading.
+        const std::uint64_t t0 = h.now_ms();
+        for (;;) {
+            StateSnapshot seen;
+            bool loading = true, read = false;
+            const int left = deadline > h.now_ms() ? static_cast<int>(deadline - h.now_ms()) : 0;
+            if (left <= 0) break;
+            const Dispatcher::Outcome frame = h.dispatcher->Run(
+                Dispatcher::Kind::Read,
+                [&] {
+                    seen = h.read_state();
+                    if (seen.in_game) read = h.read_loading(loading);
+                    return std::string();
+                },
+                left);
+            if (frame.ran && seen.in_game && seen.load > call->before.load && read && !loading) break;
+            if (h.sleep_ms) h.sleep_ms(50);
+        }
+        call->load_ms = h.now_ms() - t0;
+        called = ",\"called\":true,\"load_ms\":" + std::to_string(call->load_ms) + meta_members + ",\"via\":\"menu\"";
+    } else if (call->load.result != 0) {
         const int r = call->load.result;
         const char* error = r == 1 ? "bad_name" : r == 2 ? "no_such_save" : "rejected";
         const std::string detail = r == 1   ? "the game found the name empty"

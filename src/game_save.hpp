@@ -35,6 +35,12 @@ struct SaveLayout {
     std::uint32_t hide_rva = 0;         // RvaOf(sym::hide_ingame_windows): void (session)
     std::uint32_t assign_rva = 0;       // RvaOf(sym::string_assign)
     std::uint32_t string_free_rva = 0;  // RvaOf(sym::string_free)
+    // Loading from the main menu: root+session holds CFrontEnd there, whose application
+    // keeps the Continue save; the menu continues it while the flag is set.
+    std::uint32_t frontend_application = Value(sym::frontend_application, "application");
+    std::uint32_t continue_flag_rva = Value(sym::continue_requested, "flag");
+    std::uint32_t frontend_vtable_rva = 0;  // RvaOf(sym::frontend_vtable)
+    std::uint32_t update_continue_rva = 0;  // RvaOf(sym::update_continue_save): void (application, const std::string&)
 
     static_assert(sym::load_request_session.session - sym::load_request_call.request == sym::load_save.session);
     static_assert(sym::load_request_helper.helper - sym::load_request_call.request == 0x48);  // the request's last field
@@ -47,6 +53,8 @@ struct SaveLayout {
         l.hide_rva = RvaOf(sym::hide_ingame_windows);
         l.assign_rva = RvaOf(sym::string_assign);
         l.string_free_rva = RvaOf(sym::string_free);
+        l.frontend_vtable_rva = RvaOf(sym::frontend_vtable);
+        l.update_continue_rva = RvaOf(sym::update_continue_save);
         return l;
     }
 };
@@ -64,6 +72,18 @@ std::string ReadSaveHead(const std::string& path, std::string& bytes);
 // cloud, the session, the helper) and calls the loader; the call returns after
 // the whole load. A structured exception is caught and reported.
 LoadCall CallLoad(std::uintptr_t image_base, const SaveLayout& layout, const std::string& name);
+
+// Main thread only, in the main menu: makes "save games/NAME.eu4" the menu's
+// Continue save (CEU4Application::UpdateContinueSave, which reads its header) and
+// sets the flag that makes the main menu continue it on its next frame, as a start
+// with continue= does. `result` 0: posted; 4: root+session is not the main menu's
+// CFrontEnd (nothing called). The load itself runs on the frames after.
+LoadCall CallMenuLoad(std::uintptr_t image_base, const SaveLayout& layout, const std::string& name);
+
+// Any thread: the menu's continue flag (set: the menu has not taken the load yet);
+// false when unreadable. ClearContinueFlag takes a load back the menu did not take.
+bool ReadContinueFlag(std::uintptr_t image_base, const SaveLayout& layout, bool& set);
+void ClearContinueFlag(std::uintptr_t image_base, const SaveLayout& layout);
 
 // Main thread only: close the in-game menu and the views a load leaves on screen,
 // with the function the game resets a session with.

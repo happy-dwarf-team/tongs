@@ -2895,6 +2895,37 @@ game wrote beside it.
 | `timeout=1` on an 8 s load | `timeout` with `started: true` after 1 s; `ready(session=6)` then found the loaded save |
 | counts and `session` | `game_calls_total` 1 and `client_calls_total` 0 after each load, `session` +1 per load (2 … 6); `entered_game` with `loaded_by: "tongs"` and the new `session`, an `activity` with `what: "game_call"`; the player's load through the UI (0.19's check, `t111-live1`) leaves `game_calls_total` 0 |
 
+## Loading from the main menu (0.33.0)
+
+`save load` in the main menu uses the menu's own Continue, the path a start
+with `continue=` takes. Read from the code (Ghidra with the names of the GOG
+`eu4.pdb`; RVAs of the Steam build):
+
+- `continue=NAME` makes `SDL_main` (`0x8757E0`) set a byte (`0x233FE9C`,
+  `continue_requested`) and a string, `"save games/" + NAME`;
+  `CEU4Application::InitGame` passes that string to `SetNewContinueSave`
+  (`0x2111C0`), which reads the save's header into the application's Continue
+  save (`+0x5D8`).
+- The main menu's state updates every frame (`CFrontEndState::Update`,
+  `0x10EFF90`) and first calls `CheckContinueGame` (`0x10EDB80`): while the
+  byte is set it clears it and calls `TryContinue` (`0x10EDA80`), what the
+  Continue button calls, which checks the Continue save and starts the load
+  (`TryContinueGame`, `ContinueGame`).
+- `ContinueGame` reaches the application through the frontend:
+  `*(frontend+0x330)` (GOG `+0x328`; `frontend_application`), and in the
+  menu the frontend (`CFrontEnd`, `frontend_vtable`) is the object at
+  `root+0x1E00`, where a game keeps its session.
+- Tongs does what the start does, on the main thread after an outer frame of
+  the menu: it checks the vtable at `root+0x1E00`, builds the path with the
+  game's `string_assign`, calls `UpdateContinueSave` (`0x2110C0`, which waits
+  for the application's save task and calls `SetNewContinueSave`) under
+  `__try`, frees the string and sets the byte. On the next frame it reads the
+  byte: clear means the menu took it; still set means the menu's state did
+  not update (another screen of the frontend), and Tongs clears it so that no
+  later frame continues by surprise. Then it waits, a frame at a time, for a
+  session past the one before, in game and not loading, and checks the date
+  and player as for a load in game.
+
 ## The tongs.navigation service (0.24.0)
 
 Other plugins select a province and read the province view through the

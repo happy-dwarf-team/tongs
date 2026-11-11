@@ -4614,6 +4614,112 @@ static void TestSaveLoadCommand(bool fault = false) {
     assert(!logged.empty());
 }
 
+// save load in the main menu: the menu's own Continue (docs/design.md, "Loading from the main menu").
+static void TestSaveLoadFromMenu() {
+    Handlers h;
+    h.now_ms = SteadyMs;
+    h.sleep_ms = SleepMs;
+    h.game_calls.enabled = true;
+    StateSnapshot game;
+    game.in_game = false;
+    game.reason = "session object has an unexpected vtable";
+    game.load = 0;
+    h.read_state = [&game] { return game; };
+    Dispatcher d(SteadyMs);
+    h.dispatcher = &d;
+    const std::string file = FromHex("45553462696e4d2801000c00d0228203692c01000f000500782e657534382a01000f00030041524d");  // 1719.3.17, ARM
+    h.locate_save = [](const std::string& name, std::string& path, bool& exists) {
+        path = "C:\\saves\\" + name + ".eu4";
+        exists = true;
+        return std::string();
+    };
+    h.read_save = [&file](const std::string&, std::string& bytes) {
+        bytes = file;
+        return std::string();
+    };
+    h.save_tokens = kTokens;
+    h.call_load = [](const std::string&) {
+        assert(false && "the in-game loader is not called from the menu");
+        return LoadCall{};
+    };
+    h.close_windows = [](unsigned long&) { return true; };
+    int loading_frames = 0;
+    h.read_loading = [&loading_frames](bool& out) {
+        out = loading_frames > 0;
+        if (loading_frames > 0) --loading_frames;
+        return true;
+    };
+    h.read_player = [](PlayerRaw& p) {
+        p.tag = p.player_tag = "ARM";
+        return WorldFailure{};
+    };
+    FakeMainThread main(d);
+
+    // Without the menu path the old refusal stays.
+    assert(Contains(HandleRequest("save load x", h), "\"error\":\"not_in_game\""));
+
+    bool flag = false;
+    bool menu_takes = true;
+    int posts = 0, clears = 0;
+    std::string posted;
+    int menu_result = 0;
+    h.call_menu_load = [&](const std::string& name) {
+        ++posts;
+        posted = name;
+        LoadCall c;
+        c.result = menu_result;
+        if (menu_result == 0) flag = true;
+        return c;
+    };
+    h.read_continue_flag = [&](bool& set) {
+        if (flag && menu_takes) {  // the menu's Update took it: the game enters the save, loading for a few frames
+            flag = false;
+            game.in_game = true;
+            game.reason = nullptr;
+            game.load = 1;
+            game.paused = true;
+            game.date_raw = 58'860'240;
+            loading_frames = 3;
+        }
+        set = flag;
+        return true;
+    };
+    h.clear_continue = [&] {
+        ++clears;
+        flag = false;
+    };
+
+    // Another screen than the main menu's: nothing posted.
+    menu_result = 4;
+    std::string out = HandleRequest("save load x", h);
+    assert(Contains(out, "\"error\":\"not_in_menu\"") && !Contains(out, "\"called\":true") && posts == 1 && clears == 0);
+
+    // Posted, but the menu's Update did not take it (the lobby): taken back, one game call.
+    menu_result = 0;
+    menu_takes = false;
+    out = HandleRequest("save load x", h);
+    assert(Contains(out, "\"error\":\"not_taken\"") && Contains(out, "\"called\":true") && clears == 1 && !flag);
+
+    // Taken: the load runs on the next frames, then the save's date and player.
+    menu_takes = true;
+    out = HandleRequest("save load x.eu4", h);
+    assert(Contains(out, "{\"ok\":true,\"command\":\"save load\",\"save\":\"x\",\"called\":true,\"load_ms\":"));
+    assert(Contains(out, "\"save_date\":\"1719.3.17\",\"player\":\"ARM\"") && Contains(out, "\"via\":\"menu\""));
+    assert(Contains(out, "\"session\":1,") && Contains(out, "\"windows_closed\":false") && posted == "x" && loading_frames == 0);
+    assert(std::string(LoadedBy(1) ? LoadedBy(1) : "") == "tongs");
+
+    // In a game the in-game loader is used, as before (not the menu).
+    int game_loads = 0;
+    h.call_load = [&game_loads](const std::string&) {
+        ++game_loads;
+        LoadCall c;
+        c.result = 2;
+        return c;
+    };
+    const int menu_posts = posts;
+    assert(Contains(HandleRequest("save load x", h), "\"error\":\"no_such_save\"") && game_loads == 1 && posts == menu_posts);
+}
+
 // tongs.navigation (docs/adr/0004): the pipe's checks for another plugin, on its main thread.
 struct NavigationFake {
     std::uint32_t thread = 7, main = 7;
@@ -5052,6 +5158,7 @@ int main(int argc, char** argv) {
     TestMapModeCommand();      // trips map_mode for the rest of the process
     TestNavigationServiceTripped();
     TestSaveLoadCommand();
+    TestSaveLoadFromMenu();
     TestConsoleCommand();  // last: it trips game calls for the rest of the process
     std::puts("ok");
     return 0;

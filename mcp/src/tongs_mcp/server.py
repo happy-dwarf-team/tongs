@@ -893,9 +893,10 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
             int | None, Field(ge=1, le=600, description="Seconds for the whole load (plugin default 120).")
         ] = None,
     ) -> CallToolResult:
-        """Loads a save in the running game, as the in-game Load dialog does: a GAME CALL that CHANGES
-        GAME STATE. The running game is discarded WITHOUT SAVING. Needs game_calls = true; the game
-        must be paused. Answers save, save_date, player, compatible (from this version), load_ms,
+        """Loads a save in the running game, as the in-game Load dialog does, or from the main menu,
+        as its Continue does (via: "menu"): a GAME CALL that CHANGES GAME STATE. The running game is
+        discarded WITHOUT SAVING. Needs game_calls = true; in a game it must be paused; other menu
+        screens (lobby, settings) refuse not_in_menu or not_taken. Answers save, save_date, player, compatible (from this version), load_ms,
         session (the new one; then tongs_ready with it) and covered_by once the next frame shows the
         save's date and player. Refuses before calling: bad_name, no_such_save, unreadable_save,
         ironman_save, not_paused; after calling: no_such_save / rejected (called: true), not_loaded,

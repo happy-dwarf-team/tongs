@@ -180,6 +180,12 @@ struct Handlers {
     std::function<std::string(const std::string& path, std::string& bytes)> read_save;
     std::function<bool(std::array<int, 4>&)> read_version;
     std::function<LoadCall(const std::string& name)> call_load;
+    // Loading from the main menu (optional): call_menu_load posts the load on the main
+    // thread (result 4: not the main menu); the flag says whether the menu still has
+    // to take it, and clear_continue takes it back.
+    std::function<LoadCall(const std::string& name)> call_menu_load;
+    std::function<bool(bool& set)> read_continue_flag;
+    std::function<void()> clear_continue;
     std::function<bool(unsigned long& fault_code)> close_windows;
     std::function<bool(bool& loading)> read_loading;
     SaveTokens save_tokens;
