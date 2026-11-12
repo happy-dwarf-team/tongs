@@ -2721,6 +2721,50 @@ unchanged afterwards.
 | `selection` after a map click (Mukhtuya, 1054) and after closing the view | `last_selected` and `view.province` 1054 both times (#107's trap); `view.visible` was `false` while `ui find provinceview` said visible: the view object is a controller, its window is at `+0xA0` (fixed with `view_window`) |
 | `selection` with the fix (run `t112-sel2`): a map click (40), a second click (1078), then Esc | `view.visible: true`, `path: "provinceview"` and the clicked province each time; after Esc `visible: false` and `path: null`, `last_selected` and `view.province` still 1078 |
 
+### Flags and variables (0.33.0)
+
+The map's decision (eu4-engine-lab#65, #157) is that `country` and `province`
+read flags and variables through Anvil's `anvil-game.world` (the calls Anvil
+1.20 appends, anvil#320), not through addresses of Tongs. Tongs builds against
+an older SDK, so `src/game_commands.hpp` copies the table up to
+`province_variable_names` and checks `size` for each list (`HasFlags`,
+`HasVariables`); `src/world_flags.cpp` touches only the table, so the tests
+hand it one of their own.
+
+- **After Tongs' own read.** The read of the country or province runs first, as
+  before; only when it answered do the lists follow, on the same frame: the
+  country by the tag the game stores, the province by its ID. A list that fails
+  costs only that list.
+- **Flags:** `country_flags` / `province_flags` (the province's flags and its
+  permanent ones, as `has_province_flag`), asked with 64 entries and again with
+  the count the first call gave; each id's name from `flag_name`, the date from
+  the entry.
+- **Variables:** the names from `country_variable_names` /
+  `province_variable_names` (4 KiB, then the length the first call gave), then
+  each value by name. A name gone between the two calls is left out.
+- **Saying what is missing.** No `anvil-game.world`, a table shorter than the
+  1.20 one, `ANVIL_ERROR_NOT_DECLARED` (a port declared the symbols absent) and
+  any other result give `null` for that list and a sentence in `missing`,
+  never an empty list, which would read as "none".
+- They stay world reads: not counted, never marking a run, also in ironman and
+  multiplayer and while Anvil suspends Tongs.
+
+Checked in the game (11 and 12 November 2026) in lab copies of each build, on
+a vanilla save of 17 March 1719, against the `flags` / `variables` blocks of
+the save itself. Every country and every province that has flags or variables
+was read: 3,299 scopes per build.
+
+| Build | Anvil | Result |
+| --- | --- | --- |
+| Steam 1.37.5 | `main` e035589 (before 1.20.0) | all equal to the save in names, dates and values (RUS: 110 flags, 47 variables) |
+| GOG 1.37.5.2 | 1.20.0 (release) | all equal to the save |
+| GOG 1.37.5.0 | 1.20.0 (release) | all equal to the save |
+| Steam 1.37.5 | 1.19.0 (release) | `country RUS` and `province 295`: `flags` and `variables` are `null`, `missing` says they need Anvil 1.20; the rest of the answer as before |
+
+`game_calls_total` and `client_calls_total` stayed 0 after the reads in every
+run. Not compared with `print_flags` / `print_prov_flags`, which are game
+calls; the save the game wrote is the reference instead.
+
 ## Navigation (0.21.0)
 
 Release 0.21 of the [scenario support v1 spec](spec/scenarios-v1.md)

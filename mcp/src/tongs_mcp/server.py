@@ -696,15 +696,19 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
     async def tongs_province(province_id: ProvinceId, timeout: WorldTimeout = None) -> CallToolResult:
         """One province by ID, read on the main thread: id, name, owner, controller (null for none),
         cores, base_tax / base_production / base_manpower and development (without the capital
-        bonus), land (false for seas and lakes) and wasteland. `name` follows the owner's culture:
-        never match on it. unknown_province outside 1 <= id < the game's province count."""
+        bonus), land (false for seas and lakes), wasteland, flags ({name, date}) and variables
+        ({name, value}). `name` follows the owner's culture: never match on it. flags and variables
+        come from Anvil 1.20's anvil-game.world: null when they cannot be read, with the reason in
+        `missing`. unknown_province outside 1 <= id < the game's province count."""
         return await call(_line("province", province_id, timeout=timeout))
 
     @tool(READ)
     async def tongs_country(tag: Tag, timeout: WorldTimeout = None) -> CallToolResult:
         """One country by tag (case-insensitive), read on the main thread: tag, exists (owns a
         province), province_count, provinces (IDs), capital (null when none) and observer. A dead
-        country answers ok with exists: false; a tag the game does not know is unknown_country."""
+        country answers ok with exists: false; a tag the game does not know is unknown_country.
+        Also flags ({name, date}) and variables ({name, value}) from Anvil 1.20's anvil-game.world:
+        null when they cannot be read, with the reason in `missing`."""
         return await call(_line("country", tag, timeout=timeout))
 
     @tool(READ)

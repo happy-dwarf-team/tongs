@@ -24,6 +24,32 @@ struct WorldFailure {
     bool failed() const { return !error.empty(); }
 };
 
+// A flag of a country or province, with the date it was set (anvil-game.world, Anvil 1.20).
+struct FlagRaw {
+    std::string name;
+    std::int32_t year = 0;
+    std::uint32_t month = 0;
+    std::uint32_t day = 0;
+};
+
+// A variable of a country or province: its name and its value x 1000.
+struct VariableRaw {
+    std::string name;
+    std::int32_t value = 0;
+};
+
+// Flags and variables of one scope, read through anvil-game.world (world_flags.cpp).
+// When a list could not be read, `*_missing` says why and the answer has `null`
+// for it, never an empty list.
+struct ScopeExtras {
+    bool flags_read = false;
+    std::vector<FlagRaw> flags;
+    std::string flags_missing;
+    bool variables_read = false;
+    std::vector<VariableRaw> variables;
+    std::string variables_missing;
+};
+
 struct ProvinceRaw {
     std::int32_t id = 0;
     std::string name;  // UTF-8, the name the game displays (it follows the owner's culture)
@@ -35,6 +61,7 @@ struct ProvinceRaw {
     std::int32_t base_manpower = 0;
     bool land = false;  // false for seas and lakes
     bool wasteland = false;
+    ScopeExtras extras;
 };
 
 struct CountryRaw {
@@ -44,6 +71,7 @@ struct CountryRaw {
     std::vector<std::int32_t> provinces;  // the IDs it owns, in the game's order
     std::int32_t capital = 0;        // as stored
     bool capital_valid = false;      // 1 <= capital < the province count
+    ScopeExtras extras;
 };
 
 struct PlayerRaw {
@@ -83,6 +111,10 @@ WorldFailure ParseWorldRequest(std::string_view command, std::string_view argume
 
 // The bucket the game files a tag in: its three characters, upper-cased, summed, & mask.
 int TagBucket(std::string_view tag, int mask);
+
+// `,"flags":[...],"variables":[...]`, with `null` for a list that was not read and
+// then `,"missing":{"flags":"why",...}` naming each such list.
+std::string ExtrasMembers(const ScopeExtras& e);
 
 // The answer members of each read, each starting with a comma.
 std::string ProvinceMembers(const ProvinceRaw& p);

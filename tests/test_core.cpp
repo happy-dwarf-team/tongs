@@ -14,6 +14,7 @@
 #include "ui_structure.hpp"
 #include "ui_tree.hpp"
 #include "world.hpp"
+#include "world_flags.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -3952,6 +3953,145 @@ static void TestWorldParsing() {
            Thousandths(0) == "0" && Thousandths(-250) == "-0.25" && Thousandths(15000) == "15");
 }
 
+// A fake anvil-game.world for the flags and variables (world_flags.cpp).
+namespace fake_world {
+int flag_result = 0, names_result = 0;
+std::vector<std::pair<std::int32_t, std::string>> flag_names = {{3, "rus_reform_done"}, {9, "peter_the_great"}};
+std::vector<GameFlag> flags;  // what country_flags / province_flags answer
+std::string names;            // NUL-separated, as the service writes them
+std::vector<std::pair<std::string, std::int32_t>> values;
+
+int FlagName(std::int32_t id, char* utf8, std::uint32_t capacity, std::uint32_t* length) {
+    for (const auto& [i, n] : flag_names) {
+        if (i != id) continue;
+        *length = static_cast<std::uint32_t>(n.size() + 1);
+        std::snprintf(utf8, capacity, "%s", n.c_str());
+        return 0;
+    }
+    return 11;
+}
+int Flags(GameFlag* out, std::uint32_t capacity, std::uint32_t* count) {
+    if (flag_result != 0) return flag_result;
+    *count = static_cast<std::uint32_t>(flags.size());
+    for (std::uint32_t i = 0; i < capacity && i < flags.size(); ++i) out[i] = flags[i];
+    return 0;
+}
+int CountryFlags(const char* tag, GameFlag* out, std::uint32_t capacity, std::uint32_t* count) {
+    return std::string(tag) == "RUS" ? Flags(out, capacity, count) : 11;
+}
+int ProvinceFlags(std::int32_t province, GameFlag* out, std::uint32_t capacity, std::uint32_t* count) {
+    return province == 295 ? Flags(out, capacity, count) : 11;
+}
+int Names(char* out, std::uint32_t capacity, std::uint32_t* length) {
+    if (names_result != 0) return names_result;
+    *length = static_cast<std::uint32_t>(names.size());
+    if (names.size() <= capacity) std::memcpy(out, names.data(), names.size());
+    return 0;
+}
+int Value(const char* name, std::int32_t* value) {
+    for (const auto& [n, v] : values) {
+        if (n == name) {
+            *value = v;
+            return 0;
+        }
+    }
+    return 11;
+}
+int CountryNames(const char*, char* out, std::uint32_t capacity, std::uint32_t* length) { return Names(out, capacity, length); }
+int ProvinceNames(std::int32_t, char* out, std::uint32_t capacity, std::uint32_t* length) { return Names(out, capacity, length); }
+int CountryValue(const char*, const char* name, std::int32_t* value) { return Value(name, value); }
+int ProvinceValue(std::int32_t, const char* name, std::int32_t* value) { return Value(name, value); }
+
+GameFlag Flag(std::int32_t id, std::int32_t year, std::uint32_t month, std::uint32_t day) {
+    GameFlag f{};
+    f.id = id;
+    f.date.size = sizeof(WorldDate);
+    f.date.year = year;
+    f.date.month = month;
+    f.date.day = day;
+    return f;
+}
+
+GameWorldService Table() {
+    GameWorldService w{};
+    w.size = sizeof(GameWorldService);
+    w.flag_name = FlagName;
+    w.country_flags = CountryFlags;
+    w.province_flags = ProvinceFlags;
+    w.country_variable = CountryValue;
+    w.province_variable = ProvinceValue;
+    w.country_variable_names = CountryNames;
+    w.province_variable_names = ProvinceNames;
+    return w;
+}
+}  // namespace fake_world
+
+static void TestWorldFlagsAndVariables() {
+    using namespace fake_world;
+    flags = {Flag(3, 1700, 1, 1), Flag(9, 1719, 3, 17)};
+    names = std::string("reforms\0", 8) + std::string("debt_ratio\0", 11);
+    values = {{"reforms", 3000}, {"debt_ratio", -1250}};
+    GameWorldService w = Table();
+    assert(HasFlags(&w) && HasVariables(&w));
+
+    ScopeExtras e;
+    ReadCountryExtras(&w, "RUS", e);
+    assert(e.flags_read && e.variables_read && e.flags.size() == 2 && e.variables.size() == 2);
+    std::string out = ExtrasMembers(e);
+    assert(out == ",\"flags\":[{\"name\":\"rus_reform_done\",\"date\":\"1700.1.1\"},{\"name\":\"peter_the_great\","
+                  "\"date\":\"1719.3.17\"}],\"variables\":[{\"name\":\"reforms\",\"value\":3},"
+                  "{\"name\":\"debt_ratio\",\"value\":-1.25}]");
+
+    // A country without any: empty lists, not null and no `missing`.
+    flags.clear();
+    names.clear();
+    ReadProvinceExtras(&w, 295, e);
+    assert(ExtrasMembers(e) == ",\"flags\":[],\"variables\":[]");
+
+    // A variable gone between the names and its value is left out.
+    names = std::string("gone\0", 5) + std::string("reforms\0", 8);
+    ReadProvinceExtras(&w, 295, e);
+    assert(e.variables.size() == 1 && e.variables[0].name == "reforms");
+
+    // A long list takes a second call with the size the first one gave.
+    flags.assign(100, Flag(3, 1444, 11, 11));
+    ReadCountryExtras(&w, "RUS", e);
+    assert(e.flags_read && e.flags.size() == 100 && e.flags[99].name == "rus_reform_done");
+    flags.clear();
+    names.clear();
+
+    // A port with the symbols declared absent: said plainly, as null.
+    flag_result = 2;
+    names_result = 2;
+    ReadCountryExtras(&w, "RUS", e);
+    out = ExtrasMembers(e);
+    assert(!e.flags_read && !e.variables_read);
+    assert(Contains(out, ",\"flags\":null,\"variables\":null,\"missing\":{\"flags\":\"this game build has no flag symbols (country_flags)\","
+                         "\"variables\":\"this game build has no variable symbols (country_variable_names)\"}"));
+    flag_result = 10;
+    names_result = 0;
+    ReadCountryExtras(&w, "RUS", e);
+    assert(ExtrasMembers(e) == ",\"flags\":null,\"variables\":[],\"missing\":{\"flags\":\"country_flags answered 10\"}");
+    flag_result = 0;
+
+    // An older Anvil: the table ends at selected_units (1.15) or there is no service.
+    GameWorldService old = Table();
+    old.size = static_cast<std::uint32_t>(offsetof(GameWorldService, monarch));
+    assert(!HasFlags(&old) && !HasVariables(&old));
+    ReadCountryExtras(&old, "RUS", e);
+    assert(Contains(ExtrasMembers(e), "\"flags\":null,\"variables\":null,\"missing\":{\"flags\":\"anvil-game.world has no flags: "
+                                      "they need Anvil 1.20 or newer\",\"variables\":\"anvil-game.world has no variables: they need "
+                                      "Anvil 1.20 or newer\"}"));
+    ReadProvinceExtras(nullptr, 295, e);
+    assert(Contains(ExtrasMembers(e), "\"missing\":{\"flags\":\"anvil-game.world is not loaded"));
+
+    // Through the members of the reads.
+    CountryRaw c;
+    c.tag = "RUS";
+    ReadCountryExtras(&w, "RUS", c.extras);
+    assert(CountryMembers(c).ends_with(",\"observer\":false,\"flags\":[],\"variables\":[]"));
+}
+
 static void TestWorldAnswers() {
     ProvinceRaw p;
     p.id = 1754;
@@ -3974,7 +4114,7 @@ static void TestWorldAnswers() {
     c.capital = 1;
     c.capital_valid = true;
     out = CountryMembers(c);
-    assert(out == ",\"tag\":\"SWE\",\"exists\":false,\"province_count\":0,\"provinces\":[],\"capital\":1,\"observer\":false");
+    assert(out.starts_with(",\"tag\":\"SWE\",\"exists\":false,\"province_count\":0,\"provinces\":[],\"capital\":1,\"observer\":false,"));
     c.tag = "TUR";
     c.province_count = 2;
     c.provinces = {384, 2313};
@@ -5086,6 +5226,7 @@ int main(int argc, char** argv) {
     }
     TestWorldParsing();
     TestWorldAnswers();
+    TestWorldFlagsAndVariables();
     TestWorldCommands();
     TestCursorCommand();
     TestNavigationRules();

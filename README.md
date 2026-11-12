@@ -60,7 +60,7 @@ command, its answer and its options are in
 | --- | --- | --- |
 | Game state | `ping`, `state`, `window`, `threads`, `frames`, `screenshot`, `journal`, `help` | `enabled` |
 | Interface and events | `ui find`, `ui tree`, `event list` | `enabled` |
-| World reads | `province`, `country`, `player`, `selection`, `units`, `cursor` | `enabled` |
+| World reads (with flags and variables from Anvil 1.20) | `province`, `country`, `player`, `selection`, `units`, `cursor` | `enabled` |
 | Waiting and notifications | `wait_until`, `cancel`, `subscribe`, `unsubscribe` | `enabled` |
 | Keyboard and mouse | `pause`, `resume`, `speed`, `run_until`, `key`, `text`, `move`, `click`, `scroll`, `release`, `ui click`, `event choose`, `unit drill`, `unit split`, `unit merge` | `input` |
 | Navigation (client calls) | `province open`, `province goto`, `map_mode` | `input` |
