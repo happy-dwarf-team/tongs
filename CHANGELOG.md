@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.33.0](https://github.com/happy-dwarf-team/tongs/compare/v0.32.0...v0.33.0) (2026-11-12)
+
+
+### Features
+
+* **pipe:** flags and variables in country and province, through anvil-game.world ([#188](https://github.com/happy-dwarf-team/tongs/issues/188)) ([8c9e498](https://github.com/happy-dwarf-team/tongs/commit/8c9e498bf4c28f7e56422ceb59f7d5f67b398c89))
+* show the settings and the description in eight languages ([#189](https://github.com/happy-dwarf-team/tongs/issues/189)) ([e468e86](https://github.com/happy-dwarf-team/tongs/commit/e468e8695f8c06b8690071e6aa5e1efa09790a45))
+
 ## [0.32.0](https://github.com/happy-dwarf-team/tongs/compare/v0.31.0...v0.32.0) (2026-11-11)
 
 ### Features
