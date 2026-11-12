@@ -2879,6 +2879,18 @@ and `HasDiplomacy` checks `size`.
   sentence in `missing`. A province answer has no `diplomacy`.
 - Still a world read: not counted, never marking a run.
 
+Checked in the game (12 November 2026) in lab copies of Steam 1.37.5 and GOG
+1.37.5.2 with Anvil built from `main` (1.22's code, not released yet), on the
+Russia save of 17 March 1719 with RUS as the player: `country` for the 88
+countries that own a province, against the save's `diplomacy`, `rival`,
+`overlord`, `subjects`, `active_relations` and `opinion_cache`. On both builds:
+402 relation entries with their dates and subject types, 104 rivals, every
+overlord and subject list, and the 174 statuses toward the player and back
+(opinion, timed sum, trust, favors, truce) were equal, with no difference.
+BYZ, without provinces, gave `toward_player` and `player_toward` `null`. With
+the Anvil 1.21.0 release `diplomacy` was `null` and `missing` said it needs
+Anvil 1.22. `client_calls_total` stayed 0.
+
 ## Navigation (0.21.0)
 
 Release 0.21 of the [scenario support v1 spec](spec/scenarios-v1.md)
