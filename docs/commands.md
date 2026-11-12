@@ -21,7 +21,7 @@ connection can instead carry notifications (see [Notifications](#notifications))
 | `ui tree [SEL] [depth=N] [limit=N] [all]` | the widget tree from the top-level windows, or from the matches of `SEL`, as nested `widgets` (up to 200, `limit=` up to 5000); `depth=N` gives deeper levels only as `children_count` |
 | `event list [timeout=S]` | the open events, topmost first (see [Events](#events)), read on the main thread |
 | `province ID [timeout=S]` | one province by ID: name, owner, controller, cores, development, land and wasteland, its flags and variables (see [World reads](#world-reads)) |
-| `country TAG [timeout=S]` | one country by tag: whether it exists, its provinces, its capital, its flags and variables, and the events waiting for its choice |
+| `country TAG [timeout=S]` | one country by tag: whether it exists, its provinces, its capital, its flags and variables, the events waiting for its choice and its diplomacy |
 | `player [timeout=S]` | the player's country |
 | `selection [timeout=S]` | the last selected province and whether a province view shows one |
 | `units [TAG] [timeout=S]` | a country's armies and navies (the player's without `TAG`), through Anvil's `anvil-game.world` (see [Units](#units)) |
@@ -233,7 +233,7 @@ included, carries the fields of `state` read on the same frame, and
 | Command | Answer |
 | --- | --- |
 | `province ID` | `id`, `name`, `owner`, `controller` (a tag, or `null` for none), `cores` (tags), `base_tax`, `base_production`, `base_manpower` and `development` (their sum), `land`, `wasteland`, `flags`, `variables` (see below) |
-| `country TAG` | `tag`, `exists` (it owns a province), `province_count`, `provinces` (their IDs, in the game's order), `capital` (an ID, or `null` when none), `observer`, `flags`, `variables`, `pending_events` |
+| `country TAG` | `tag`, `exists` (it owns a province), `province_count`, `provinces` (their IDs, in the game's order), `capital` (an ID, or `null` when none), `observer`, `flags`, `variables`, `pending_events`, `diplomacy` |
 | `player` | `tag` (the country the game treats as the player's), `player_tag` and `observed_tag` (as the game stores them; `observed_tag` is `null` when none), `observer` |
 | `selection` | `last_selected` (a province ID, or `null`) and `view`: `province` (the one the province view shows, or `null`), `visible`, `path` (the widget path of the window that shows it while it is visible, else `null`: `provinceview`, or `colonisationpanel` for a province without an owner) |
 
@@ -285,6 +285,26 @@ included, carries the fields of `state` read on the same frame, and
   events count, hidden ones included. `event list` stays the windows' own view,
   with their texts and buttons. With an older Anvil the list is `null` and
   `missing` has `pending_events`.
+- **Diplomacy** (`country` only, Anvil 1.22 or newer). `diplomacy` holds the
+  country's relations by kind, each a list of `{first, second, start, end}` as
+  the game's save writes them (`end` is `null` for most, and may lie in the
+  past): `alliance`, `royal_marriage`, `guarantee` (first guarantees second),
+  `military_access` (the country is first: it has access to second's land),
+  `giving_military_access` (the country is second), `subsidies` (first pays),
+  `dependency` (first is the overlord; for the overlord's own entries also
+  `subject_type`, `"vassal"`) and `warning` (first warns). A relation two
+  countries share shows up in both with the same `first` and `second`. Then
+  `rivals` (tags), `overlord` (a tag or `null`), `subjects` (its direct ones),
+  `player` (the player's tag, `null` when it is the country itself) and
+  `toward_player` / `player_toward`: `{opinion, timed_sum, trust, favors,
+  truce}` of the country toward the player and back. `opinion` is the number of
+  the diplomacy window as the game caches it (a human's row is refreshed at
+  least monthly, an AI's at least yearly); `timed_sum` is the sum of the timed
+  opinion modifiers, not clamped, so not the opinion; `favors` is a number as
+  the game shows it. A status is `null` when Anvil has none (a country without
+  provinces). With an older Anvil `diplomacy` is `null` and `missing` has
+  `diplomacy`. In multiplayer this shows every country's trust and opinions,
+  which is more than a player sees.
 - **Errors** (`error`, with a `detail` for people): `bad_command` (a bad
   option, or a word after `province` other than `open` and `goto`),
   `unknown_province`, `unknown_country`, `not_in_game`, `main thread busy`
@@ -301,7 +321,7 @@ included, carries the fields of `state` read on the same frame, and
 #  "flags":[],"variables":[],"in_game":true,...}
 .\scripts\tongs.ps1 'country SWE'
 # {"ok":true,"command":"country","tag":"SWE","exists":false,"province_count":0,"provinces":[],"capital":1,"observer":false,
-#  "flags":[],"variables":[],"pending_events":[],...}
+#  "flags":[],"variables":[],"pending_events":[],"diplomacy":{...},...}
 ```
 
 ## Units

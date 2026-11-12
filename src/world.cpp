@@ -119,6 +119,52 @@ std::string Thousandths(std::int64_t raw) {
     return out;
 }
 
+namespace {
+
+std::string DateOrNull(bool has, std::int32_t year, std::uint32_t month, std::uint32_t day) {
+    if (!has) return "null";
+    return "\"" + std::to_string(year) + "." + std::to_string(month) + "." + std::to_string(day) + "\"";
+}
+
+std::string StatusObject(const StatusRaw& s) {
+    if (!s.read) return "null";
+    return "{\"opinion\":" + std::to_string(s.opinion) + ",\"timed_sum\":" + std::to_string(s.timed_sum) +
+           ",\"trust\":" + std::to_string(s.trust) + ",\"favors\":" + Thousandths(s.favors) +
+           ",\"truce\":" + Bool(s.truce) + "}";
+}
+
+std::string TagList(const std::vector<std::string>& tags) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < tags.size(); ++i) out += (i ? "," : "") + Quote(tags[i]);
+    return out + "]";
+}
+
+const char* const kRelationNames[8] = {"alliance", "royal_marriage", "guarantee", "military_access",
+                                       "giving_military_access", "subsidies", "dependency", "warning"};
+
+std::string DiplomacyObject(const DiplomacyRaw& d) {
+    std::string out = "{";
+    for (int k = 0; k < 8; ++k) {
+        out += std::string(k ? "," : "") + "\"" + kRelationNames[k] + "\":[";
+        for (std::size_t i = 0; i < d.relations[k].size(); ++i) {
+            const RelationRaw& r = d.relations[k][i];
+            out += std::string(i ? "," : "") + "{\"first\":" + Quote(r.first) + ",\"second\":" + Quote(r.second) +
+                   ",\"start\":" + DateOrNull(r.has_start, r.start_year, r.start_month, r.start_day) +
+                   ",\"end\":" + DateOrNull(r.has_end, r.end_year, r.end_month, r.end_day);
+            if (!r.subject_type.empty()) out += ",\"subject_type\":" + Quote(r.subject_type);
+            out += "}";
+        }
+        out += "]";
+    }
+    out += ",\"rivals\":" + TagList(d.rivals) + ",\"overlord\":" + (d.overlord.empty() ? "null" : Quote(d.overlord)) +
+           ",\"subjects\":" + TagList(d.subjects);
+    out += ",\"player\":" + (d.player.empty() ? std::string("null") : Quote(d.player)) +
+           ",\"toward_player\":" + StatusObject(d.toward_player) + ",\"player_toward\":" + StatusObject(d.player_toward);
+    return out + "}";
+}
+
+}  // namespace
+
 std::string ExtrasMembers(const ScopeExtras& e) {
     std::string out = ",\"flags\":";
     if (e.flags_read) {
@@ -161,6 +207,7 @@ std::string ExtrasMembers(const ScopeExtras& e) {
             out += "null";
         }
     }
+    if (e.country) out += ",\"diplomacy\":" + (e.diplomacy_read ? DiplomacyObject(e.diplomacy) : std::string("null"));
     std::string missing;
     const auto add = [&](const char* name, const std::string& why) {
         missing += std::string(missing.empty() ? "" : ",") + "\"" + name + "\":" + Quote(why);
@@ -168,6 +215,7 @@ std::string ExtrasMembers(const ScopeExtras& e) {
     if (!e.flags_read) add("flags", e.flags_missing);
     if (!e.variables_read) add("variables", e.variables_missing);
     if (e.country && !e.pending_read) add("pending_events", e.pending_missing);
+    if (e.country && !e.diplomacy_read) add("diplomacy", e.diplomacy_missing);
     if (!missing.empty()) out += ",\"missing\":{" + missing + "}";
     return out;
 }

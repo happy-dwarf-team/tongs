@@ -724,8 +724,10 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         country answers ok with exists: false; a tag the game does not know is unknown_country.
         Also flags ({name, date}) and variables ({name, value}) from Anvil 1.20's anvil-game.world,
         and pending_events (from Anvil 1.21: pending_id, key, title, province, options, hidden,
-        auto_select), the events waiting for that country's choice: null when they cannot be read,
-        with the reason in `missing`."""
+        auto_select), the events waiting for that country's choice, and diplomacy (from Anvil 1.22:
+        relations by kind with first/second/start/end, rivals, overlord, subjects, and
+        toward_player / player_toward with the cached opinion, trust, favors and truce): null when
+        they cannot be read, with the reason in `missing`."""
         return await call(_line("country", tag, timeout=timeout))
 
     @tool(READ)

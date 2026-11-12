@@ -150,7 +150,109 @@ void ReadPending(const GameWorldService* world, const std::string& tag, ScopeExt
     out.pending_read = true;
 }
 
+constexpr const char* kNoDiplomacy = "anvil-game.world has no diplomacy: it needs Anvil 1.22 or newer";
+constexpr std::uint32_t kRelationKinds = 8;
+constexpr std::uint32_t kMaxTags = 4096;  // a list of tags taken as plausible
+
+std::string TagText(const GameTag& t) { return std::string(t.text, strnlen(t.text, sizeof(t.text))); }
+
+// A list of tags from a call, grown once to the count it gave.
+int ReadTags(const std::function<int(GameTag*, std::uint32_t, std::uint32_t*)>& call, std::vector<std::string>& out) {
+    std::vector<GameTag> tags(16);
+    std::uint32_t count = 0;
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        const int r = call(tags.data(), static_cast<std::uint32_t>(tags.size()), &count);
+        if (r != kOk) return r;
+        if (count <= tags.size() || count > kMaxTags) break;
+        tags.resize(count);
+    }
+    out.clear();
+    for (std::size_t i = 0; i < std::min<std::size_t>(count, tags.size()); ++i) out.push_back(TagText(tags[i]));
+    return kOk;
+}
+
+StatusRaw Status(const GameWorldService* world, const std::string& from, const std::string& to) {
+    GameDiplomacyStatus s{};
+    s.size = sizeof(s);
+    StatusRaw out;
+    if (world->diplomacy_status(from.c_str(), to.c_str(), &s) != kOk) return out;
+    out.read = true;
+    out.opinion = s.opinion;
+    out.timed_sum = s.timed_sum;
+    out.trust = s.trust;
+    out.favors = s.favors;
+    out.truce = (s.flags & 0x1u) != 0;
+    return out;
+}
+
+void ReadDiplomacy(const GameWorldService* world, const std::string& tag, ScopeExtras& out) {
+    DiplomacyRaw& d = out.diplomacy;
+    for (std::uint32_t kind = 0; kind < kRelationKinds; ++kind) {
+        std::vector<GameRelation> list(16);
+        std::uint32_t count = 0;
+        for (int attempt = 0; attempt < 4; ++attempt) {
+            const int r = world->country_relations(tag.c_str(), kind, list.data(), static_cast<std::uint32_t>(list.size()), &count);
+            if (r != kOk) {
+                out.diplomacy = {};
+                out.diplomacy_missing = Why("country_relations", r, "diplomacy");
+                return;
+            }
+            if (count <= list.size() || count > kMaxTags) break;
+            list.resize(count);
+        }
+        for (std::size_t i = 0; i < std::min<std::size_t>(count, list.size()); ++i) {
+            const GameRelation& g = list[i];
+            RelationRaw rel;
+            rel.first = TagText(g.first);
+            rel.second = TagText(g.second);
+            rel.has_start = g.start.size != 0;
+            rel.start_year = g.start.year, rel.start_month = g.start.month, rel.start_day = g.start.day;
+            rel.has_end = g.end.size != 0;
+            rel.end_year = g.end.year, rel.end_month = g.end.month, rel.end_day = g.end.day;
+            if (kind == 6 && rel.first == tag) {  // ANVIL_GAME_RELATION_DEPENDENCY: the overlord's subject
+                char text[128] = {};
+                std::uint32_t length = 0;
+                if (world->subject_type(tag.c_str(), rel.second.c_str(), text, sizeof(text), &length) == kOk) {
+                    rel.subject_type.assign(text, strnlen(text, sizeof(text)));
+                }
+            }
+            d.relations[kind].push_back(std::move(rel));
+        }
+    }
+    int r = ReadTags([&](GameTag* o, std::uint32_t c, std::uint32_t* n) { return world->country_rivals(tag.c_str(), o, c, n); },
+                     d.rivals);
+    if (r == kOk) {
+        r = ReadTags([&](GameTag* o, std::uint32_t c, std::uint32_t* n) { return world->country_subjects(tag.c_str(), o, c, n); },
+                     d.subjects);
+    }
+    if (r != kOk) {
+        out.diplomacy = {};
+        out.diplomacy_missing = Why("country_rivals / country_subjects", r, "diplomacy");
+        return;
+    }
+    GameTag overlord{};
+    if (world->country_overlord(tag.c_str(), &overlord) == kOk) d.overlord = TagText(overlord);  // NOT_FOUND: none
+    GameTag player{};
+    if (world->player != nullptr && world->player(&player) == kOk && TagText(player) != tag) {
+        d.player = TagText(player);
+        if (!d.player.empty()) {
+            d.toward_player = Status(world, tag, d.player);
+            d.player_toward = Status(world, d.player, tag);
+        }
+    }
+    out.diplomacy_read = true;
+}
+
 }  // namespace
+
+bool HasDiplomacy(const GameWorldService* world) {
+    return world != nullptr && Has(world, &GameWorldService::country_relations, offsetof(GameWorldService, country_relations)) &&
+           Has(world, &GameWorldService::subject_type, offsetof(GameWorldService, subject_type)) &&
+           Has(world, &GameWorldService::diplomacy_status, offsetof(GameWorldService, diplomacy_status)) &&
+           Has(world, &GameWorldService::country_rivals, offsetof(GameWorldService, country_rivals)) &&
+           Has(world, &GameWorldService::country_overlord, offsetof(GameWorldService, country_overlord)) &&
+           Has(world, &GameWorldService::country_subjects, offsetof(GameWorldService, country_subjects));
+}
 
 bool HasPending(const GameWorldService* world) {
     return world != nullptr && Has(world, &GameWorldService::pending_events, offsetof(GameWorldService, pending_events)) &&
@@ -177,7 +279,7 @@ void ReadCountryExtras(const GameWorldService* world, std::string_view tag, Scop
     out = {};
     out.country = true;
     if (world == nullptr) {
-        out.flags_missing = out.variables_missing = out.pending_missing = kNoService;
+        out.flags_missing = out.variables_missing = out.pending_missing = out.diplomacy_missing = kNoService;
         return;
     }
     const std::string t(tag);
@@ -185,6 +287,11 @@ void ReadCountryExtras(const GameWorldService* world, std::string_view tag, Scop
         ReadPending(world, t, out);
     } else {
         out.pending_missing = kNoPending;
+    }
+    if (HasDiplomacy(world)) {
+        ReadDiplomacy(world, t, out);
+    } else {
+        out.diplomacy_missing = kNoDiplomacy;
     }
     if (HasFlags(world)) {
         ReadFlags(world, [&](GameFlag* f, std::uint32_t cap, std::uint32_t* n) { return world->country_flags(t.c_str(), f, cap, n); },

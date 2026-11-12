@@ -95,9 +95,27 @@ struct GamePendingEvent {  // AnvilGamePendingEvent (anvil-game 1.21)
 };
 static_assert(sizeof(GamePendingEvent) == 48);
 
-// AnvilGameWorldService up to province_view (anvil-game 1.21); the
+struct GameRelation {  // AnvilGameRelation (anvil-game 1.22)
+    GameTag first;
+    GameTag second;
+    WorldDate start;  // size 0: none
+    WorldDate end;
+};
+static_assert(sizeof(GameRelation) == 56);
+
+struct GameDiplomacyStatus {  // AnvilGameDiplomacyStatus (anvil-game 1.22)
+    std::uint32_t size;
+    std::int32_t opinion;
+    std::int32_t timed_sum;
+    std::uint32_t trust;
+    std::int32_t favors;  // x 1000
+    std::uint32_t flags;  // 0x1: truce
+};
+static_assert(sizeof(GameDiplomacyStatus) == 24);
+
+// AnvilGameWorldService up to country_subjects (anvil-game 1.22); the
 // members Tongs does not call are kept as plain pointers so the offsets match.
-// Older tables are shorter: HasUnits, HasFlags / HasVariables and HasPending check `size`.
+// Older tables are shorter: HasUnits, HasFlags / HasVariables, HasPending and HasDiplomacy check `size`.
 struct GameWorldService {
     std::uint32_t size;
     int (*player)(GameTag* out);
@@ -144,6 +162,14 @@ struct GameWorldService {
     void* province_timed_modifiers;
     void* province_timed_modifier_keys;
     void* province_view;
+    // anvil-game 1.22
+    int (*country_relations)(const char* tag, std::uint32_t kind, GameRelation* out, std::uint32_t capacity,
+                             std::uint32_t* count);
+    int (*subject_type)(const char* overlord, const char* subject, char* utf8, std::uint32_t capacity, std::uint32_t* length);
+    int (*diplomacy_status)(const char* from, const char* to, GameDiplomacyStatus* out);
+    int (*country_rivals)(const char* tag, GameTag* out, std::uint32_t capacity, std::uint32_t* count);
+    int (*country_overlord)(const char* tag, GameTag* out);
+    int (*country_subjects)(const char* tag, GameTag* out, std::uint32_t capacity, std::uint32_t* count);
 };
 
 constexpr const char* kGameWorldService = "anvil-game.world";

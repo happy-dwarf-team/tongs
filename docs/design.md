@@ -2856,6 +2856,29 @@ with Anvil built from `main` after 1.21.0, the same calls). With Anvil
 1.20.0 (Steam) `pending_events` was `null` and `missing` said it needs Anvil
 1.21. `client_calls_total` stayed 0; the console call is the test's own.
 
+### Diplomacy of a country (0.34.0, Anvil 1.22)
+
+`country TAG` also answers `diplomacy`, through the six calls Anvil 1.22
+appends to `anvil-game.world` (`country_relations`, `subject_type`,
+`diplomacy_status`, `country_rivals`, `country_overlord`, `country_subjects`,
+anvil#344). `src/game_commands.hpp` copies the table up to `country_subjects`
+and `HasDiplomacy` checks `size`.
+
+- **After the pending events**, on the same frame, by the tag the game stores:
+  the eight relation kinds in Anvil's order (16 entries, then the count the
+  first call gave), the subject type of each dependency the country is first in,
+  rivals and subjects (16 tags, then the count), the overlord
+  (`ANVIL_ERROR_NOT_FOUND`: none).
+- **Toward the player and back.** The player's tag from the service's `player`
+  (the observed country in observe mode); when it is another country,
+  `diplomacy_status` both ways. A status the service refuses (a country without
+  provinces, a cache that does not reach a country released since) is `null`;
+  the rest of `diplomacy` stays.
+- **Saying what is missing** as for flags: a failed relation, rival or subject
+  list, a table shorter than 1.22, or no service give `diplomacy: null` and a
+  sentence in `missing`. A province answer has no `diplomacy`.
+- Still a world read: not counted, never marking a run.
+
 ## Navigation (0.21.0)
 
 Release 0.21 of the [scenario support v1 spec](spec/scenarios-v1.md)
