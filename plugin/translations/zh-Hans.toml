@@ -1,0 +1,22 @@
+# The plugin's texts in Simplified Chinese: the description in plugin.toml and the
+# settings' texts in settings.toml, each by its English words.
+# Change them together with the English text: anvil check reports an entry that no longer matches.
+status = "draft"            # "checked" once a native speaker checked it
+
+[text]
+"Control EU4 from scripts and agents: a local command pipe that reads the state of a running game and, when allowed, uses its keyboard and mouse and runs console commands." = "通过脚本和代理控制 EU4：一个本地命令管道，可读取运行中游戏的状态，并在允许时操作其键盘和鼠标、执行控制台命令。"
+"Open the pipe" = "打开管道"
+"Opens the local pipe \\\\.\\pipe\\tongs for the current Windows user, so that scripts and agents can read the game's state." = "为当前 Windows 用户打开本地管道 \\\\.\\pipe\\tongs，让脚本和代理可以读取游戏状态。"
+"Keyboard, mouse and navigation commands" = "键盘、鼠标和导航命令"
+"Also accepts the keyboard and mouse commands (pause, speed, run_until, key, text, click...): input queued in the game's own SDL input, as a player's would be, and a hook so that the interface sees the mouse pointer; and navigation (province open, province goto), which moves the camera and opens a province's view as the game's own links do." = "同时接受键盘和鼠标命令（pause、speed、run_until、key、text、click……）：输入像玩家操作一样排入游戏自身的 SDL 输入队列，并通过一个钩子让界面看到鼠标指针；还接受导航命令（province open、province goto），它们会像游戏自带的链接一样移动镜头并打开省份视图。"
+"Command journal" = "命令日志"
+"Writes every command a script or agent sends on the pipe, with its outcome and the game date, to anvil/data/tongs/journal/ (one file per game start, the newest 20 kept), so a test can be followed and repeated. Nothing of it goes into the game, its saves or multiplayer." = "将脚本或代理通过管道发送的每条命令连同结果和游戏日期写入 anvil/data/tongs/journal/（每次启动游戏一个文件，保留最新的 20 个），以便追踪和重复测试。这些内容不会进入游戏、存档或多人游戏。"
+"Game calls (console commands)" = "游戏调用（控制台命令）"
+"Also accepts `console LINE`: console commands run by the game's own code on its main thread. They CHANGE GAME STATE; every call is counted and logged. enable_all_commands and the achievement and social commands are always refused." = "同时接受 `console LINE`：由游戏自身代码在其主线程上执行的控制台命令。它们会改变游戏状态；每次调用都会被计数并记录。enable_all_commands 以及成就和社交命令始终会被拒绝。"
+"Game calls" = "游戏调用"
+"Allowed danger commands" = "允许的危险命令"
+"Danger commands that game calls may run besides the safe ones, as names separated by commas or spaces, e.g. \"leak\"." = "除安全命令外，游戏调用还可以执行的危险命令，名称之间用逗号或空格分隔，例如 \"leak\"。"
+"Game calls in ironman" = "铁人模式中的游戏调用"
+"Game calls in an ironman game. Anvil also has to allow Tongs in ironman (allow_ironman = [\"tongs\"] in anvil/anvil.toml)." = "铁人模式游戏中的游戏调用。Anvil 也必须允许 Tongs 在铁人模式中运行（在 anvil/anvil.toml 中设置 allow_ironman = [\"tongs\"]）。"
+"Game calls in multiplayer" = "多人游戏中的游戏调用"
+"Game calls in a multiplayer game. Anvil also has to allow Tongs in multiplayer (allow_multiplayer = [\"tongs\"] in anvil/anvil.toml)." = "多人游戏中的游戏调用。Anvil 也必须允许 Tongs 在多人游戏中运行（在 anvil/anvil.toml 中设置 allow_multiplayer = [\"tongs\"]）。"

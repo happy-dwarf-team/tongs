@@ -42,7 +42,7 @@ if(MSVC)
     target_compile_options(tongs_core PUBLIC /W4 /utf-8 /permissive- /EHsc)
 endif()
 
-# The plugin folder <build>/plugin/tongs/{plugin.toml, symbols.toml, settings.toml, tongs.dll}:
+# The plugin folder <build>/plugin/tongs/{plugin.toml, symbols.toml, settings.toml, translations/, tongs.dll}:
 # anvil gen writes symbols.gen.hpp and settings.gen.hpp from plugin/, and
 # tongs-check runs `anvil check plugin` (with -DEU4_EXE=<eu4.exe> it also
 # verifies the symbols and rewrites plugin/symbols.lock).
@@ -61,11 +61,12 @@ if(TONGS_BUILD_TESTS)
     endif()
     add_test(NAME core COMMAND test_core)
     add_test(NAME core_save_load_fault COMMAND test_core save-load-fault)
-    # symbols.lock matches symbols.toml and says "ok" (anvil check without the game).
-    add_test(NAME anvil_check COMMAND "${ANVIL_SDK_TOOL}" check "${CMAKE_CURRENT_SOURCE_DIR}/plugin")
+    # symbols.lock matches symbols.toml and says "ok" (anvil check without the game),
+    # and every text has a translation in all eight files of plugin/translations/.
+    add_test(NAME anvil_check COMMAND "${ANVIL_SDK_TOOL}" check "${CMAKE_CURRENT_SOURCE_DIR}/plugin" --complete-translations)
 endif()
 
-# Plugin folder layout: <prefix>/tongs/{plugin.toml, symbols.toml, settings.toml, tongs.dll, LICENSE, include/}
+# Plugin folder layout: <prefix>/tongs/{plugin.toml, symbols.toml, settings.toml, translations/, tongs.dll, LICENSE, include/}
 install(DIRECTORY ${CMAKE_BINARY_DIR}/plugin/tongs/ DESTINATION tongs COMPONENT plugin)
 install(FILES LICENSE DESTINATION tongs COMPONENT plugin)
 # The tongs.ui header for consumers (include/tongs/tongs_ui.h), inside the plugin folder:

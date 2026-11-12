@@ -101,10 +101,11 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
 
-      # The schemas of plugin.toml, symbols.toml and settings.toml, and symbols.lock against
+      # The schemas of plugin.toml, symbols.toml and settings.toml, every text of them in all
+      # eight files of plugin/translations/ (--complete-translations), and symbols.lock against
       # symbols.toml (CI has no eu4.exe: `anvil check plugin --exe` writes the lock locally).
       - name: Anvil check
-        run: build/_deps/anvil_sdk-src/bin/anvil.exe check plugin --format github
+        run: build/_deps/anvil_sdk-src/bin/anvil.exe check plugin --format github --complete-translations
 
       - name: Package
         shell: pwsh

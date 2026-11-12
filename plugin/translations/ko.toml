@@ -1,0 +1,22 @@
+# The plugin's texts in Korean: the description in plugin.toml and the
+# settings' texts in settings.toml, each by its English words.
+# Change them together with the English text: anvil check reports an entry that no longer matches.
+status = "draft"            # "checked" once a native speaker checked it
+
+[text]
+"Control EU4 from scripts and agents: a local command pipe that reads the state of a running game and, when allowed, uses its keyboard and mouse and runs console commands." = "스크립트와 에이전트로 EU4를 제어합니다. 실행 중인 게임의 상태를 읽고, 허용하면 키보드와 마우스를 사용하고 콘솔 명령을 실행하는 로컬 명령 파이프입니다."
+"Open the pipe" = "파이프 열기"
+"Opens the local pipe \\\\.\\pipe\\tongs for the current Windows user, so that scripts and agents can read the game's state." = "현재 Windows 사용자에게 로컬 파이프 \\\\.\\pipe\\tongs를 열어 스크립트와 에이전트가 게임 상태를 읽을 수 있게 합니다."
+"Keyboard, mouse and navigation commands" = "키보드, 마우스, 이동 명령"
+"Also accepts the keyboard and mouse commands (pause, speed, run_until, key, text, click...): input queued in the game's own SDL input, as a player's would be, and a hook so that the interface sees the mouse pointer; and navigation (province open, province goto), which moves the camera and opens a province's view as the game's own links do." = "키보드와 마우스 명령(pause, speed, run_until, key, text, click...)도 받습니다. 입력은 플레이어의 입력처럼 게임 자체의 SDL 입력 대기열에 들어가고, 후크로 인터페이스가 마우스 포인터를 인식합니다. 이동 명령(province open, province goto)은 게임 자체의 링크처럼 카메라를 옮기고 프로빈스 화면을 엽니다."
+"Command journal" = "명령 기록"
+"Writes every command a script or agent sends on the pipe, with its outcome and the game date, to anvil/data/tongs/journal/ (one file per game start, the newest 20 kept), so a test can be followed and repeated. Nothing of it goes into the game, its saves or multiplayer." = "스크립트나 에이전트가 파이프로 보낸 모든 명령을 결과와 게임 날짜와 함께 anvil/data/tongs/journal/에 기록합니다(게임을 시작할 때마다 파일 하나, 최신 20개 보관). 테스트를 추적하고 반복할 수 있습니다. 게임, 세이브, 멀티플레이에는 아무것도 들어가지 않습니다."
+"Game calls (console commands)" = "게임 호출(콘솔 명령)"
+"Also accepts `console LINE`: console commands run by the game's own code on its main thread. They CHANGE GAME STATE; every call is counted and logged. enable_all_commands and the achievement and social commands are always refused." = "`console LINE`도 받습니다. 게임 자체 코드가 메인 스레드에서 실행하는 콘솔 명령입니다. 이 명령은 게임 상태를 바꿉니다. 모든 호출은 세어지고 기록됩니다. enable_all_commands와 업적 및 소셜 명령은 항상 거부됩니다."
+"Game calls" = "게임 호출"
+"Allowed danger commands" = "허용할 위험 명령"
+"Danger commands that game calls may run besides the safe ones, as names separated by commas or spaces, e.g. \"leak\"." = "안전한 명령 외에 게임 호출이 실행할 수 있는 위험 명령입니다. 이름을 쉼표나 공백으로 구분합니다(예: \"leak\")."
+"Game calls in ironman" = "철인 모드에서 게임 호출"
+"Game calls in an ironman game. Anvil also has to allow Tongs in ironman (allow_ironman = [\"tongs\"] in anvil/anvil.toml)." = "철인 모드 게임에서의 게임 호출입니다. Anvil도 철인 모드에서 Tongs를 허용해야 합니다(anvil/anvil.toml의 allow_ironman = [\"tongs\"])."
+"Game calls in multiplayer" = "멀티플레이에서 게임 호출"
+"Game calls in a multiplayer game. Anvil also has to allow Tongs in multiplayer (allow_multiplayer = [\"tongs\"] in anvil/anvil.toml)." = "멀티플레이 게임에서의 게임 호출입니다. Anvil도 멀티플레이에서 Tongs를 허용해야 합니다(anvil/anvil.toml의 allow_multiplayer = [\"tongs\"])."

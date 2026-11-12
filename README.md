@@ -225,6 +225,11 @@ variables (for example `ANVIL_TONGS_ENABLED=true`) override a value for one
 start, without changing the file. An `anvil/data/tongs/config.toml` from Tongs
 0.12 or older is moved into `settings.toml` on the first start.
 
+With Anvil 1.20 or newer, the Anvil panel and Anvil Manager show these settings and Tongs' description in the player's
+language: French, German, Spanish, Simplified and Traditional Chinese, Japanese, Korean or
+Polish, from [`plugin/translations/`](plugin/translations/). The translations are drafts that native speakers
+have not checked yet; a correction is welcome in an issue or a pull request.
+
 ## Help and bug reports
 
 Questions about Tongs, its clients or the MCP server go to the `#help-and-bugs`
@@ -240,7 +245,7 @@ privately, as [SECURITY.md](SECURITY.md) says.
 Visual Studio 2022 (or Build Tools) with the C++ workload, CMake ≥ 3.25, Git.
 Tongs builds with the [Anvil SDK](https://github.com/happy-dwarf-team/anvil/blob/main/sdk/README.md)
 (`anvil_add_plugin`, `anvil gen`, `anvil check`). The first configure downloads
-the SDK archive of the Anvil release that `cmake/AnvilSdk.cmake` pins (1.7.0,
+the SDK archive of the Anvil release that `cmake/AnvilSdk.cmake` pins (1.20.0,
 checked against its SHA-256) into `build/_deps/anvil_sdk-src`;
 `-DTONGS_ANVIL_SDK=<sdk>` uses an unpacked SDK instead, for example one
 installed from a local Anvil checkout (`cmake --install <anvil build> --component sdk`).
@@ -253,7 +258,7 @@ cmake --install build --config Release --component plugin --prefix dist
 ```
 
 The plugin folder is `build/plugin/tongs/` (`plugin.toml`, `symbols.toml`,
-`settings.toml`, `tongs.dll`). `ctest` includes `anvil check plugin`, which
+`settings.toml`, `translations/`, `tongs.dll`). `ctest` includes `anvil check plugin`, which
 fails when `plugin/symbols.lock` does not match `plugin/symbols.toml`; after a
 change of the symbols, verify them against the game and rewrite the lock:
 
