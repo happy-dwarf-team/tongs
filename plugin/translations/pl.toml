@@ -1,0 +1,22 @@
+# The plugin's texts in Polish: the description in plugin.toml and the
+# settings' texts in settings.toml, each by its English words.
+# Change them together with the English text: anvil check reports an entry that no longer matches.
+status = "draft"            # "checked" once a native speaker checked it
+
+[text]
+"Control EU4 from scripts and agents: a local command pipe that reads the state of a running game and, when allowed, uses its keyboard and mouse and runs console commands." = "Sterowanie EU4 ze skryptów i agentów: lokalny potok poleceń, który odczytuje stan działającej gry, a jeśli na to pozwolisz, używa jej klawiatury i myszy oraz wykonuje polecenia konsoli."
+"Open the pipe" = "Otwórz potok"
+"Opens the local pipe \\\\.\\pipe\\tongs for the current Windows user, so that scripts and agents can read the game's state." = "Otwiera lokalny potok \\\\.\\pipe\\tongs dla bieżącego użytkownika Windows, aby skrypty i agenci mogli odczytywać stan gry."
+"Keyboard, mouse and navigation commands" = "Polecenia klawiatury, myszy i nawigacji"
+"Also accepts the keyboard and mouse commands (pause, speed, run_until, key, text, click...): input queued in the game's own SDL input, as a player's would be, and a hook so that the interface sees the mouse pointer; and navigation (province open, province goto), which moves the camera and opens a province's view as the game's own links do." = "Przyjmuje też polecenia klawiatury i myszy (pause, speed, run_until, key, text, click...): wejście dodawane do kolejki SDL samej gry, tak jak wejście gracza, oraz hook, dzięki któremu interfejs widzi wskaźnik myszy; a także nawigację (province open, province goto), która przesuwa kamerę i otwiera widok prowincji tak jak linki samej gry."
+"Command journal" = "Dziennik poleceń"
+"Writes every command a script or agent sends on the pipe, with its outcome and the game date, to anvil/data/tongs/journal/ (one file per game start, the newest 20 kept), so a test can be followed and repeated. Nothing of it goes into the game, its saves or multiplayer." = "Zapisuje każde polecenie, które skrypt lub agent wysyła potokiem, z jego wynikiem i datą w grze, w anvil/data/tongs/journal/ (jeden plik na uruchomienie gry, zostaje 20 najnowszych), aby można było prześledzić i powtórzyć test. Nic z tego nie trafia do gry, jej zapisów ani do gry wieloosobowej."
+"Game calls (console commands)" = "Wywołania gry (polecenia konsoli)"
+"Also accepts `console LINE`: console commands run by the game's own code on its main thread. They CHANGE GAME STATE; every call is counted and logged. enable_all_commands and the achievement and social commands are always refused." = "Przyjmuje też `console LINE`: polecenia konsoli wykonywane przez kod samej gry w jej wątku głównym. ZMIENIAJĄ STAN GRY; każde wywołanie jest liczone i zapisywane w logu. enable_all_commands oraz polecenia osiągnięć i społecznościowe są zawsze odrzucane."
+"Game calls" = "Wywołania gry"
+"Allowed danger commands" = "Dozwolone polecenia niebezpieczne"
+"Danger commands that game calls may run besides the safe ones, as names separated by commas or spaces, e.g. \"leak\"." = "Polecenia niebezpieczne, które wywołania gry mogą wykonywać obok bezpiecznych, jako nazwy oddzielone przecinkami lub spacjami, np. \"leak\"."
+"Game calls in ironman" = "Wywołania gry w trybie ironman"
+"Game calls in an ironman game. Anvil also has to allow Tongs in ironman (allow_ironman = [\"tongs\"] in anvil/anvil.toml)." = "Wywołania gry w rozgrywce ironman. Anvil też musi zezwolić na Tongs w trybie ironman (allow_ironman = [\"tongs\"] w anvil/anvil.toml)."
+"Game calls in multiplayer" = "Wywołania gry w grze wieloosobowej"
+"Game calls in a multiplayer game. Anvil also has to allow Tongs in multiplayer (allow_multiplayer = [\"tongs\"] in anvil/anvil.toml)." = "Wywołania gry w rozgrywce wieloosobowej. Anvil też musi zezwolić na Tongs w grze wieloosobowej (allow_multiplayer = [\"tongs\"] w anvil/anvil.toml)."

@@ -1,0 +1,22 @@
+# The plugin's texts in Japanese: the description in plugin.toml and the
+# settings' texts in settings.toml, each by its English words.
+# Change them together with the English text: anvil check reports an entry that no longer matches.
+status = "draft"            # "checked" once a native speaker checked it
+
+[text]
+"Control EU4 from scripts and agents: a local command pipe that reads the state of a running game and, when allowed, uses its keyboard and mouse and runs console commands." = "スクリプトやエージェントから EU4 を操作します。実行中のゲームの状態を読み取り、許可した場合はキーボードとマウスを操作してコンソールコマンドを実行する、ローカルのコマンドパイプです。"
+"Open the pipe" = "パイプを開く"
+"Opens the local pipe \\\\.\\pipe\\tongs for the current Windows user, so that scripts and agents can read the game's state." = "現在の Windows ユーザー向けにローカルパイプ \\\\.\\pipe\\tongs を開き、スクリプトやエージェントがゲームの状態を読み取れるようにします。"
+"Keyboard, mouse and navigation commands" = "キーボード、マウス、ナビゲーションのコマンド"
+"Also accepts the keyboard and mouse commands (pause, speed, run_until, key, text, click...): input queued in the game's own SDL input, as a player's would be, and a hook so that the interface sees the mouse pointer; and navigation (province open, province goto), which moves the camera and opens a province's view as the game's own links do." = "キーボードとマウスのコマンド（pause、speed、run_until、key、text、click…）も受け付けます。入力はプレイヤーの操作と同じくゲーム自身の SDL 入力に積まれ、フックによってインターフェースがマウスポインターを認識します。ナビゲーション（province open、province goto）は、ゲーム内のリンクと同じようにカメラを動かしてプロヴィンスの画面を開きます。"
+"Command journal" = "コマンド記録"
+"Writes every command a script or agent sends on the pipe, with its outcome and the game date, to anvil/data/tongs/journal/ (one file per game start, the newest 20 kept), so a test can be followed and repeated. Nothing of it goes into the game, its saves or multiplayer." = "スクリプトやエージェントがパイプに送ったすべてのコマンドを、結果とゲーム内の日付とともに anvil/data/tongs/journal/ に書き込みます（ゲームの起動ごとに 1 ファイル、最新の 20 件を保持）。テストを追跡して再現できます。ゲーム、セーブ、マルチプレイには何も入りません。"
+"Game calls (console commands)" = "ゲーム呼び出し（コンソールコマンド）"
+"Also accepts `console LINE`: console commands run by the game's own code on its main thread. They CHANGE GAME STATE; every call is counted and logged. enable_all_commands and the achievement and social commands are always refused." = "`console LINE` も受け付けます。ゲーム自身のコードがメインスレッドで実行するコンソールコマンドです。これはゲームの状態を変更します。呼び出しはすべて数えられ、ログに記録されます。enable_all_commands と実績・ソーシャル関連のコマンドは常に拒否されます。"
+"Game calls" = "ゲーム呼び出し"
+"Allowed danger commands" = "許可する危険なコマンド"
+"Danger commands that game calls may run besides the safe ones, as names separated by commas or spaces, e.g. \"leak\"." = "安全なコマンドに加えてゲーム呼び出しが実行できる危険なコマンド。名前をカンマまたは空白で区切って指定します（例: \"leak\"）。"
+"Game calls in ironman" = "アイアンマンでのゲーム呼び出し"
+"Game calls in an ironman game. Anvil also has to allow Tongs in ironman (allow_ironman = [\"tongs\"] in anvil/anvil.toml)." = "アイアンマンのゲームでのゲーム呼び出し。Anvil でもアイアンマンでの Tongs を許可する必要があります（anvil/anvil.toml に allow_ironman = [\"tongs\"]）。"
+"Game calls in multiplayer" = "マルチプレイでのゲーム呼び出し"
+"Game calls in a multiplayer game. Anvil also has to allow Tongs in multiplayer (allow_multiplayer = [\"tongs\"] in anvil/anvil.toml)." = "マルチプレイのゲームでのゲーム呼び出し。Anvil でもマルチプレイでの Tongs を許可する必要があります（anvil/anvil.toml に allow_multiplayer = [\"tongs\"]）。"

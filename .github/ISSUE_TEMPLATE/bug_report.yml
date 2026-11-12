@@ -26,7 +26,7 @@ body:
     id: versions
     attributes:
       label: Plugin and Anvil versions
-      description: "From `anvil/anvil.log`, e.g. `Anvil 1.0.0` and `tongs 0.12.0: loaded`, or the `ping` answer."
+      description: "From `anvil/anvil.log`, e.g. `Anvil 1.20.0` and `tongs 0.32.0: loaded`, or the `ping` answer."
     validations:
       required: true
   - type: input
