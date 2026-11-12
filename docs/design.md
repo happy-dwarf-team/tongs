@@ -2789,6 +2789,18 @@ table up to `province_view` (1.21) and `HasPending` checks `size`.
   A province answer has no `pending_events`.
 - Still a world read: not counted, never marking a run.
 
+Checked in the game (12 November 2026) in lab copies of Steam 1.37.5 and GOG
+1.37.5.2 with the Anvil 1.21.0 release, on the Russia save of 17 March 1719 and a
+lab mod whose `anvtest.10` opens for the player and fires a hidden player event,
+a province event in the capital and an event for TUR (from the console, paused).
+On both builds `country RUS` gave `anvtest.12` (province 33, 3 options) and
+`anvtest.10` (2 options) with the same `pending_id`s as `event list` read from
+their windows, before and after three days at speed 1; the hidden event and
+TUR's never showed up (`country TUR` stayed `[]`). After `event choose` on
+`anvtest.10` the list held only `anvtest.12`, as the windows did. With Anvil
+1.20.0 (Steam) `pending_events` was `null` and `missing` said it needs Anvil
+1.21. `client_calls_total` stayed 0; the console call is the test's own.
+
 ## Navigation (0.21.0)
 
 Release 0.21 of the [scenario support v1 spec](spec/scenarios-v1.md)
