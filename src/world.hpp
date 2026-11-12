@@ -38,10 +38,27 @@ struct VariableRaw {
     std::int32_t value = 0;
 };
 
-// Flags and variables of one scope, read through anvil-game.world (world_flags.cpp).
-// When a list could not be read, `*_missing` says why and the answer has `null`
-// for it, never an empty list.
+// An event waiting for a country's choice (anvil-game.world, Anvil 1.21).
+struct PendingRaw {
+    std::int32_t id = 0;     // the pending id the event window and `event choose` know
+    std::string key;         // "flavor_tur.203"
+    std::string title;       // its title's localisation key
+    std::int32_t province = 0;  // 0: a country event
+    std::uint32_t options = 0;
+    bool hidden = false;
+    std::int32_t year = 0;   // the game chooses for the player the day after
+    std::uint32_t month = 0;
+    std::uint32_t day = 0;
+};
+
+// Flags and variables of one scope, read through anvil-game.world (world_flags.cpp),
+// and for a country (`country` set) its pending events. When a list could not be
+// read, `*_missing` says why and the answer has `null` for it, never an empty list.
 struct ScopeExtras {
+    bool country = false;
+    bool pending_read = false;
+    std::vector<PendingRaw> pending;
+    std::string pending_missing;
     bool flags_read = false;
     std::vector<FlagRaw> flags;
     std::string flags_missing;
@@ -112,8 +129,9 @@ WorldFailure ParseWorldRequest(std::string_view command, std::string_view argume
 // The bucket the game files a tag in: its three characters, upper-cased, summed, & mask.
 int TagBucket(std::string_view tag, int mask);
 
-// `,"flags":[...],"variables":[...]`, with `null` for a list that was not read and
-// then `,"missing":{"flags":"why",...}` naming each such list.
+// `,"flags":[...],"variables":[...]` (and `,"pending_events":[...]` for a country), with
+// `null` for a list that was not read and then `,"missing":{"flags":"why",...}` naming
+// each such list.
 std::string ExtrasMembers(const ScopeExtras& e);
 
 // The answer members of each read, each starting with a comma.

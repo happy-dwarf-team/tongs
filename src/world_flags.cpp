@@ -104,7 +104,60 @@ void ReadVariables(const NamesCall& names_call, const ValueCall& value_call, con
     out.variables_read = true;
 }
 
+constexpr std::uint32_t kMaxPending = 4096;  // pending events of one country taken as plausible
+constexpr const char* kNoPending = "anvil-game.world has no pending events: they need Anvil 1.21 or newer";
+constexpr std::uint32_t kPendingHidden = 0x1;  // ANVIL_GAME_PENDING_HIDDEN
+
+using TextCall = int (*)(std::int32_t, char*, std::uint32_t, std::uint32_t*);
+
+// The text a call gives, or an empty one when it fails (the event left meanwhile).
+std::string Text(TextCall call, std::int32_t id) {
+    char text[512] = {};
+    std::uint32_t length = 0;
+    if (call(id, text, sizeof(text), &length) != kOk) return {};
+    return std::string(text, strnlen(text, sizeof(text)));
+}
+
+void ReadPending(const GameWorldService* world, const std::string& tag, ScopeExtras& out) {
+    std::vector<std::int32_t> ids(16);
+    std::uint32_t count = 0;
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        const int r = world->pending_events(tag.c_str(), ids.data(), static_cast<std::uint32_t>(ids.size()), &count);
+        if (r != kOk) {
+            out.pending_missing = Why("pending_events", r, "pending event");
+            return;
+        }
+        if (count <= ids.size() || count > kMaxPending) break;
+        ids.resize(count);
+    }
+    ids.resize(std::min<std::size_t>(count, ids.size()));
+    for (const std::int32_t id : ids) {
+        GamePendingEvent e{};
+        e.size = sizeof(e);
+        if (world->pending_event(id, &e) != kOk) continue;  // chosen between the two calls
+        PendingRaw p;
+        p.id = e.pending_id;
+        p.key = Text(world->pending_event_key, id);
+        p.title = Text(world->pending_event_title, id);
+        p.province = e.province;
+        p.options = e.options;
+        p.hidden = (e.flags & kPendingHidden) != 0;
+        p.year = e.auto_select.year;
+        p.month = e.auto_select.month;
+        p.day = e.auto_select.day;
+        out.pending.push_back(std::move(p));
+    }
+    out.pending_read = true;
+}
+
 }  // namespace
+
+bool HasPending(const GameWorldService* world) {
+    return world != nullptr && Has(world, &GameWorldService::pending_events, offsetof(GameWorldService, pending_events)) &&
+           Has(world, &GameWorldService::pending_event, offsetof(GameWorldService, pending_event)) &&
+           Has(world, &GameWorldService::pending_event_key, offsetof(GameWorldService, pending_event_key)) &&
+           Has(world, &GameWorldService::pending_event_title, offsetof(GameWorldService, pending_event_title));
+}
 
 bool HasFlags(const GameWorldService* world) {
     return world != nullptr && Has(world, &GameWorldService::flag_name, offsetof(GameWorldService, flag_name)) &&
@@ -122,11 +175,17 @@ bool HasVariables(const GameWorldService* world) {
 
 void ReadCountryExtras(const GameWorldService* world, std::string_view tag, ScopeExtras& out) {
     out = {};
+    out.country = true;
     if (world == nullptr) {
-        out.flags_missing = out.variables_missing = kNoService;
+        out.flags_missing = out.variables_missing = out.pending_missing = kNoService;
         return;
     }
     const std::string t(tag);
+    if (HasPending(world)) {
+        ReadPending(world, t, out);
+    } else {
+        out.pending_missing = kNoPending;
+    }
     if (HasFlags(world)) {
         ReadFlags(world, [&](GameFlag* f, std::uint32_t cap, std::uint32_t* n) { return world->country_flags(t.c_str(), f, cap, n); },
                   "country_flags", out);

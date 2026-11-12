@@ -143,12 +143,32 @@ std::string ExtrasMembers(const ScopeExtras& e) {
     } else {
         out += "null";
     }
-    if (!e.flags_read || !e.variables_read) {
-        out += ",\"missing\":{";
-        if (!e.flags_read) out += "\"flags\":" + Quote(e.flags_missing);
-        if (!e.variables_read) out += std::string(e.flags_read ? "" : ",") + "\"variables\":" + Quote(e.variables_missing);
-        out += "}";
+    if (e.country) {
+        out += ",\"pending_events\":";
+        if (e.pending_read) {
+            out += "[";
+            for (std::size_t i = 0; i < e.pending.size(); ++i) {
+                const PendingRaw& p = e.pending[i];
+                out += std::string(i ? "," : "") + "{\"pending_id\":" + std::to_string(p.id) + ",\"key\":" + Quote(p.key) +
+                       ",\"title\":" + Quote(p.title) + ",\"province\":" +
+                       (p.province != 0 ? std::to_string(p.province) : std::string("null")) +
+                       ",\"options\":" + std::to_string(p.options) + ",\"hidden\":" + Bool(p.hidden) +
+                       ",\"auto_select\":\"" + std::to_string(p.year) + "." + std::to_string(p.month) + "." +
+                       std::to_string(p.day) + "\"}";
+            }
+            out += "]";
+        } else {
+            out += "null";
+        }
     }
+    std::string missing;
+    const auto add = [&](const char* name, const std::string& why) {
+        missing += std::string(missing.empty() ? "" : ",") + "\"" + name + "\":" + Quote(why);
+    };
+    if (!e.flags_read) add("flags", e.flags_missing);
+    if (!e.variables_read) add("variables", e.variables_missing);
+    if (e.country && !e.pending_read) add("pending_events", e.pending_missing);
+    if (!missing.empty()) out += ",\"missing\":{" + missing + "}";
     return out;
 }
 

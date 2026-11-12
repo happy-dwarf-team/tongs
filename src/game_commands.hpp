@@ -84,9 +84,20 @@ struct GameFlag {  // AnvilGameFlag (anvil-game 1.20)
 };
 static_assert(sizeof(GameFlag) == 32);
 
-// AnvilGameWorldService up to province_variable_names (anvil-game 1.20); the
+struct GamePendingEvent {  // AnvilGamePendingEvent (anvil-game 1.21)
+    std::uint32_t size;
+    std::int32_t pending_id;
+    GameTag country;
+    std::int32_t province;
+    std::uint32_t options;
+    std::uint32_t flags;  // 0x1: hidden
+    WorldDate auto_select;
+};
+static_assert(sizeof(GamePendingEvent) == 48);
+
+// AnvilGameWorldService up to province_view (anvil-game 1.21); the
 // members Tongs does not call are kept as plain pointers so the offsets match.
-// Older tables are shorter: HasUnits and HasFlags / HasVariables check `size`.
+// Older tables are shorter: HasUnits, HasFlags / HasVariables and HasPending check `size`.
 struct GameWorldService {
     std::uint32_t size;
     int (*player)(GameTag* out);
@@ -122,6 +133,17 @@ struct GameWorldService {
     int (*province_variable)(std::int32_t province, const char* name, std::int32_t* value);
     int (*country_variable_names)(const char* tag, char* names, std::uint32_t capacity, std::uint32_t* length);
     int (*province_variable_names)(std::int32_t province, char* names, std::uint32_t capacity, std::uint32_t* length);
+    // anvil-game 1.21
+    int (*pending_events)(const char* tag, std::int32_t* ids, std::uint32_t capacity, std::uint32_t* count);
+    int (*pending_event)(std::int32_t pending_id, GamePendingEvent* out);
+    int (*pending_event_key)(std::int32_t pending_id, char* utf8, std::uint32_t capacity, std::uint32_t* length);
+    int (*pending_event_title)(std::int32_t pending_id, char* utf8, std::uint32_t capacity, std::uint32_t* length);
+    void* country_statistics;
+    void* country_timed_modifiers;
+    void* country_timed_modifier_keys;
+    void* province_timed_modifiers;
+    void* province_timed_modifier_keys;
+    void* province_view;
 };
 
 constexpr const char* kGameWorldService = "anvil-game.world";
