@@ -2765,6 +2765,30 @@ was read: 3,299 scopes per build.
 run. Not compared with `print_flags` / `print_prov_flags`, which are game
 calls; the save the game wrote is the reference instead.
 
+### Pending events of a country (0.34.0)
+
+`country TAG` also answers `pending_events`, the events waiting for that
+country's choice, through the calls Anvil 1.21 appends to `anvil-game.world`
+(`pending_events`, `pending_event`, `pending_event_key`, `pending_event_title`,
+anvil#329), again without addresses of Tongs. `src/game_commands.hpp` copies the
+table up to `province_view` (1.21) and `HasPending` checks `size`.
+
+- **After the flags and variables**, on the same frame, by the tag the game
+  stores: `pending_events(tag)` with 16 ids and again with the count the first
+  call gave, then each entry, its key and its title. An entry chosen between
+  the list and its read is left out.
+- **What Anvil counts.** The game keeps every country's events in one list and
+  an AI's choice or a hidden event leaves it at once, so Anvil counts an entry
+  only from its second frame; the save's waiting entries count right after a
+  load, hidden ones too (`hidden`). Tongs passes that on unchanged.
+- **Not the windows.** `event list` stays Tongs' own read of the event windows,
+  with their texts and enabled buttons; the pending ids are the same ones, so a
+  script can match the two.
+- **Saying what is missing** as for flags: `null` and a sentence in `missing`
+  (`"anvil-game.world has no pending events: they need Anvil 1.21 or newer"`).
+  A province answer has no `pending_events`.
+- Still a world read: not counted, never marking a run.
+
 ## Navigation (0.21.0)
 
 Release 0.21 of the [scenario support v1 spec](spec/scenarios-v1.md)

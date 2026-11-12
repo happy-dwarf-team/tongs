@@ -707,8 +707,10 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         """One country by tag (case-insensitive), read on the main thread: tag, exists (owns a
         province), province_count, provinces (IDs), capital (null when none) and observer. A dead
         country answers ok with exists: false; a tag the game does not know is unknown_country.
-        Also flags ({name, date}) and variables ({name, value}) from Anvil 1.20's anvil-game.world:
-        null when they cannot be read, with the reason in `missing`."""
+        Also flags ({name, date}) and variables ({name, value}) from Anvil 1.20's anvil-game.world,
+        and pending_events (from Anvil 1.21: pending_id, key, title, province, options, hidden,
+        auto_select), the events waiting for that country's choice: null when they cannot be read,
+        with the reason in `missing`."""
         return await call(_line("country", tag, timeout=timeout))
 
     @tool(READ)

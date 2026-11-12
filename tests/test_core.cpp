@@ -4012,9 +4012,44 @@ GameFlag Flag(std::int32_t id, std::int32_t year, std::uint32_t month, std::uint
     return f;
 }
 
+// Pending events (Anvil 1.21): RUS waits for 5 (a country event) and 8 (hidden, in province 295).
+int pending_result = 0;
+std::vector<std::int32_t> pending_ids;
+int PendingEvents(const char* tag, std::int32_t* ids, std::uint32_t capacity, std::uint32_t* count) {
+    if (pending_result != 0) return pending_result;
+    if (std::string(tag) != "RUS") return 11;
+    *count = static_cast<std::uint32_t>(pending_ids.size());
+    for (std::uint32_t i = 0; i < capacity && i < pending_ids.size(); ++i) ids[i] = pending_ids[i];
+    return 0;
+}
+int PendingEvent(std::int32_t id, GamePendingEvent* out) {
+    if (id != 5 && id != 8) return 11;  // 9: chosen between the two calls
+    out->pending_id = id;
+    out->province = id == 8 ? 295 : 0;
+    out->options = id == 8 ? 1 : 3;
+    out->flags = id == 8 ? 1 : 0;
+    out->auto_select = {sizeof(WorldDate), 1719, 7, 17, 1};
+    return 0;
+}
+int Text(const char* text, char* utf8, std::uint32_t capacity, std::uint32_t* length) {
+    *length = static_cast<std::uint32_t>(std::strlen(text));
+    std::snprintf(utf8, capacity, "%s", text);
+    return 0;
+}
+int PendingKey(std::int32_t id, char* utf8, std::uint32_t capacity, std::uint32_t* length) {
+    return Text(id == 8 ? "flavor_zim.4" : "flavor_rus.1", utf8, capacity, length);
+}
+int PendingTitle(std::int32_t id, char* utf8, std::uint32_t capacity, std::uint32_t* length) {
+    return Text(id == 8 ? "" : "flavor_rus.1.t", utf8, capacity, length);
+}
+
 GameWorldService Table() {
     GameWorldService w{};
     w.size = sizeof(GameWorldService);
+    w.pending_events = PendingEvents;
+    w.pending_event = PendingEvent;
+    w.pending_event_key = PendingKey;
+    w.pending_event_title = PendingTitle;
     w.flag_name = FlagName;
     w.country_flags = CountryFlags;
     w.province_flags = ProvinceFlags;
@@ -4037,10 +4072,11 @@ static void TestWorldFlagsAndVariables() {
     ScopeExtras e;
     ReadCountryExtras(&w, "RUS", e);
     assert(e.flags_read && e.variables_read && e.flags.size() == 2 && e.variables.size() == 2);
+    assert(e.pending_read && e.pending.empty());
     std::string out = ExtrasMembers(e);
     assert(out == ",\"flags\":[{\"name\":\"rus_reform_done\",\"date\":\"1700.1.1\"},{\"name\":\"peter_the_great\","
                   "\"date\":\"1719.3.17\"}],\"variables\":[{\"name\":\"reforms\",\"value\":3},"
-                  "{\"name\":\"debt_ratio\",\"value\":-1.25}]");
+                  "{\"name\":\"debt_ratio\",\"value\":-1.25}],\"pending_events\":[]");
 
     // A country without any: empty lists, not null and no `missing`.
     flags.clear();
@@ -4066,12 +4102,13 @@ static void TestWorldFlagsAndVariables() {
     ReadCountryExtras(&w, "RUS", e);
     out = ExtrasMembers(e);
     assert(!e.flags_read && !e.variables_read);
-    assert(Contains(out, ",\"flags\":null,\"variables\":null,\"missing\":{\"flags\":\"this game build has no flag symbols (country_flags)\","
+    assert(Contains(out, ",\"flags\":null,\"variables\":null,\"pending_events\":[],\"missing\":{\"flags\":\"this game build has no flag symbols (country_flags)\","
                          "\"variables\":\"this game build has no variable symbols (country_variable_names)\"}"));
     flag_result = 10;
     names_result = 0;
     ReadCountryExtras(&w, "RUS", e);
-    assert(ExtrasMembers(e) == ",\"flags\":null,\"variables\":[],\"missing\":{\"flags\":\"country_flags answered 10\"}");
+    assert(ExtrasMembers(e) ==
+           ",\"flags\":null,\"variables\":[],\"pending_events\":[],\"missing\":{\"flags\":\"country_flags answered 10\"}");
     flag_result = 0;
 
     // An older Anvil: the table ends at selected_units (1.15) or there is no service.
@@ -4079,9 +4116,10 @@ static void TestWorldFlagsAndVariables() {
     old.size = static_cast<std::uint32_t>(offsetof(GameWorldService, monarch));
     assert(!HasFlags(&old) && !HasVariables(&old));
     ReadCountryExtras(&old, "RUS", e);
-    assert(Contains(ExtrasMembers(e), "\"flags\":null,\"variables\":null,\"missing\":{\"flags\":\"anvil-game.world has no flags: "
-                                      "they need Anvil 1.20 or newer\",\"variables\":\"anvil-game.world has no variables: they need "
-                                      "Anvil 1.20 or newer\"}"));
+    assert(Contains(ExtrasMembers(e), "\"flags\":null,\"variables\":null,\"pending_events\":null,\"missing\":{\"flags\":"
+                                      "\"anvil-game.world has no flags: they need Anvil 1.20 or newer\",\"variables\":\"anvil-game."
+                                      "world has no variables: they need Anvil 1.20 or newer\",\"pending_events\":\"anvil-game.world "
+                                      "has no pending events: they need Anvil 1.21 or newer\"}"));
     ReadProvinceExtras(nullptr, 295, e);
     assert(Contains(ExtrasMembers(e), "\"missing\":{\"flags\":\"anvil-game.world is not loaded"));
 
@@ -4089,7 +4127,45 @@ static void TestWorldFlagsAndVariables() {
     CountryRaw c;
     c.tag = "RUS";
     ReadCountryExtras(&w, "RUS", c.extras);
-    assert(CountryMembers(c).ends_with(",\"observer\":false,\"flags\":[],\"variables\":[]"));
+    assert(CountryMembers(c).ends_with(",\"observer\":false,\"flags\":[],\"variables\":[],\"pending_events\":[]"));
+}
+
+static void TestWorldPendingEvents() {
+    using namespace fake_world;
+    GameWorldService w = Table();
+    assert(HasPending(&w));
+    pending_ids = {5, 9, 8};  // 9 is chosen between the list and its read
+    ScopeExtras e;
+    ReadCountryExtras(&w, "RUS", e);
+    assert(e.pending_read && e.pending.size() == 2);
+    const std::string out = ExtrasMembers(e);
+    assert(Contains(out, ",\"pending_events\":[{\"pending_id\":5,\"key\":\"flavor_rus.1\",\"title\":\"flavor_rus.1.t\","
+                         "\"province\":null,\"options\":3,\"hidden\":false,\"auto_select\":\"1719.7.17\"},{\"pending_id\":8,"
+                         "\"key\":\"flavor_zim.4\",\"title\":\"\",\"province\":295,\"options\":1,\"hidden\":true,"
+                         "\"auto_select\":\"1719.7.17\"}]"));
+    // A long list takes a second call.
+    pending_ids.assign(40, 5);
+    ReadCountryExtras(&w, "RUS", e);
+    assert(e.pending.size() == 40);
+    // Another country's list, and a failed list said plainly.
+    pending_ids = {5};
+    ReadCountryExtras(&w, "TUR", e);
+    assert(!e.pending_read && Contains(ExtrasMembers(e), "\"pending_events\":null") &&
+           Contains(ExtrasMembers(e), "\"pending_events\":\"pending_events answered 11\""));
+    pending_result = 2;
+    ReadCountryExtras(&w, "RUS", e);
+    assert(Contains(ExtrasMembers(e), "\"pending_events\":\"this game build has no pending event symbols (pending_events)\""));
+    pending_result = 0;
+    // A 1.20 table: flags and variables, no pending events. Provinces never have the list.
+    GameWorldService old = Table();
+    old.size = static_cast<std::uint32_t>(offsetof(GameWorldService, pending_events));
+    assert(!HasPending(&old) && HasFlags(&old));
+    ReadCountryExtras(&old, "RUS", e);
+    assert(Contains(ExtrasMembers(e), ",\"pending_events\":null,\"missing\":{\"pending_events\":\"anvil-game.world has no pending "
+                                      "events: they need Anvil 1.21 or newer\"}"));
+    ReadProvinceExtras(&w, 295, e);
+    assert(!Contains(ExtrasMembers(e), "pending_events"));
+    pending_ids.clear();
 }
 
 static void TestWorldAnswers() {
@@ -5227,6 +5303,7 @@ int main(int argc, char** argv) {
     TestWorldParsing();
     TestWorldAnswers();
     TestWorldFlagsAndVariables();
+    TestWorldPendingEvents();
     TestWorldCommands();
     TestCursorCommand();
     TestNavigationRules();
