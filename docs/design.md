@@ -2797,7 +2797,8 @@ On both builds `country RUS` gave `anvtest.12` (province 33, 3 options) and
 `anvtest.10` (2 options) with the same `pending_id`s as `event list` read from
 their windows, before and after three days at speed 1; the hidden event and
 TUR's never showed up (`country TUR` stayed `[]`). After `event choose` on
-`anvtest.10` the list held only `anvtest.12`, as the windows did. With Anvil
+`anvtest.10` the list held only `anvtest.12`, as the windows did (that step
+with Anvil built from `main` after 1.21.0, the same calls). With Anvil
 1.20.0 (Steam) `pending_events` was `null` and `missing` said it needs Anvil
 1.21. `client_calls_total` stayed 0; the console call is the test's own.
 
