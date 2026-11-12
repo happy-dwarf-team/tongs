@@ -2749,19 +2749,21 @@ hand it one of their own.
 - They stay world reads: not counted, never marking a run, also in ironman and
   multiplayer and while Anvil suspends Tongs.
 
-Checked in the game (11 November 2026), with Anvil built from `main` (e035589,
-before the 1.20 release) in a lab copy of the Steam build, on a vanilla save of
-17 March 1719:
+Checked in the game (11 and 12 November 2026) in lab copies of each build, on
+a vanilla save of 17 March 1719, against the `flags` / `variables` blocks of
+the save itself. Every country and every province that has flags or variables
+was read: 3,299 scopes per build.
 
-| Check | Result |
-| --- | --- |
-| `country` for every country in the save (RUS: 110 flags, 47 variables) | names, dates and values equal to the save's `flags` / `variables` |
-| `province` for every province with flags or variables | equal to the save |
-| `game_calls_total`, `client_calls_total` after the reads | 0 and 0 |
+| Build | Anvil | Result |
+| --- | --- | --- |
+| Steam 1.37.5 | `main` e035589 (before 1.20.0) | all equal to the save in names, dates and values (RUS: 110 flags, 47 variables) |
+| GOG 1.37.5.2 | 1.20.0 (release) | all equal to the save |
+| GOG 1.37.5.0 | 1.20.0 (release) | all equal to the save |
+| Steam 1.37.5 | 1.19.0 (release) | `country RUS` and `province 295`: `flags` and `variables` are `null`, `missing` says they need Anvil 1.20; the rest of the answer as before |
 
-Not checked yet: the GOG builds, the `missing` answer with Anvil 1.19, and a
-comparison with `print_flags` / `print_prov_flags` (a game call; the save the
-game wrote is the reference used instead).
+`game_calls_total` and `client_calls_total` stayed 0 after the reads in every
+run. Not compared with `print_flags` / `print_prov_flags`, which are game
+calls; the save the game wrote is the reference instead.
 
 ## Navigation (0.21.0)
 
