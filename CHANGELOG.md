@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.0](https://github.com/happy-dwarf-team/tongs/compare/v0.32.0...v0.33.0) (2026-11-12)
+
+### Features
+
+* **pipe:** `country TAG` and `province ID` (`tongs_country` and `tongs_province` in MCP) also answer the scope's flags, with the date each was set, and its variables, with the value as the game's triggers compare it. A province's flags are the ones `has_province_flag` sees. Tongs reads them through Anvil's `anvil-game.world`, so they need Anvil 1.20 or newer; with an older Anvil both lists are `null`, `missing` says why and the rest of the answer is the same, so Tongs still runs on Anvil 1.7 and later. These are world reads: they are not counted and never mark a run. Tested in the lab on a base-game save of 17 March 1719: on Steam 1.37.5 and on GOG 1.37.5.2 and 1.37.5.0 with Anvil 1.20.0, all 3,299 countries and provinces with flags or variables matched the save in names, dates and values, and with Anvil 1.19.0 both lists were `null`. Not tried in multiplayer or ironman. ([#188](https://github.com/happy-dwarf-team/tongs/issues/188)) ([8c9e498](https://github.com/happy-dwarf-team/tongs/commit/8c9e498bf4c28f7e56422ceb59f7d5f67b398c89))
+* With Anvil 1.20 or newer, Tongs' settings and description show in the player's language: French, German, Spanish, Simplified and Traditional Chinese, Japanese, Korean and Polish. The texts are drafts that native speakers have not checked yet, and an older Anvil shows them in English. Tested in the lab on Steam: the overlay's settings tab showed Tongs' settings in Polish and in Simplified Chinese. Anvil Manager and the other six languages were not checked in the game. ([#189](https://github.com/happy-dwarf-team/tongs/issues/189)) ([e468e86](https://github.com/happy-dwarf-team/tongs/commit/e468e8695f8c06b8690071e6aa5e1efa09790a45))
+
 ## [0.32.0](https://github.com/happy-dwarf-team/tongs/compare/v0.31.0...v0.32.0) (2026-11-11)
 
 ### Features
