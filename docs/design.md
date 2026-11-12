@@ -74,6 +74,44 @@ window for agents that need to look.
   `unsubscribe` (see "Notifications"). The server stays blocking, with one
   thread per instance.
 
+### The socket under Wine
+
+Wine and Proton keep named pipes inside the wineserver, so a native Linux client cannot open `\\.\pipe\tongs`, and
+Wine has no `AF_UNIX` sockets to put one next to it. Winsock sockets, on the other hand, are host sockets. With `bridge =
+true` Tongs also serves the pipe's commands on a socket on `127.0.0.1`, which a native client reaches directly: no relay,
+no second program.
+
+- **Off by default, and Wine only.** It needs `enabled = true` as well (it serves the same commands, after the pipe
+  started). On Windows the setting is ignored with a warning: Windows clients use the pipe, whose DACL has no counterpart
+  on a TCP port. Wine is detected through `wine_get_version` in `ntdll`.
+- **Where it listens.** `127.0.0.1` on a free port, one listener thread, one thread per client, at most 8 clients at once
+  (a ninth is told `ERR busy`; at most 16 are told at a time, the rest are dropped).
+- **The state file.** Tongs writes `{"port": N, "token": "...", "pid": N}` to `bridge.json` in `bridge_folder`, which
+  defaults to `tongs/` in the XDG state folder: `$XDG_STATE_HOME`, else `~/.local/state`. The host's home is `WINEHOMEDIR`,
+  which Wine and Proton set (newer Wine also renames the host's `XDG_*` and `HOME` to `WINE_HOST_*`; Tongs reads either
+  name). `$XDG_RUNTIME_DIR` is no choice: Steam's container gives a game a private one, so a file there never reaches the
+  host. The token is 128 random bits from `BCryptGenRandom`, made at every start. Without a known home and without
+  `bridge_folder` the socket does not start. The file is replaced atomically and stays after the game ends; a client then
+  gets a refused connection. Wine cannot set a Unix mode, so the folder gets the default one: do not rely on it, see the
+  user check below.
+- **The same user.** Before the handshake Tongs looks up the connection in the host's `/proc/net/tcp` (Wine and Proton
+  can read it) and refuses, with `ERR wrong user`, a client whose socket belongs to another Linux user than the game's.
+  A token that reaches another user is therefore of no use to them. Where `/proc/net/tcp` cannot be read or does not
+  list the connection, the token alone decides.
+- **The first line.** A client sends `RELAY <token> tongs` and is answered `OK` or `ERR <reason>`; from then on it
+  speaks the pipe's protocol, line by line. The line is the one Anvil's pipe relay uses, so one client speaks to both. A
+  client that does not send it within five seconds is cut off (`ERR bad request`); a wrong token is `ERR bad token`, any
+  other pipe name `ERR pipe not served`.
+- **One serve loop.** `ServeClient` (`src/serve_client.cpp`) serves a `Channel`, which is the named pipe or the socket,
+  so both behave the same: framing, `subscribe`, the journal. A subscription ends when its socket closes, which the loop
+  finds out without a request (`select` and `MSG_PEEK`).
+- **What it protects against and what not.** Another user of the machine cannot connect: it needs the token and must be
+  the same user. A program of the same Linux user can read the token, as it could read the game's memory: it is the same
+  trust as the pipe for the same Windows user.
+- **Tests.** `tests/test_bridge.cpp` runs the server in-process with Winsock clients: the state file, the refusals, a
+  round trip, a subscription that ends with its client, the handshake timeout and the limit of 8. The Python client is
+  tested against a fake in `mcp/tests/test_bridge.py`.
+
 ## State reading (EU4 1.37.5)
 
 Found with Ghidra and confirmed on a running game in the lab repository

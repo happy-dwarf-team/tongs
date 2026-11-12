@@ -50,3 +50,17 @@ default = false
 label = "Game calls in multiplayer"
 description = "Game calls in a multiplayer game. Anvil also has to allow Tongs in multiplayer (allow_multiplayer = [\"tongs\"] in anvil/anvil.toml)."
 group = "Game calls"
+
+[setting.bridge]
+type = "bool"
+default = false
+label = "Loopback socket under Wine"
+description = "Under Wine and Proton, also serves the pipe's commands on a socket on 127.0.0.1, so that a native Linux client can reach Tongs without a relay. It needs Open the pipe. The port and a token go to bridge.json in the folder below, which only you should be able to enter. Ignored on Windows."
+group = "Wine and Proton"
+
+[setting.bridge_folder]
+type = "string"
+default = ""
+label = "Folder of bridge.json"
+description = "Where bridge.json goes, as a Unix path such as /run/user/1000/tongs or a Windows path. Empty means ~/.local/state/tongs. Whoever can read the token can drive the game, so use a folder only you can enter."
+group = "Wine and Proton"

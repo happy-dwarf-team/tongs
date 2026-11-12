@@ -15,6 +15,8 @@ struct Config {
     bool enabled = false;
     bool input = false;
     bool journal = true;
+    bool bridge = false;        // also serve the pipe's commands on a loopback socket, under Wine only
+    std::string bridge_folder;  // where its bridge.json goes; empty: ~/.local/state/tongs
     GameCallPolicy game_calls;  // game_calls, game_calls_ironman, game_calls_multiplayer, console_allow
     std::vector<std::string> notes;  // problems found while reading, for the log
 };

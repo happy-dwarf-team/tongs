@@ -26,6 +26,7 @@
 #include "pipe_server.hpp"
 #include "screenshot.hpp"
 #include "settings.hpp"
+#include "socket_server.hpp"
 
 #include <anvil/anvil.hpp>
 #include <anvil/anvil_game.h>
@@ -355,8 +356,16 @@ struct Tongs : anvil::Plugin {
                 tongs::CountClientCall(handlers, "tongs.navigation open_province", handlers.read_state());
             }
         });
-        tongs::StartPipeServer(handlers, Log);
-        // A pipe that failed to start only turns the plugin into a no-op.
+        // A pipe that failed to start only turns the plugin into a no-op (and there is no socket without it).
+        if (tongs::StartPipeServer(handlers, Log) && config.bridge) {
+            if (!tongs::RunningUnderWine()) {
+                host.warn("bridge = true is ignored: the socket is only for Wine and Proton; Windows clients use the pipe");
+            } else if (const auto folder = tongs::BridgeFolder(config.bridge_folder); folder.empty()) {
+                host.warn("bridge: no folder for bridge.json (the host's home is unknown; set bridge_folder)");
+            } else {
+                tongs::StartSocketServer(handlers, Log, folder);
+            }
+        }
     }
 };
 

@@ -20,3 +20,8 @@ status = "draft"            # "checked" once a native speaker checked it
 "Game calls in an ironman game. Anvil also has to allow Tongs in ironman (allow_ironman = [\"tongs\"] in anvil/anvil.toml)." = "철인 모드 게임에서의 게임 호출입니다. Anvil도 철인 모드에서 Tongs를 허용해야 합니다(anvil/anvil.toml의 allow_ironman = [\"tongs\"])."
 "Game calls in multiplayer" = "멀티플레이에서 게임 호출"
 "Game calls in a multiplayer game. Anvil also has to allow Tongs in multiplayer (allow_multiplayer = [\"tongs\"] in anvil/anvil.toml)." = "멀티플레이 게임에서의 게임 호출입니다. Anvil도 멀티플레이에서 Tongs를 허용해야 합니다(anvil/anvil.toml의 allow_multiplayer = [\"tongs\"])."
+"Loopback socket under Wine" = "Wine에서의 루프백 소켓"
+"Under Wine and Proton, also serves the pipe's commands on a socket on 127.0.0.1, so that a native Linux client can reach Tongs without a relay. It needs Open the pipe. The port and a token go to bridge.json in the folder below, which only you should be able to enter. Ignored on Windows." = "Wine과 Proton에서 파이프의 명령을 127.0.0.1의 소켓으로도 제공하여, 네이티브 Linux 클라이언트가 릴레이 없이 Tongs에 접속할 수 있게 합니다. '파이프 열기'가 필요합니다. 포트와 토큰은 아래 폴더의 bridge.json에 기록되며, 그 폴더에는 본인만 들어갈 수 있어야 합니다. Windows에서는 무시됩니다."
+"Folder of bridge.json" = "bridge.json 폴더"
+"Where bridge.json goes, as a Unix path such as /run/user/1000/tongs or a Windows path. Empty means ~/.local/state/tongs. Whoever can read the token can drive the game, so use a folder only you can enter." = "bridge.json을 기록할 위치를 /run/user/1000/tongs 같은 Unix 경로나 Windows 경로로 지정합니다. 비워 두면 ~/.local/state/tongs입니다. 토큰을 읽을 수 있는 사람은 게임을 조작할 수 있으므로, 본인만 들어갈 수 있는 폴더를 사용하세요."
+"Wine and Proton" = "Wine과 Proton"
