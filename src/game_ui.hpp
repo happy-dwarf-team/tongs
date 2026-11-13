@@ -6,6 +6,7 @@
 #include "ui_tree.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,7 @@ struct UiLayout : UiStructureLayout {
     unsigned slot_name = U32(sym::listbox_find_child.name_slot);  // returns const std::string*
     unsigned button_state = U32(sym::button_state.state);
     unsigned hovered = U32(sym::hover_callback.hovered);          // mgr: the topmost widget under the GUI pointer, written once per frame
+    unsigned text_target = U32(sym::edit_focus.target);           // mgr: the edit box with the keyboard focus (CEditBox+0x1D0), 0 = none
     // How a click under the pointer goes (docs/design.md, "Clicks through widgets").
     unsigned graphics = U32(sym::gui_graphics.graphics);          // mgr: the graphics object
     unsigned gui_scale = U32(sym::gui_scale.scale);               // graphics: the GUI scale (float)
@@ -225,6 +227,9 @@ std::string ReadUiTree(std::uintptr_t image_base, const UiLayout& layout, UiRect
 
 // Main thread: the widget the game hovers (mgr+0x130), 0 when none or unreadable.
 std::uintptr_t ReadHoveredWidget(std::uintptr_t image_base, const UiLayout& layout);
+// Whether an edit box has the keyboard focus: the GUI manager's text input target, which
+// CEditBox::GiveFocus sets and RemoveFocus clears. nullopt when the manager cannot be read.
+std::optional<bool> ReadTextFieldFocused(std::uintptr_t image_base, const UiLayout& layout);
 
 // Main thread: the widgets the game found under the pointer on the last frame,
 // topmost first (the order it hands them a click); empty when unreadable.

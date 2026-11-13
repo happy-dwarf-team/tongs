@@ -612,7 +612,8 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
     async def tongs_text(
         text: Annotated[str, Field(min_length=1, description="Characters U+0020-U+007E and U+00A0-U+00FF.")],
     ) -> CallToolResult:
-        """Types text into the focused text field of the game (click the field first)."""
+        """Types text into the focused text field of the game (click the field first). With no text
+        field focused the plugin sends nothing and answers no_text_field."""
         _check(text)
         return await call("text " + text)
 

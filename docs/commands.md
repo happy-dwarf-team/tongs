@@ -41,7 +41,7 @@ With `input = true` in the settings, also:
 | `speed N` | presses the speed up / down button one step at a time until the speed is `N` (1–5, as in the UI); works while paused |
 | `run_until DATE [speed=N] [timeout=S] [max_pause=S] [events=first\|stop]` | sets the speed, resumes, waits for the date and pauses again; for measuring how fast the game runs. `events=first` chooses the first enabled option of every event that opens on the way |
 | `key [MOD+]NAME` | presses one key: `a`–`z`, `0`–`9`, `f1`–`f12`, `space`, `return`, `escape`, `tab`, `backspace`, `delete`, `minus`, `equals`, `grave` (the console key on a US layout), `kp_plus`, `kp_minus`, `kp_enter`, arrows (`up`, `down`, `left`, `right`), `home`, `end`, `page_up`, `page_down`, and the left `shift`, `ctrl`, `alt` alone; with modifiers held while it is pressed, `MOD+` once each of `shift`, `ctrl` (or `control`), `alt`, in any order: `shift+left`, `ctrl+a`, `ctrl+shift+end` (see [Keys](#keys)) |
-| `text STRING` | types the rest of the line into the focused text field (characters U+0020–U+007E and U+00A0–U+00FF) |
+| `text STRING` | types the rest of the line into the focused text field (characters U+0020–U+007E and U+00A0–U+00FF); with no text field focused it sends nothing and answers `no_text_field` |
 | `move X Y` | points the mouse at client coordinates `X Y` (hovering shows tooltips) |
 | `click X Y [left\|right\|middle] [double]` | moves there and clicks |
 | `scroll STEPS [X Y]` | turns the wheel over the list or map under the pointer; positive scrolls up (zooms in on the map), negative down. With `X Y` it moves there first and lets the game see the pointer, as `click` does |
@@ -146,6 +146,15 @@ record of the keys held from these events and asks it for Shift, Ctrl and Alt,
 so a chord does what the player's does. Shift alone with a letter types the
 capital letter; other chords type nothing (a shifted digit or sign depends on
 the layout: use `text`).
+
+`text` types only into a text field with the keyboard focus. With none (no
+console open, no field clicked) it sends nothing and answers `no_text_field`.
+The check is the game's own text input target, which a field takes when it
+gets the focus. It is not always cleared when a window closes: after the save
+dialog was closed with Esc the target stayed on its hidden name field, and
+`text` was accepted again (and typed into that hidden field). So
+`no_text_field` is certain, but an `ok` does not prove that a visible field
+took the characters; check with `ui find` or a `screenshot`.
 
 In a text field (an edit box with the focus: the find box, the console, the
 year in the lobby) the keys do what the game's own text fields do for a
