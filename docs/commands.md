@@ -27,7 +27,7 @@ connection can instead carry notifications (see [Notifications](#notifications))
 | `units [TAG] [timeout=S]` | a country's armies and navies (the player's without `TAG`), through Anvil's `anvil-game.world` (see [Units](#units)) |
 | `cursor [timeout=S]` | what the game has under its pointer: the widget, the province and the army or navy, from the game's own state (see [Cursor](#cursor)) |
 | `wait_until DATE [timeout=S] [max_pause=S]` | waits (without touching the game) until the date reaches `DATE` (`1720.1.1` or `1720.1.1.12`); answers with the timing below |
-| `cancel` | ends every `wait_until` / `run_until` in progress and withdraws main-thread jobs still waiting for a frame (`withdrawn`) |
+| `cancel` | ends every `wait_until` / `run_until` in progress and withdraws main-thread jobs still waiting for a frame (`withdrawn`); a client that disconnects ends its own wait the same way (`client_left`) |
 | `subscribe KINDS [date=day\|month\|year]` | turns the connection into a stream of notifications (see [Notifications](#notifications)); `unsubscribe` ends it |
 | `journal` | the command journal of this game start: `enabled`, its `path`, `lines` and `truncated` (see [Journal](#journal)) |
 | `help` | list of commands, whether input commands are enabled and whether Anvil suspended Tongs (`suspended`, see [Safety](../README.md#safety)) |
@@ -105,6 +105,10 @@ default (`timeout=` up to 14 400 s). `max_pause=S` ends the wait with an error
 once the game has stayed paused for `S` seconds, e.g. on an event with a
 choice, instead of waiting for the timeout. A wait ends with an error when the
 game leaves the session: back to the menu, or a load (the `session` changes).
+It also ends when the client that sent it disconnects: `error` `client_left`,
+the same end as a `cancel`, so `run_until` pauses the game again. Nobody reads
+that answer; the [journal](#journal) has it. Before 0.34, a wait outlived its
+client: the game kept running until a `cancel`.
 
 The mouse commands also make the game's interface see the pointer at the given
 point (a hook on the game's cursor query), until `release` or until the real

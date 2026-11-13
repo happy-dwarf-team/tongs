@@ -363,7 +363,12 @@ verified), through the lab's launcher rules, `input = true`:
 
 `wait_until` polls the state every 10 ms (`std::chrono::steady_clock`, i.e.
 QueryPerformanceCounter; `GetTickCount64` would add ~16 ms steps) until the
-date reaches the target, a `cancel`, a timeout or the game is left.
+date reaches the target, a `cancel`, a timeout, the game is left or the
+client that sent it disconnects. For the last one `serve_client.cpp` opens a
+`ClientScope` around every request: each poll asks the connection whether it
+is still there (`PeekNamedPipe` on the pipe, a peek on the socket), on the
+same thread, so nothing else touches the handle. Until 0.33 a wait outlived its
+client and the game ran on until a `cancel` (lab test of tongs#195, 13.11.2026).
 `run_until` sets the speed and resumes under the input lock, waits without
 it, and pauses again. `wall_ms` runs from the start of the wait (just after
 the resume took hold) to the first poll that sees the target date; the error

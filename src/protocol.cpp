@@ -48,6 +48,10 @@ std::atomic<bool> g_game_calls_tripped{false};
 std::atomic<bool> g_speed_buttons_tripped{false};
 // The pipe instance (from 1) whose request this thread is handling, for `activity`.
 thread_local int t_client = 0;
+// Whether the client of this thread's request has left (ClientScope); null: no connection to watch.
+thread_local const std::function<bool()>* t_client_left = nullptr;
+
+bool ClientLeft() { return t_client_left != nullptr && (*t_client_left)(); }
 
 // An `activity` notification, when anyone subscribes to them.
 void PublishActivity(const Handlers& h, const std::string& members) {
@@ -467,6 +471,7 @@ struct WaitResult {
     bool cancelled = false;
     bool timed_out = false;
     bool left_game = false;
+    bool client_left = false;      // the client that sent the wait disconnected
     bool pause_limit = false;      // stopped by max_pause
     std::int32_t pause_raw = 0;    // date of the last pause that began while waiting
     std::int32_t start_raw = 0;    // date when the wait started
@@ -485,7 +490,7 @@ struct WaitResult {
 // Called between the polls of a wait with the game in it; returns false to end the wait.
 using PollHook = std::function<bool(WaitResult&)>;
 
-// Polls the date until it reaches `target`, a cancel, a timeout or the game is left.
+// Polls the date until it reaches `target`, a cancel, its client leaving, a timeout or the game is left.
 WaitResult WaitForDate(const Handlers& h, std::int32_t target, int timeout_s, int max_pause_s, const PollHook& hook = {}) {
     WaitResult w;
     const std::uint64_t generation = g_cancel_generation.load();
@@ -528,6 +533,10 @@ WaitResult WaitForDate(const Handlers& h, std::int32_t target, int timeout_s, in
         }
         if (g_cancel_generation.load() != generation) {
             w.cancelled = true;
+            break;
+        }
+        if (ClientLeft()) {
+            w.client_left = true;
             break;
         }
         if (max_pause_s > 0 && paused_since != 0 && now - paused_since >= static_cast<std::uint64_t>(max_pause_s) * 1000) {
@@ -583,6 +592,7 @@ std::string WaitFields(const WaitResult& w, std::int32_t target) {
 const char* WaitError(const WaitResult& w) {
     if (w.left_game) return "the game was left while waiting";
     if (w.cancelled) return "cancelled";
+    if (w.client_left) return "client_left";
     if (w.pause_limit) return "the game stayed paused longer than max_pause";
     if (w.timed_out) return "timeout before the target date";
     return nullptr;
@@ -2759,5 +2769,11 @@ std::string HandleRequest(std::string_view line, const Handlers& handlers, int c
     if (request.empty()) return Error("empty command");
     return Error("unknown command: " + std::string(request.substr(0, 64)));
 }
+
+ClientScope::ClientScope(std::function<bool()> left) : left_(std::move(left)), previous_(t_client_left) {
+    t_client_left = &left_;
+}
+
+ClientScope::~ClientScope() { t_client_left = previous_; }
 
 }  // namespace tongs

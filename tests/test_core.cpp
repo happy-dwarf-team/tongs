@@ -1136,6 +1136,24 @@ static void TestWaitUntil() {
     out = HandleRequest("wait_until 1800.1.1", h);
     assert(Contains(out, "\"ok\":false") && Contains(out, "the game was left while waiting") && Contains(out, "\"session\":2"));
     game.on_sleep = nullptr;
+
+    // The client that sent the wait disconnects (ClientScope, as serve_client.cpp opens it): the wait ends.
+    int probes = 0;
+    {
+        const ClientScope scope([&probes] { return ++probes >= 5; });
+        out = HandleRequest("wait_until 1800.1.1", h);
+    }
+    assert(Contains(out, "\"ok\":false") && Contains(out, "\"error\":\"client_left\"") && Contains(out, "\"reached\":false"));
+    assert(probes == 5);
+    // Without a scope nothing watches a connection: the same wait runs to its timeout.
+    out = HandleRequest("wait_until 1800.1.1 timeout=1", h);
+    assert(Contains(out, "timeout before the target date"));
+    // A client that is still there does not end it.
+    {
+        const ClientScope scope([] { return false; });
+        out = HandleRequest("wait_until 1800.1.1 timeout=1", h);
+    }
+    assert(Contains(out, "timeout before the target date") && !Contains(out, "client_left"));
 }
 
 static void TestRunUntil() {
@@ -1163,6 +1181,15 @@ static void TestRunUntil() {
     assert(!Contains(out, "overshoot_hours"));
     assert(game.state.paused_flag);
     game.on_sleep = nullptr;
+
+    // Its client disconnects while waiting: the same end as a cancel, the game paused again.
+    int checks = 0;
+    {
+        const ClientScope scope([&checks] { return ++checks >= 20; });
+        out = HandleRequest("run_until 1730.1.1", h);
+    }
+    assert(Contains(out, "\"ok\":false") && Contains(out, "\"error\":\"client_left\"") && Contains(out, "\"reached\":false"));
+    assert(game.state.paused_flag && Contains(out, "\"paused\":true"));
 
     // Timeout.
     // An event pauses the game in the middle of the stretch: max_pause stops the wait early.
