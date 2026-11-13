@@ -5,6 +5,13 @@ Universalis IV through commands with a verifiable answer.
 
 ## Language
 
+**Command type**:
+What a command may do to the game: read, input, client call or game call; a
+command of any type but read can make a run a marked run.
+_Avoid_: kind, class (ADR 0001 uses it for the console commands' danger
+classes), category; for a game command of `anvil-game.commands` say "game
+command type"
+
 **Game call**:
 Game code that Tongs runs on the game's main thread on a client's request and
 that changes or may change the state of the game; a console command is the
@@ -35,9 +42,15 @@ inside a game update or a save load; game calls, client calls and main-thread
 reads run only after outer frames.
 _Avoid_: tick, frame (unqualified)
 
+**Activity**:
+An input, a client call or a game call that Tongs carried out for a client;
+what makes a run a marked run, and what an `activity` notification reports.
+_Avoid_: action, operation, side effect
+
 **Marked run**:
-A stretch between two dates measured by Tongs during which at least one game
-call, client call or input from any client happened.
+A stretch between two dates measured by Tongs during which at least one
+activity happened, or a client call a consumer made through
+`tongs.navigation`.
 _Avoid_: tainted run, dirty run
 
 **Session**:

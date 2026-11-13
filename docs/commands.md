@@ -29,8 +29,9 @@ connection can instead carry notifications (see [Notifications](#notifications))
 | `wait_until DATE [timeout=S] [max_pause=S]` | waits (without touching the game) until the date reaches `DATE` (`1720.1.1` or `1720.1.1.12`); answers with the timing below |
 | `cancel` | ends every `wait_until` / `run_until` in progress and withdraws main-thread jobs still waiting for a frame (`withdrawn`); a client that disconnects ends its own wait the same way (`client_left`) |
 | `subscribe KINDS [date=day\|month\|year]` | turns the connection into a stream of notifications (see [Notifications](#notifications)); `unsubscribe` ends it |
+| `unsubscribe` | on a subscribed connection: ends the notifications and answers how many were `sent`, `dropped` and `discarded`; elsewhere `not subscribed` |
 | `journal` | the command journal of this game start: `enabled`, its `path`, `lines` and `truncated` (see [Journal](#journal)) |
-| `help` | list of commands, whether input commands are enabled and whether Anvil suspended Tongs (`suspended`, see [Safety](../README.md#safety)) |
+| `help` | list of commands (`commands`, the first words), whether input commands are enabled and whether Anvil suspended Tongs (`suspended`, see [Safety](../README.md#safety)), and `types`: the [command type](../GLOSSARY.md) of every command by its full name (`"province open":"client_call"`): `read`, `input`, `client_call` or `game_call`, as in [commands.json](commands.json) |
 
 With `input = true` in the settings, also:
 
@@ -94,9 +95,10 @@ while waiting, e.g. an event that pauses the game; with `paused_date`, the
 date of the last pause), `first_change_ms`, `inputs` (input commands any
 client sent during the wait; `run_until` does not count its own presses
 before and after it), `client_calls` (client calls any client made during the
-wait, [ADR 0003](adr/0003-client-calls.md): `province open` and `province
-goto`, see [Navigation](#navigation)) and
-`game_calls` (console commands any client ran during the wait), so a
+wait, [ADR 0003](adr/0003-client-calls.md): `province open`, `province
+goto` and `map_mode`, see [Navigation](#navigation)) and
+`game_calls` (console commands and save loads any client made during the
+wait); `help` names the type of every command (`types`), so a
 measurement can reject a run with any of them above 0, and treat a missing one
 (an older Tongs) as unknown;
 `run_until` also `start_speed` and `overshoot_hours` (game hours past the

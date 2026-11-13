@@ -102,7 +102,8 @@ npx @modelcontextprotocol/inspector uv run --frozen --directory C:\path\to\tongs
 | `tongs_run_until` | `run_until DATE [speed=N] [timeout=S] [max_pause=S] [events=first\|stop]` | input; long; progress |
 | `tongs_cancel` | `cancel` | ends every wait in progress |
 | `tongs_pause`, `tongs_resume`, `tongs_speed`, `tongs_key`, `tongs_text` | `pause`, `resume`, `speed N`, `key NAME`, `text STRING` | input |
-| `tongs_move`, `tongs_click_point`, `tongs_scroll`, `tongs_release` | `move X Y`, `click X Y [button] [double]`, `scroll STEPS [X Y]`, `release` | input |
+| `tongs_move`, `tongs_click_point`, `tongs_scroll` | `move X Y`, `click X Y [button] [double]`, `scroll STEPS [X Y]` | input |
+| `tongs_release` | `release` | hands the pointer back to the real mouse; needs `input = true`, but a read: not counted |
 | `tongs_ui_find`, `tongs_ui_tree` | `ui find SEL ...`, `ui tree [SEL] ...` | read on the main thread |
 | `tongs_ui_click` | `ui click SEL [timeout=S]` | input |
 | `tongs_event_list` | `event list [timeout=S]` | read on the main thread |
@@ -119,12 +120,20 @@ npx @modelcontextprotocol/inspector uv run --frozen --directory C:\path\to\tongs
   the same object is in `structuredContent`. An answer with `"ok": false` is
   returned with `isError: true`, so the agent sees the plugin's `error` field.
   Errors of the adapter itself (no pipe, a refused argument) are plain text.
-- **Input** tools work only with `input = true` and, like the pipe commands,
-  count in `inputs` of every `wait_until` / `run_until` in progress.
-  `tongs_console` works only with `game_calls = true`, changes game state and
-  counts in `game_calls` and `game_calls_total`: the run becomes a marked run
-  that measurements reject. The tool descriptions say so. Waits also answer
-  `client_calls` (ADR 0003; no tool makes one yet).
+- **Command types.** Every tool declares the plugin commands it sends and
+  their [command type](../GLOSSARY.md) (read, input, client call or game
+  call); the tests compare them with the plugin's command table in
+  [docs/commands.json](../docs/commands.json), which ctest keeps in step with
+  the plugin. The type gives the tool's safety note and, with what the tool
+  does on the MCP side (writes a file, ends other clients' waits, acts as the
+  player), its hints. Inputs and client calls work only with `input = true`
+  and count in `inputs` or `client_calls` of every `wait_until` / `run_until`
+  in progress; game calls work only with `game_calls = true`, change game
+  state and count in `game_calls` and `game_calls_total`: the run becomes a
+  marked run that measurements reject. The server's instructions list the
+  tools of each type. `ping` and `help` have no tool of their own
+  (`tongs_raw`); `subscribe` needs a connection of its own, which the waits
+  open for their progress.
 - **Ready.** `tongs_ready` is the ready wait of
   [docs/commands.md](../docs/commands.md#sessions-and-the-ready-wait), built
   on the pipe client: the expected `session` (1 after a start), optionally

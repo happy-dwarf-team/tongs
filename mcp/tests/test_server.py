@@ -11,7 +11,7 @@ import pytest
 from mcp import Client
 
 from tongs_mcp import server
-from tongs_mcp.server import build_server, game_days
+from tongs_mcp.server import NOT_OFFERED, NOTES, RAW_ONLY, TYPE_ORDER, build_server, game_days, tool_commands
 
 pytestmark = pytest.mark.anyio
 
@@ -65,24 +65,12 @@ async def call(pipe: FakePipe, tool: str, args: dict | None = None, **kwargs):
         return await client.call_tool(tool, args or {}, **kwargs)
 
 
-ALL_TOOLS = {
-    "tongs_state", "tongs_ready", "tongs_window", "tongs_threads", "tongs_journal", "tongs_frames", "tongs_screenshot",
-    "tongs_wait_until", "tongs_run_until", "tongs_cancel",
-    "tongs_pause", "tongs_resume", "tongs_speed", "tongs_key", "tongs_text",
-    "tongs_move", "tongs_click_point", "tongs_scroll", "tongs_release",
-    "tongs_ui_tree", "tongs_ui_find", "tongs_ui_click",
-    "tongs_event_list", "tongs_event_choose", "tongs_console", "tongs_raw",
-    "tongs_province", "tongs_country", "tongs_player", "tongs_selection",
-    "tongs_province_open", "tongs_province_goto", "tongs_map_mode", "tongs_save_load",
-    "tongs_units", "tongs_unit_drill", "tongs_unit_split", "tongs_unit_merge", "tongs_cursor",
-}  # fmt: skip
-
-INPUT_TOOLS = {
-    "tongs_ready", "tongs_run_until", "tongs_pause", "tongs_resume", "tongs_speed", "tongs_key", "tongs_text",
-    "tongs_move", "tongs_click_point", "tongs_scroll", "tongs_release", "tongs_ui_click", "tongs_event_choose",
-    "tongs_unit_drill", "tongs_unit_split", "tongs_unit_merge",
-}  # fmt: skip
-CLIENT_CALL_TOOLS = {"tongs_province_open", "tongs_province_goto", "tongs_map_mode"}
+# The plugin's command table, which ctest keeps in step with the plugin (docs/commands.json).
+COMMANDS = {
+    c["name"]: c
+    for c in json.loads((Path(__file__).parents[2] / "docs" / "commands.json").read_text(encoding="utf-8"))["commands"]
+}
+TOOLS = tool_commands()
 
 LINES = [
     ("tongs_state", {}, "state"),
@@ -163,48 +151,57 @@ LINES = [
 ]  # fmt: skip
 
 
-async def test_lists_every_tool_with_safety_notes():
+def test_every_tool_sends_commands_of_the_table_and_has_their_type():
+    for name, t in TOOLS.items():
+        if t.effect == "raw":
+            assert t.commands == () and name == "tongs_raw"
+            continue
+        assert t.commands and all(c in COMMANDS for c in t.commands), name
+        assert t.type == max((COMMANDS[c]["type"] for c in t.commands), key=TYPE_ORDER.index), name
+
+
+def test_every_command_has_a_tool_or_is_named_without_one():
+    with_tool = {c for t in TOOLS.values() for c in t.commands}
+    assert set(COMMANDS) == with_tool | set(RAW_ONLY) | set(NOT_OFFERED)
+    assert not with_tool & (set(RAW_ONLY) | set(NOT_OFFERED))
+
+
+async def test_safety_notes_and_hints_follow_the_type():
     async with Client(build_server(FakePipe().connect)) as client:
-        tools = {t.name: t for t in (await client.list_tools()).tools}
-    assert set(tools) == ALL_TOOLS
-    for name in INPUT_TOOLS:
-        assert "input = true" in tools[name].description, name
-        assert '"inputs"' in tools[name].description, name
-        assert tools[name].annotations.read_only_hint is False
-    for name in CLIENT_CALL_TOOLS:
-        assert "input = true" in tools[name].description, name
-        assert '"client_calls"' in tools[name].description and "marked run" in tools[name].description, name
-        assert tools[name].annotations.read_only_hint is False
-    console = tools["tongs_console"]
-    assert "CHANGES GAME STATE" in console.description
-    assert "game_calls = true" in console.description
-    assert "marked run" in console.description
-    assert console.annotations.destructive_hint is True
-    assert tools["tongs_state"].annotations.read_only_hint is True
-
-
-# Tools that act as the player (a key or click can confirm, choose or quit) or remove something.
-DESTRUCTIVE_TOOLS = {
-    "tongs_run_until", "tongs_key", "tongs_click_point", "tongs_ui_click", "tongs_event_choose",
-    "tongs_cancel", "tongs_screenshot", "tongs_console", "tongs_raw", "tongs_save_load",
-    "tongs_unit_drill", "tongs_unit_split", "tongs_unit_merge",
-}  # fmt: skip
-READ_ONLY_TOOLS = {
-    "tongs_state", "tongs_window", "tongs_threads", "tongs_journal", "tongs_frames",
-    "tongs_ui_find", "tongs_ui_tree", "tongs_event_list",
-    "tongs_province", "tongs_country", "tongs_player", "tongs_selection", "tongs_units", "tongs_cursor",
-}  # fmt: skip
-
-
-async def test_annotations_declare_the_effects():
-    async with Client(build_server(FakePipe().connect)) as client:
-        tools = {t.name: t.annotations for t in (await client.list_tools()).tools}
-    for name, annotations in tools.items():
-        assert annotations.read_only_hint is (name in READ_ONLY_TOOLS), name
-        assert annotations.destructive_hint is (name in DESTRUCTIVE_TOOLS), name
+        listed = {t.name: t for t in (await client.list_tools()).tools}
+    assert list(listed) == list(TOOLS)
+    for name, tool in listed.items():
+        t = TOOLS[name]
+        description, hints = tool.description, tool.annotations
+        # Only the type's own note, and each acting type's switch and count.
+        for kind, note in NOTES.items():
+            if note:
+                assert (note.strip() in description) is (kind == t.type and t.effect != "raw"), name
+        if t.type in ("input", "client_call"):
+            assert "input = true" in description and "marked run" in description, name
+            assert ('"inputs"' if t.type == "input" else '"client_calls"') in description, name
+        if t.type == "game_call" and t.effect != "raw":
+            assert "game_calls = true" in description and '"game_calls"' in description, name
+            assert hints.destructive_hint is True, name
+        # Read-only exactly for a read without an effect of its own on the MCP side.
+        assert hints.read_only_hint is (t.type == "read" and t.effect is None), name
+        assert hints.destructive_hint is (t.type == "game_call" or t.effect in ("files", "control", "player", "raw")), (
+            name
+        )
+    assert "CHANGES GAME STATE" in listed["tongs_console"].description
     # The screenshot writes a file and prunes old ones; a wait's cancel ends every client's waits.
-    assert tools["tongs_screenshot"].idempotent_hint is False
-    assert tools["tongs_wait_until"].read_only_hint is False
+    assert listed["tongs_screenshot"].annotations.idempotent_hint is False
+    assert listed["tongs_wait_until"].annotations.read_only_hint is False
+
+
+def test_instructions_list_the_tools_of_each_type():
+    text = server.instructions(TOOLS)
+    lines = {kind: text[text.index(head) :].split("\n-")[0] for kind, head in
+             (("input", "- Inputs ("), ("client_call", "- Client calls ("), ("game_call", "- Game calls ("))}  # fmt: skip
+    for name, t in TOOLS.items():
+        for kind, line in lines.items():
+            assert (name + "," in line or name + ")" in line) is (t.type == kind and t.effect != "raw"), (name, kind)
+    assert "tongs_map_mode" in lines["client_call"] and "{" not in text
 
 
 @pytest.mark.parametrize(("tool", "args", "line"), LINES)
@@ -221,7 +218,7 @@ SEVERAL_REQUESTS = {"tongs_ready"}
 
 
 def test_every_tool_has_a_request_line_case():
-    assert {tool for tool, _, _ in LINES} == ALL_TOOLS - SEVERAL_REQUESTS
+    assert {tool for tool, _, _ in LINES} == set(TOOLS) - SEVERAL_REQUESTS
 
 
 async def test_answer_passes_through_unchanged():
@@ -653,7 +650,7 @@ async def test_runs_over_stdio():
     params = StdioServerParameters(command=sys.executable, args=["-m", "tongs_mcp"])
     async with Client(params) as client:
         tools = {t.name for t in (await client.list_tools()).tools}
-        assert tools == ALL_TOOLS
+        assert tools == set(TOOLS)
         result = await client.call_tool("tongs_raw", {"line": "subscribe all"})
         assert result.is_error
 
