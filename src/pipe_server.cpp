@@ -111,6 +111,56 @@ bool StartInstance(Server& server, HANDLE pipe, int number) {
 
 }  // namespace
 
+namespace {
+
+// The first instance is serving: the other instances, up to kMaxClients.
+bool Serve(Server& server, HANDLE first) {
+    if (!StartInstance(server, first, 1)) {
+        server.log(ANVIL_LOG_ERROR, "cannot start the pipe thread (error " + std::to_string(GetLastError()) + ")");
+        CloseHandle(first);
+        return false;
+    }
+    int instances = 1;
+    while (instances < kMaxClients) {
+        HANDLE pipe = CreatePipeInstance(server, false);
+        if (pipe == INVALID_HANDLE_VALUE) break;
+        if (!StartInstance(server, pipe, instances + 1)) {
+            CloseHandle(pipe);
+            break;
+        }
+        ++instances;
+    }
+    server.log(ANVIL_LOG_INFO, "serving \\\\.\\pipe\\tongs, " + std::to_string(instances) + " clients at a time");
+    return true;
+}
+
+// The game's own restart starts the new process before the old one has quit,
+// and the old one still owns the name for a few seconds.
+constexpr DWORD kNameWaitMs = 60'000;
+constexpr DWORD kNameRetryMs = 250;
+
+DWORD WINAPI WaitForNameThread(void* param) {
+    Server& server = *static_cast<Server*>(param);
+    const ULONGLONG start = GetTickCount64();
+    for (;;) {
+        Sleep(kNameRetryMs);
+        HANDLE first = CreatePipeInstance(server, true);
+        if (first != INVALID_HANDLE_VALUE) {
+            server.log(ANVIL_LOG_INFO, "the pipe's name is free after " + std::to_string(GetTickCount64() - start) + " ms");
+            Serve(server, first);
+            return 0;
+        }
+        if (GetTickCount64() - start >= kNameWaitMs) {
+            server.log(ANVIL_LOG_ERROR, "cannot create the pipe (error " + std::to_string(GetLastError()) +
+                                            "): another game instance still serves it after " +
+                                            std::to_string(kNameWaitMs / 1000) + " s");
+            return 0;
+        }
+    }
+}
+
+}  // namespace
+
 bool StartPipeServer(const Handlers& handlers, LogFn log) {
     // Lives for the rest of the process, like the thread that uses it.
     auto* server = new Server{handlers, log};
@@ -121,32 +171,26 @@ bool StartPipeServer(const Handlers& handlers, LogFn log) {
     }
     // The first instance claims the name, so a second game cannot serve it.
     HANDLE first = CreatePipeInstance(*server, true);
-    if (first == INVALID_HANDLE_VALUE) {
-        log(ANVIL_LOG_ERROR, "cannot create the pipe (error " + std::to_string(GetLastError()) +
-                                 "); is another game instance serving it?");
-        LocalFree(server->descriptor);
-        delete server;
-        return false;
-    }
-    if (!StartInstance(*server, first, 1)) {
-        log(ANVIL_LOG_ERROR, "cannot start the pipe thread (error " + std::to_string(GetLastError()) + ")");
-        CloseHandle(first);
-        LocalFree(server->descriptor);
-        delete server;
-        return false;
-    }
-    int instances = 1;
-    while (instances < kMaxClients) {
-        HANDLE pipe = CreatePipeInstance(*server, false);
-        if (pipe == INVALID_HANDLE_VALUE) break;
-        if (!StartInstance(*server, pipe, instances + 1)) {
-            CloseHandle(pipe);
-            break;
+    if (first != INVALID_HANDLE_VALUE) return Serve(*server, first);
+    const DWORD error = GetLastError();
+    // The name is taken: by the process this one replaced (the game's own restart) or by
+    // another game. Wait for it in the background; a second game never gets it.
+    if (error == ERROR_ACCESS_DENIED || error == ERROR_PIPE_BUSY) {
+        log(ANVIL_LOG_WARNING, "the pipe's name is in use (error " + std::to_string(error) +
+                                   "): waiting up to " + std::to_string(kNameWaitMs / 1000) +
+                                   " s for the game this one replaced to quit");
+        HANDLE thread = CreateThread(nullptr, 0, WaitForNameThread, server, 0, nullptr);
+        if (thread != nullptr) {
+            SetThreadDescription(thread, L"tongs pipe wait");
+            CloseHandle(thread);
+            return true;
         }
-        ++instances;
     }
-    log(ANVIL_LOG_INFO, "serving \\\\.\\pipe\\tongs, " + std::to_string(instances) + " clients at a time");
-    return true;
+    log(ANVIL_LOG_ERROR, "cannot create the pipe (error " + std::to_string(error) +
+                             "); is another game instance serving it?");
+    LocalFree(server->descriptor);
+    delete server;
+    return false;
 }
 
 }  // namespace tongs
