@@ -787,10 +787,19 @@ std::string MouseCommand(const Handlers& h, std::string_view command, std::strin
     return ActionJson(command, actions.Settled(events, steps > 0 ? steps : -steps, extra));
 }
 
+std::string Refused(std::string_view command, std::string_view error, std::string_view detail);
+
 std::string TextCommand(const Handlers& h, std::string_view text) {
     if (text.empty()) return Error("usage: text STRING");
     std::vector<InputEvent> events;
     if (std::string error = TextEvents(text, events); !error.empty()) return Error(error);
+    // The game hands typed characters only to the edit box with the keyboard focus; without one
+    // they go nowhere. Say so instead of answering ok. Unknown (no reader): type as before.
+    if (h.read_text_focus) {
+        if (const std::optional<bool> focused = h.read_text_focus(); focused && !*focused) {
+            return Refused("text", "no_text_field", "no text field has the keyboard focus: click one first");
+        }
+    }
     Actions actions(h);
     const int count = static_cast<int>(events.size());
     return ActionJson("text", actions.Settled(events, count, ",\"characters\":" + std::to_string(count)));

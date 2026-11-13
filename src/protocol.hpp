@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -154,6 +155,9 @@ struct Handlers {
     std::function<std::string(UiTree&)> read_ui;
     // Main thread: the widget under the GUI pointer (mgr+0x130, 0 = none).
     std::function<std::uintptr_t()> read_hovered;
+    // Any thread, optional: whether a text field (an edit box) has the keyboard focus; nullopt when
+    // it cannot be read. `text` refuses with no_text_field when it says false.
+    std::function<std::optional<bool>()> read_text_focus;
     // Main thread, optional: the widgets under the GUI pointer on the last frame,
     // topmost first. Without it a click goes ahead only on the hovered widget or one inside it.
     std::function<std::vector<std::uintptr_t>()> read_under_pointer;

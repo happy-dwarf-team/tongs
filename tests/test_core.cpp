@@ -31,6 +31,7 @@
 #include <fstream>
 #include <functional>
 #include <stdexcept>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_set>
@@ -1304,6 +1305,26 @@ static void TestWindowAndMouse() {
     out = HandleRequest("text Hello World", h);
     assert(Contains(out, "\"ok\":true") && Contains(out, "\"characters\":11") && game.events.size() == 11);
     assert(Contains(HandleRequest("text \xC5\x82", h), "cannot be typed"));
+
+    // No edit box has the keyboard focus: refused, nothing sent and nothing counted. Unknown (nullopt): typed as before.
+    {
+        Handlers hf = h;
+        std::optional<bool> focus = false;
+        hf.read_text_focus = [&focus] { return focus; };
+        game.events.clear();
+        out = HandleRequest("text abc", hf);
+        assert(Contains(out, "\"ok\":false") && Contains(out, "\"error\":\"no_text_field\"") && Contains(out, "\"command\":\"text\""));
+        assert(game.events.empty());
+        focus = true;
+        out = HandleRequest("text abc", hf);
+        assert(Contains(out, "\"ok\":true") && Contains(out, "\"characters\":3") && game.events.size() == 3);
+        focus = std::nullopt;
+        game.events.clear();
+        assert(Contains(HandleRequest("text abc", hf), "\"ok\":true") && game.events.size() == 3);
+        // A bad character is still named before the focus is asked.
+        focus = false;
+        assert(Contains(HandleRequest("text \xC5\x82", hf), "cannot be typed"));
+    }
 
     game.window = {};
     game.window.reason = "no visible game window (SDL_app) yet";

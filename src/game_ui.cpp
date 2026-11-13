@@ -411,6 +411,14 @@ std::uintptr_t ReadHoveredWidget(std::uintptr_t image_base, const UiLayout& layo
     return hovered;
 }
 
+std::optional<bool> ReadTextFieldFocused(std::uintptr_t image_base, const UiLayout& layout) {
+    std::uintptr_t manager = 0, target = 0;
+    if (!Read(image_base + layout.manager_rva, manager) || manager == 0 || !Read(manager + layout.text_target, target)) {
+        return std::nullopt;
+    }
+    return target != 0;
+}
+
 std::vector<std::uintptr_t> ReadUnderPointer(std::uintptr_t image_base, const UiLayout& layout) {
     constexpr std::uintptr_t kMaxUnderPointer = 1000;  // the game collects at most 1000
     std::vector<std::uintptr_t> out;

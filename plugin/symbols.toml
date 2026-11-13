@@ -430,6 +430,23 @@ bytes = "48 89 35 F5 AE E4 00"
 rva = 0x14E2474
 bytes = "48 89 35 F5 AE E4 00"
 
+[symbol.edit_focus]
+memory = "code"
+values.target = { at = 19, size = 4 }
+note = "CEditBox::RemoveFocus: compares the box with the GUI manager's text input target (mgr+0x210, the edit box with the keyboard focus, 0 = none) and clears it"
+
+[symbol.edit_focus.build."eu4-1.37.5-steam-win64"]
+rva = 0x15354A1
+bytes = "48 8B 1D 48 40 E1 00 48 81 C7 D0 01 00 00 74 09 48 3B BB 10 02 00 00"   # mov rbx,[mgr]; add rdi,1D0h; jz; cmp rdi,[rbx+210h]
+
+[symbol.edit_focus.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x152C3A1
+bytes = "48 8B 1D C8 0F E0 00 48 81 C7 D0 01 00 00 74 09 48 3B BB 10 02 00 00"
+
+[symbol.edit_focus.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x152C3A1
+bytes = "48 8B 1D C8 0F E0 00 48 81 C7 D0 01 00 00 74 09 48 3B BB 10 02 00 00"
+
 [symbol.widget_registry]
 bytes = "48 8B BE 10 01 00 00 48 8B 86 18 01 00 00"
 memory = "code"
