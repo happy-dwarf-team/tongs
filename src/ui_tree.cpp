@@ -99,6 +99,11 @@ std::string ParseFilter(std::string_view body, UiSelector::Step& step) {
         step.filters.push_back(filter);
         return {};
     }
+    if (body == "visible" || body == "hidden") {
+        filter.kind = body == "visible" ? Kind::Visible : Kind::Hidden;
+        step.filters.push_back(filter);
+        return {};
+    }
     std::string_view key;
     if (body.starts_with("type")) {
         key = "type";
@@ -298,6 +303,10 @@ bool UiView::Matches(int widget, const UiSelector::Step& step) const {
             case Kind::Unchecked:
                 if (!w.has_checked || w.checked != (f.kind == Kind::Checked)) return false;
                 break;
+            case Kind::Visible:
+            case Kind::Hidden:
+                if (Visible(widget) != (f.kind == Kind::Visible)) return false;
+                break;
             default: {
                 if (!w.has_text) return false;
                 const std::string text = LowerCopy(w.text);
@@ -399,7 +408,8 @@ std::string ParseUiRequest(std::string_view argument, UiRequest& out) {
         out.verb = UiRequest::Verb::Click;
     } else {
         return fail("bad_command",
-                    "usage: ui find SEL [all] [stale] [limit=N] | ui tree [SEL] [depth=N] [limit=N] [all] | ui click SEL");
+                    "usage: ui find SEL [all] [stale] [limit=N] | ui tree [SEL] [depth=N] [limit=N] [all] | "
+                    "ui click SEL [timeout=S] [wait=S]");
     }
     // The selector is the first word; spaces inside [...] belong to it.
     std::size_t end = 0;
@@ -421,7 +431,8 @@ std::string ParseUiRequest(std::string_view argument, UiRequest& out) {
         }
     }
     const auto is_option = [](std::string_view word) {
-        return word == "all" || word == "stale" || word.starts_with("depth=") || word.starts_with("limit=") || word.starts_with("timeout=");
+        return word == "all" || word == "stale" || word.starts_with("depth=") || word.starts_with("limit=") ||
+               word.starts_with("timeout=") || word.starts_with("wait=");
     };
     std::string_view first = rest.substr(0, end);
     std::string_view options = Trim(rest.substr(end));
@@ -441,8 +452,16 @@ std::string ParseUiRequest(std::string_view argument, UiRequest& out) {
         const std::string_view word = options.substr(0, cut);
         options = cut == std::string_view::npos ? std::string_view{} : Trim(options.substr(cut));
         int number = 0;
-        if (out.verb == UiRequest::Verb::Click && !word.starts_with("timeout=")) {
-            return fail("bad_command", "bad option: " + std::string(word.substr(0, 40)) + " (ui click takes only timeout=1..600)");
+        if (out.verb == UiRequest::Verb::Click && !word.starts_with("timeout=") && !word.starts_with("wait=")) {
+            return fail("bad_command", "bad option: " + std::string(word.substr(0, 40)) +
+                                           " (ui click takes only timeout=1..600 and wait=1..600)");
+        }
+        if (word.starts_with("wait=")) {
+            if (out.verb != UiRequest::Verb::Click || !ParseNumber(word.substr(5), number) || number < 1 || number > 600) {
+                return fail("bad_command", "bad option: " + std::string(word.substr(0, 40)) + " (wait=1..600, ui click only)");
+            }
+            out.wait_ms = number * 1000;
+            continue;
         }
         if (word == "all") {
             out.all = true;

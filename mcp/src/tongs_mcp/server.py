@@ -202,7 +202,8 @@ Selector = Annotated[
         description="Widget selector, not XPath: a path of .gui names from a top-level window or from // "
         "(anywhere), such as speed_controls/button_speedup, EventWindow//event_option_button or //DateText; "
         "names ignore case and take * and ?; filters after a name or alone: [2], [type=button], [text=...], "
-        "[text~=...] (contains), [text^=...] (starts with), [enabled], [disabled], [checked], [unchecked]. "
+        "[text~=...] (contains), [text^=...] (starts with), [enabled], [disabled], [checked], [unchecked], "
+        "[visible], [hidden] (hidden widgets only with all). "
         "//*[name='x'] is //x. A bad_selector answer has a hint with the grammar.",
     ),
 ]
@@ -682,14 +683,27 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         return await call(_line("ui tree", selector, "all" if all else None, depth=depth, limit=limit))
 
     @tool(PLAYER, INPUT_NOTE)
-    async def tongs_ui_click(selector: Selector, timeout: Timeout = None) -> CallToolResult:
+    async def tongs_ui_click(
+        selector: Selector,
+        timeout: Timeout = None,
+        wait: Annotated[
+            int | None,
+            Field(
+                ge=1,
+                le=600,
+                description="Seconds to look again while the widget is missing or hidden, or a save is "
+                "loading, then click it; for a dialog that shows later (waited_ms says how long).",
+            ),
+        ] = None,
+    ) -> CallToolResult:
         """Clicks the centre of the one widget the selector matches, after checking that the click
         reaches it: the game hands a click down past labels, backgrounds and other widgets without a
         click action (named in `through`). Refuses without clicking: not_found, ambiguous (with
         matches), not_visible, stale (only stale widgets match), disabled, covered (with covered_by,
-        the widget that would take the click)."""
+        the widget that would take the click). With `wait`, not_found and not_visible come only
+        after that time, so a later dialog needs no loop of sleeps and finds."""
         _check(selector)
-        return await call(_line("ui click", selector, timeout=timeout))
+        return await call(_line("ui click", selector, timeout=timeout, wait=wait))
 
     # --- world reads ---
 

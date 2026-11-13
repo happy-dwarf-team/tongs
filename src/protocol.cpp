@@ -824,6 +824,15 @@ std::string InputUnavailable(const Handlers& h) {
 
 constexpr int kMaxDispatchTimeoutS = 600;
 
+// `,"hint":...` after a job no outer frame took: agents sent the same command again at once
+// while a save loaded (lab, 12.11.2026), so the answer says what to wait for.
+std::string BusyHint(std::string_view error) {
+    if (error != "main thread busy") return {};
+    return ",\"hint\":\"No outer frame ran within the timeout, so nothing was done: the game is starting, "
+           "loading a save or in a long tick. The ready command (tongs_ready) waits until frames run again; "
+           "send the command after it.\"";
+}
+
 // Answer of a main-thread job: the job's own members, then when and where it ran.
 std::string MainThreadJson(std::string_view command, const Dispatcher::Outcome& o) {
     std::string out = std::string("{\"ok\":") + Bool(o.ran);
@@ -831,6 +840,7 @@ std::string MainThreadJson(std::string_view command, const Dispatcher::Outcome& 
     out += ",\"command\":\"" + JsonEscape(command) + "\"";
     if (o.ran) out += o.answer;
     out += ",\"queued_ms\":" + std::to_string(o.queued_ms);
+    if (!o.ran) out += BusyHint(o.error);
     if (o.ran) out += ",\"run_ms\":" + std::to_string(o.run_ms) + ",\"frame\":" + std::to_string(o.frame);
     return out + "}";
 }
@@ -1051,7 +1061,12 @@ int TimeoutOr(const Handlers& h, int timeout_ms) { return timeout_ms > 0 ? timeo
 void NoteChoice(const Handlers& h, const EventView& e, const EventOption& o, const StateSnapshot& before,
                 const char* via = nullptr);
 
-// ui click SEL [timeout=S]: resolves the selector on the main thread, then clicks.
+constexpr int kClickWaitPollMs = 250;  // ui click wait=S: how often it looks again
+
+// ui click SEL [timeout=S] [wait=S]: resolves the selector on the main thread, then clicks. With
+// wait=S a widget that is missing or hidden, and a main thread too busy to read the screen (a save
+// loading), are looked for again until S passes: for a notice that comes later, such as Anbennar's
+// "Vanilla achievements can no longer be earned" before a continue= load (lab, 12.11.2026).
 std::string UiClick(const Handlers& handlers, const UiRequest& request) {
     if (std::string error = ClickUnavailable(handlers); !error.empty()) return Error(error);
     std::lock_guard lock(g_input_mutex);
@@ -1059,21 +1074,34 @@ std::string UiClick(const Handlers& handlers, const UiRequest& request) {
     const Handlers& h = counted.handlers();
     const int timeout_ms = TimeoutOr(h, request.timeout_ms);
     const std::uint64_t start = h.now_ms();
-    // With event windows open, the events too: a click on an option is a choice Tongs can name.
-    const bool events = h.read_events && h.count_event_windows && h.count_event_windows() > 0;
-    Screen s;
-    // A failed event read costs only the choice note, not the click.
-    if (!ReadScreen(h, timeout_ms, events, s) && !(events && s.outcome.ran && ReadScreen(h, timeout_ms, false, s))) {
-        return ScreenFailure("ui click", s);
-    }
+    const std::uint64_t generation = g_cancel_generation.load();
     const std::string head = ",\"command\":\"ui click\",\"selector\":" + Quote(request.selector_text);
-    const UiClickTarget target = ResolveClickTarget(s.tree, request.selector);
-    if (!target.error.empty()) {
-        std::string out = "{\"ok\":false,\"error\":\"" + target.error + "\"" + head;
-        if (target.widget != -1) return out + ",\"path\":" + Quote(target.path) + "}";
-        out += ",\"count\":" + std::to_string(target.count) + ",\"matches\":[";
-        for (std::size_t i = 0; i < target.paths.size(); ++i) out += (i ? "," : "") + Quote(target.paths[i]);
-        return out + "]}";
+    const auto waited = [&] {
+        return request.wait_ms > 0 ? ",\"waited_ms\":" + std::to_string(h.now_ms() - start) : std::string();
+    };
+    Screen s;
+    UiClickTarget target;
+    for (;;) {
+        // With event windows open, the events too: a click on an option is a choice Tongs can name.
+        const bool events = h.read_events && h.count_event_windows && h.count_event_windows() > 0;
+        // A failed event read costs only the choice note, not the click.
+        const bool read = ReadScreen(h, timeout_ms, events, s) || (events && s.outcome.ran && ReadScreen(h, timeout_ms, false, s));
+        if (read) {
+            target = ResolveClickTarget(s.tree, request.selector);
+            if (target.error.empty()) break;
+        }
+        const bool again = read ? target.error == "not_found" || target.error == "not_visible" : !s.outcome.ran;
+        const bool cancelled = g_cancel_generation.load() != generation;
+        if (!again || request.wait_ms == 0 || cancelled || ClientLeft() || h.now_ms() - start >= static_cast<std::uint64_t>(request.wait_ms)) {
+            if (cancelled) return "{\"ok\":false,\"error\":\"cancelled\"" + head + waited() + "}";
+            if (!read) return ScreenFailure("ui click", s);
+            std::string out = "{\"ok\":false,\"error\":\"" + target.error + "\"" + head + waited();
+            if (target.widget != -1) return out + ",\"path\":" + Quote(target.path) + "}";
+            out += ",\"count\":" + std::to_string(target.count) + ",\"matches\":[";
+            for (std::size_t i = 0; i < target.paths.size(); ++i) out += (i ? "," : "") + Quote(target.paths[i]);
+            return out + "]}";
+        }
+        h.sleep_ms(kClickWaitPollMs);
     }
     const UiWidget& w = s.tree.widgets[target.widget];
     const EventView* event = nullptr;
@@ -1618,7 +1646,7 @@ std::string WorldCommand(const Handlers& h, std::string_view command, std::strin
         request.timeout_ms > 0 ? request.timeout_ms : h.dispatch_timeout_ms);
     if (!outcome.ran) {
         return "{\"ok\":false,\"error\":" + Quote(outcome.error) + ",\"command\":" + Quote(command) +
-               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + state_tail() + "}";
+               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + BusyHint(outcome.error) + state_tail() + "}";
     }
     const std::string tail = "," + StateFields(state) + DispatchTimes(outcome);
     if (failure.failed()) return refuse(failure, tail);
@@ -1656,7 +1684,7 @@ std::string UnitsCommand(const Handlers& h, std::string_view argument) {
         request.timeout_ms > 0 ? request.timeout_ms : h.dispatch_timeout_ms);
     if (!outcome.ran) {
         return "{\"ok\":false,\"error\":" + Quote(outcome.error) + ",\"command\":" + Quote(command) +
-               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + state_tail() + "}";
+               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + BusyHint(outcome.error) + state_tail() + "}";
     }
     const std::string tail = "," + StateFields(state) + DispatchTimes(outcome);
     if (failure.failed()) return refuse(failure, tail);
@@ -1726,7 +1754,7 @@ std::string CursorCommand(const Handlers& h, std::string_view argument) {
         timeout_ms > 0 ? timeout_ms : h.dispatch_timeout_ms);
     if (!outcome.ran) {
         return "{\"ok\":false,\"error\":" + Quote(outcome.error) + ",\"command\":" + Quote(command) +
-               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + state_tail() + "}";
+               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + BusyHint(outcome.error) + state_tail() + "}";
     }
     const std::string tail = "," + StateFields(state) + DispatchTimes(outcome);
     if (failure.failed()) return refuse(failure, tail);
@@ -1774,7 +1802,7 @@ std::string UnitCommand(const Handlers& h, std::string_view argument) {
         request.timeout_ms > 0 ? request.timeout_ms : h.dispatch_timeout_ms);
     if (!outcome.ran) {
         return "{\"ok\":false,\"error\":" + Quote(outcome.error) + ",\"command\":" + Quote(command) +
-               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + state_tail() + "}";
+               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + BusyHint(outcome.error) + state_tail() + "}";
     }
     const std::string tail = "," + StateFields(state) + DispatchTimes(outcome);
     if (result.failure.failed()) return refuse(result.failure.error, result.failure.detail, tail);

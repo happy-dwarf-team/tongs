@@ -46,7 +46,7 @@ With `input = true` in the settings, also:
 | `click X Y [left\|right\|middle] [double]` | moves there and clicks |
 | `scroll STEPS [X Y]` | turns the wheel over the list or map under the pointer; positive scrolls up (zooms in on the map), negative down. With `X Y` it moves there first and lets the game see the pointer, as `click` does |
 | `release` | hands the pointer back to the real mouse |
-| `ui click SEL [timeout=S]` | clicks the centre of the one widget the selector matches (see [Widgets](#widgets)) |
+| `ui click SEL [timeout=S] [wait=S]` | clicks the centre of the one widget the selector matches; `wait=` waits for it to show (see [Widgets](#widgets)) |
 | `event choose N\|text^="..." [event=N\|event=title^="..."] [timeout=S]` | clicks an option of an open event (see [Events](#events)) |
 | `province open ID [timeout=S]` | opens the province's view and moves the camera to it, as the game's links do (see [Navigation](#navigation)) |
 | `province goto ID [timeout=S]` | moves the camera to the province |
@@ -288,7 +288,8 @@ included, carries the fields of `state` read on the same frame, and
 - **Errors** (`error`, with a `detail` for people): `bad_command` (a bad
   option, or a word after `province` other than `open` and `goto`),
   `unknown_province`, `unknown_country`, `not_in_game`, `main thread busy`
-  (no frame within `timeout=`, for example while a save loads),
+  (no frame within `timeout=`, for example while a save loads; every
+  `main thread busy` answer has a `hint` to wait with `ready` first),
   `read_failed` (a read of game memory faulted or a guard failed: an entry's
   own ID, a country's own tag; later reads keep working) and `unavailable`
   (main-thread commands are not available).
@@ -482,8 +483,9 @@ text, list boxes, check boxes and edit boxes, by their names in the game's
   match, from 1; one per step), `[type=button]` (`window`, `button`,
   `icon`, `text`, `listbox`, `checkbox`, `editbox`, `other`),
   `[text=...]` (the whole text), `[text~=...]` (contains), `[text^=...]`
-  (starts with), `[enabled]`, `[disabled]`, `[checked]`, `[unchecked]`.
-  Text filters ignore case; put the value in `"..."` when it has `]` in it
+  (starts with), `[enabled]`, `[disabled]`, `[checked]`, `[unchecked]`,
+  `[visible]`, `[hidden]` (the effective visibility; without `all` every
+  match is visible, so `[hidden]` finds widgets only with `all`). Text filters ignore case; put the value in `"..."` when it has `]` in it
   or spaces at its ends (single quotes are part of the value). A step made
   only of filters means any name: `speed_controls/[type=button]`.
 - It is not XPath or a glob: `//*[name='text_MIL']` is `//text_MIL`,
@@ -535,6 +537,14 @@ the click: another button, a check box, a window that takes all input such as
 the game menu). The answer has `clicked`, `point`, `hovered` (the topmost
 widget under the pointer), `through` (the widgets above the target the click
 passed, when there are any) and the state after the click.
+With `wait=S` (1–600) a dialog that shows later needs no loop of sleeps and
+finds: while only `not_found` or `not_visible` comes, or the main thread is too
+busy to read the screen (a save loading), it looks again every 250 ms until S
+passes, then clicks or answers as without it, with `waited_ms`; the other
+refusals come at once, and `cancel` ends the wait (`cancelled`). For example
+`ui click DefaultConfirm/AgreeButton wait=120` after a `continue=` start of a
+modded game, which waits behind the "Vanilla achievements can no longer be
+earned" notice. Other input commands wait their turn meanwhile.
 When the game reports no widget at all under the pointer, the move is tried up
 to three times (`hover_attempts`). `covered` with `pointer_released: true`
 means the real mouse moved meanwhile, so the game took the real pointer again
