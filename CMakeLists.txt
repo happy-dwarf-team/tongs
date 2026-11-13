@@ -33,7 +33,7 @@ option(TONGS_BUILD_TESTS "Build unit tests" ON)
 include(cmake/AnvilSdk.cmake)
 
 # Platform-independent parts (protocol, settings, date, dispatcher, selectors), shared with the tests.
-add_library(tongs_core STATIC src/protocol.cpp src/config.cpp src/game_date.cpp src/keys.cpp src/input.cpp src/dispatcher.cpp src/frame_stats.cpp src/ui_tree.cpp src/ui_definitions.cpp src/ui_structure.cpp src/ui_service.cpp src/events.cpp src/console.cpp src/notifications.cpp src/notify_sources.cpp src/load_watch.cpp src/world.cpp src/world_flags.cpp src/units.cpp src/cursor.cpp src/journal.cpp src/navigation.cpp src/navigation_service.cpp src/save_meta.cpp src/map_modes.cpp)
+add_library(tongs_core STATIC src/protocol.cpp src/activity_gate.cpp src/config.cpp src/game_date.cpp src/keys.cpp src/input.cpp src/dispatcher.cpp src/frame_stats.cpp src/ui_tree.cpp src/ui_definitions.cpp src/ui_structure.cpp src/ui_service.cpp src/events.cpp src/console.cpp src/notifications.cpp src/notify_sources.cpp src/load_watch.cpp src/world.cpp src/world_flags.cpp src/units.cpp src/cursor.cpp src/journal.cpp src/navigation.cpp src/navigation_service.cpp src/save_meta.cpp src/map_modes.cpp)
 # include/: the tongs.ui header for consumers, which needs Anvil's plugin header.
 get_property(TONGS_ANVIL_INCLUDE_DIR GLOBAL PROPERTY ANVIL_SDK_INCLUDE_DIR)
 target_include_directories(tongs_core PUBLIC src include "${TONGS_ANVIL_INCLUDE_DIR}")
@@ -64,7 +64,14 @@ if(TONGS_BUILD_TESTS)
         target_compile_options(test_core PRIVATE /UNDEBUG)
     endif()
     add_test(NAME core COMMAND test_core)
-    add_test(NAME core_save_load_fault COMMAND test_core save-load-fault)
+    # docs/commands.json is the command table (the MCP tests compare the tools with it), and
+    # docs/commands.md documents every command of it; the target rewrites the JSON.
+    add_test(NAME commands_json COMMAND test_core commands-json "${CMAKE_CURRENT_SOURCE_DIR}/docs/commands.json")
+    add_test(NAME commands_md COMMAND test_core commands-md "${CMAKE_CURRENT_SOURCE_DIR}/docs/commands.md")
+    add_custom_target(tongs-commands-json
+        COMMAND test_core write-commands-json "${CMAKE_CURRENT_SOURCE_DIR}/docs/commands.json"
+        DEPENDS test_core
+        COMMENT "Writing docs/commands.json from the command table")
     # The loopback socket as a real server in this process, with Winsock clients (no game, no Wine needed on Windows).
     add_executable(test_bridge tests/test_bridge.cpp)
     target_link_libraries(test_bridge PRIVATE tongs_transport)

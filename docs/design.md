@@ -63,8 +63,9 @@ window for agents that need to look.
   `PIPE_REJECT_REMOTE_CLIENTS` and a DACL that allows only the user running
   the game and SYSTEM.
 - Up to 8 clients at once, one per instance; requests are lines, answers are
-  single-line JSON. Input commands take turns through one lock, so presses of
-  two clients never interleave; `run_until` holds it only while pressing.
+  single-line JSON. Inputs, client calls and game calls take turns (see
+  "Command table and activity gate"), so presses of two clients never
+  interleave; `run_until` holds the turn only while pressing.
 - Off unless `enabled = true` in `anvil/data/tongs/settings.toml` (before
   Anvil 1.0: `config.toml`, see "Anvil 1.0 (plugin API 2)"); the input
   commands also need `input = true`, and game calls (0.7.0) need
@@ -111,6 +112,58 @@ no second program.
 - **Tests.** `tests/test_bridge.cpp` runs the server in-process with Winsock clients: the state file, the refusals, a
   round trip, a subscription that ends with its client, the handshake timeout and the limit of 8. The Python client is
   tested against a fake in `mcp/tests/test_bridge.py`.
+
+## Command table and activity gate
+
+Every command has one entry in the command table (`kCommands` in
+`src/protocol.cpp`): its name as answers print it in `"command"` (`province`,
+`province open`, `ui click`, `save load`, ...), its command type (read, input,
+client call or game call; [GLOSSARY.md](../GLOSSARY.md)), whether it needs the
+main thread, its usage line and its handler. `HandleRequest` sends a line to
+the entry `WORD VERB` when the table has it, else to `WORD`, else to the first
+entry of WORD's group, whose handler answers the usage (`ui bogus`). `help`
+lists the table's first words, as before, and the type of every entry in
+`types`. ctest checks that [commands.json](commands.json) is the table (the MCP
+server's tests compare every tool with it; `cmake --build build --target
+tongs-commands-json` rewrites it) and that [commands.md](commands.md) has a row
+for every entry, with its usage, and none for a command the table lacks.
+
+A command of any type but read runs its activity through `ActivityGate`
+(`src/activity_gate.hpp`): the command gives its own checks and its action, the
+gate applies the rules of the type, in this order:
+
+1. the command's checks of its arguments, where they come before the switch
+   (`save load`; the other commands that parse first, such as `ui click` or
+   `province open`, do it before they reach the gate);
+2. the switch: `input = true` for inputs and client calls, `game_calls = true`
+   for game calls;
+3. Anvil's suspension;
+4. the command's own checks (a reader that is not set up, a console command
+   refused by name);
+5. the breaker: game calls' for a game call, the call's own for a client call
+   (navigation, `map_mode`); an input has none at this point, the speed buttons
+   check theirs at each press;
+6. the turn: one activity at a time across all clients; `run_until` gives it
+   up while it waits and takes it again for a choice and for the pause;
+7. the action, which counts and totals through the gate:
+   - an input counts once in `inputs`, when it ends, if anything was sent,
+     pressed, posted or chosen through the handlers the gate gives it; a part
+     of one counts under its own name (`run_until events=first: choice`); input
+     through the event queue is refused while the window is minimized;
+     `run_until`'s own presses go through the request's handlers and are not
+     counted (ADR 0005);
+   - a client call or game call counts once in `client_calls` or `game_calls`
+     when the game's code was called, and in the total of the save it belongs
+     to (`client_calls_total`, `game_calls_total`); a client call that would
+     change game state is promoted to a game call (ADR 0003);
+   - every count publishes an `activity` notification. Game calls log every call
+     and refusal, client calls their refusals, faults and promotions, inputs
+     nothing; a line reads `<command> <subject> (pipe N, <date>): <what>`.
+
+The counters, totals and breakers belong to the gate, one per plugin instance
+(`Handlers::gate`), which `tongs.navigation` shares: a fault in the service or in
+`province open` / `goto` turns both off, and the service's calls count in the
+same `client_calls`. Each test builds its own gate.
 
 ## State reading (EU4 1.37.5)
 
@@ -369,7 +422,7 @@ client that sent it disconnects. For the last one `serve_client.cpp` opens a
 is still there (`PeekNamedPipe` on the pipe, a peek on the socket), on the
 same thread, so nothing else touches the handle. Until 0.33 a wait outlived its
 client and the game ran on until a `cancel` (lab test of tongs#195, 13.11.2026).
-`run_until` sets the speed and resumes under the input lock, waits without
+`run_until` sets the speed and resumes with the turn held, waits without
 it, and pauses again. `wall_ms` runs from the start of the wait (just after
 the resume took hold) to the first poll that sees the target date; the error
 is one poll interval. `paused_ms` adds up the polls that saw the game paused,
@@ -411,7 +464,7 @@ How `events=first` works (0.6.0):
   count of the session's event window list (`session+0x4A8`, written by
   `0x82B07F`). Only while it is above 0 does it read the events on the main
   thread, at most every 250 ms when none is waiting for a choice.
-- It takes the input lock, picks the topmost event (the newest, see
+- It takes the turn, picks the topmost event (the newest, see
   "Events") and waits up to 10 s for an option to become enabled (the game
   keeps them disabled for half a second after opening). Without one, the run
   ends with `no_enabled_option`. Every read of that wait takes the
@@ -420,8 +473,8 @@ How `events=first` works (0.6.0):
 - It clicks the first enabled option as `event choose` does, waits until the
   event is no longer waiting for a choice, and presses `resume` when the game
   is left with the player pause on.
-- A click that is refused (`covered`) or has no effect within 3 s releases the
-  input lock and is tried again on the next look, 250 ms later, from the
+- A click that is refused (`covered`) or has no effect within 3 s gives the
+  turn back and is tried again on the next look, 250 ms later, from the
   topmost event (`choice_retries`, `attempts`). Only an event that has not
   taken a click for 30 s ends the run, with the error and the event (in
   0.22 and earlier the first such click ended it). A choice is listed in `events` only
@@ -602,7 +655,7 @@ promise?"):
   - After each outer frame, all queued main-thread reads run. A game call ends
     the batch, so the next job waits for the next outer frame and sees the
     call's effect.
-  - Game calls take the input lock; main-thread reads do not.
+  - Game calls and client calls take the turn; main-thread reads do not.
 - **Where.**
   - Never in nested frames.
   - Main-thread reads run wherever outer frames run.
@@ -1628,7 +1681,7 @@ settle time, so the `closed` notification names it (`via: "ui click"`).
 How it runs (`src/protocol.cpp`, `ClickWidget`; decisions in
 `src/ui_tree.cpp`):
 
-1. Under the input lock, the tree is read as a main-thread read and the
+1. With the turn held, the tree is read as a main-thread read and the
    selector resolved: visible matches first; when there is none, a match
    among hidden widgets gives `not_visible`. Paths and the `disabled` check
    come from the same read.
@@ -1806,8 +1859,8 @@ not a game call: it works in ironman and needs `input = true` but not
   index to the service, which calls `OptionSelected` for an enabled button only
   (eu4-engine-lab#126). Tongs keeps no address of its own for that: the struct
   is copied into `src/game_commands.hpp`, since Tongs builds against an older
-  SDK. A choice through it counts as an input (`CountedInput` wraps the
-  handler), and `NOT_DECLARED` or `UNSUPPORTED` falls back to the click for the
+  SDK. A choice through it counts as an input (the activity gate counts what
+  the handler chose), and `NOT_DECLARED` or `UNSUPPORTED` falls back to the click for the
   rest of the run. `event choose` keeps clicking: it is the tool that checks the
   UI.
 
@@ -1991,7 +2044,7 @@ How it runs (`src/protocol.cpp`, `ConsoleCall`; decisions in
    spaces and tabs (printable ASCII only, at most 1024 characters and 32
    words); the typed name is checked against the refusals; a tripped plugin
    refuses `game_calls_tripped`.
-2. Under the input lock, a `Kind::GameCall` job is queued (limit 10 s). On
+2. With the turn held, a `Kind::GameCall` job is queued (limit 10 s). On
    the main thread it reads the state (`not_in_game` without a loaded game),
    the manager, its entries and both locks, the ironman byte and
    `0x6EAA10(session)`, and refuses by mode. It resolves the typed name in
@@ -2665,7 +2718,7 @@ Release 0.19 of the [scenario support v1 spec](spec/scenarios-v1.md)
   their polls missed the moment without a game.
 - **Client calls** ([ADR 0003](adr/0003-client-calls.md)) get their counts
   before their first command: `client_calls` in the waits, `client_calls_total`
-  in `state` (keyed like `game_calls_total`) and `CountClientCall`, which
+  in `state` (keyed like `game_calls_total`) and the activity gate, which
   publishes `activity` with `what: "client_call"`. Until a command calls it
   (0.21), every count is 0; a client judging a stretch no longer meets a
   missing field.
@@ -3123,10 +3176,10 @@ above and `render_pick`'s shown byte.
 - **Settings and suspension.** Tongs registers the service before it looks at
   `enabled`, and follows Anvil's `anvil.suspended` with or without the pipe.
   With the pipe on, a call that called the game is counted as the pipe's client
-  calls are (`CountClientCall`, command `tongs.navigation open_province`).
-- **Faults.** `NavigationTripped` and `TripNavigation`
-  (`navigation_service.hpp`) are shared with the pipe's `province open` and
-  `province goto`.
+  calls are, through the plugin's activity gate (command `tongs.navigation
+  open_province`).
+- **Faults.** The navigation breaker is the activity gate's, shared with the
+  pipe's `province open` and `province goto`.
 
 ### Live check (2026-11-01)
 
@@ -3232,9 +3285,9 @@ in the lab). Tongs builds against an older SDK, so the structs it needs
 - **Counting.** A unit command is an input, not a game call: it posts the same
   command, through the same session queue, as the player's click on the button,
   and runs no game code of its own (design principle: layers 2 and 3 act as the
-  player). It needs `input = true`, takes the input lock and counts once in
-  `inputs` when the service posted something (`CountedInput` wraps
-  `post_units`), as `run_until events=first` counts a choice through the service.
+  player). It needs `input = true`, takes the turn and counts once in
+  `inputs` when the service posted something (the activity gate counts what
+  `post_units` posted), as `run_until events=first` counts a choice through the service.
 - **Thread.** The service wants the main thread after an outer frame, so the
   post runs as a dispatcher job (`Kind::Read`), after the state on the same frame
   said in game.

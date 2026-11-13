@@ -7,10 +7,13 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <utility>
 
 namespace tongs {
+
+class ActivityGate;  // activity_gate.hpp
 
 // The tongs.navigation service (include/tongs/tongs_navigation.h, docs/adr/0004):
 // the pipe's navigation (navigation.hpp, game_navigation.cpp) for other plugins.
@@ -36,7 +39,12 @@ struct NavigationServiceHost {
     std::function<WorldFailure(std::int32_t, NavigationFacts&)> read_facts;
     // The calls of one open: close the shown views, the camera, then select. False on a fault.
     std::function<bool(const NavigationFacts&, bool close_views, bool camera, unsigned long& fault_code)> call;
-    std::function<void()> count;  // one client call, for the pipe's counts; may be unset
+    // The plugin's activity gate: its navigation breaker is the pipe's, so a fault here or in
+    // `province open` / `goto` stops both. Required.
+    std::shared_ptr<ActivityGate> gate;
+    // One client call through the gate, for the pipe's counts (ActivityGate::Counted); unset
+    // without the pipe.
+    std::function<void()> count;
     std::function<void(const std::string&)> log_error;
 };
 
@@ -59,10 +67,5 @@ constexpr std::uint32_t kNavigationServiceFlags = TONGS_NAV_KEEP_VIEWS | TONGS_N
 
 // The outcome for a refusal of NavigationRefusal or of the reads.
 std::uint32_t NavigationOutcome(const WorldFailure& refusal);
-
-// Shared with the pipe's province open and goto: set when the game's code faulted
-// in a navigation call, which refuses every later one until the game exits.
-bool NavigationTripped();
-void TripNavigation();
 
 }  // namespace tongs

@@ -1,3 +1,4 @@
+#include "activity_gate.hpp"
 #include "config.hpp"
 #include "console.hpp"
 #include "game_date.hpp"
@@ -32,6 +33,8 @@
 #include <functional>
 #include <stdexcept>
 #include <optional>
+#include <set>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <unordered_set>
@@ -857,10 +860,9 @@ static void TestInputDisabled() {
     FakeGame game = LoadedGame();
     Handlers h = game.Make();
     h.send_input = nullptr;
-    for (const char* command : {"key space", "pause", "resume", "speed 3"}) {
-        const std::string out = HandleRequest(command, h);
-        assert(Contains(out, "\"ok\":false") && Contains(out, "input = true"));
-    }
+    // The inputs and calls are refused by the gate's switch (TestCommandTable); release, a read,
+    // needs input too, since Tongs holds no pointer without it.
+    assert(Contains(HandleRequest("release", h), "input = true"));
     assert(Contains(HandleRequest("help", h), "\"input\":false"));
     assert(game.pressed.empty());
 }
@@ -908,19 +910,13 @@ static void TestMinimized() {
     assert(!game.events.empty());
 }
 
-// While Anvil suspends Tongs (ironman or multiplayer without the player's opt-in),
-// input commands answer an error and send nothing; reads go on.
+// While Anvil suspends Tongs (ironman or multiplayer without the player's opt-in), every
+// input and call is refused (TestCommandTable); reads go on.
 static void TestSuspended() {
     FakeGame game = LoadedGame();
     Handlers h = game.Make();
     bool suspended = true;
     h.suspended = [&suspended] { return suspended; };
-    for (const char* command : {"key space", "pause", "resume", "speed 3", "text a", "move 1 1", "click 1 1",
-                                "scroll 1", "run_until 1719.4.1", "ui click button"}) {
-        const std::string out = HandleRequest(command, h);
-        assert(Contains(out, "\"ok\":false") && Contains(out, "Anvil suspended Tongs") && Contains(out, "allow_ironman"));
-    }
-    assert(game.pressed.empty() && game.events.empty());
     // Handing the pointer back to the player changes nothing in the game.
     assert(Contains(HandleRequest("release", h), "\"ok\":true"));
     assert(Contains(HandleRequest("state", h), "\"ok\":true"));
@@ -1041,30 +1037,14 @@ static void TestSpeedButtons() {
     assert(game.buttons == std::vector<SpeedButton>({SpeedButton::Faster, SpeedButton::Faster, SpeedButton::Pause,
                                                      SpeedButton::Pause}));
 
-    // Another client's speed press counts as one input of a wait in progress.
-    game.state.paused_flag = false;
-    int ticks = 0;
-    game.on_sleep = [&] {
-        if (++ticks == 5) assert(Contains(HandleRequest("speed 4", h), "\"ok\":true"));
-    };
-    out = HandleRequest("wait_until 1719.5.1", h);
-    assert(Contains(out, "\"ok\":true") && Contains(out, "\"inputs\":1,"));
-    game.on_sleep = nullptr;
-    assert(Contains(HandleRequest("pause", h), "\"ok\":true"));
+    assert(Contains(HandleRequest("speed 4", h), "\"ok\":true"));
 
-    // The game ignores the buttons: nothing is pressed or counted, and the answer says why.
+    // The game ignores the buttons: nothing is pressed, and the answer says why.
     game.buttons.clear();
     game.buttons_blocked = true;
     out = HandleRequest("resume", h);
     assert(Contains(out, "\"ok\":false") && Contains(out, "ignores its speed and pause buttons") &&
            Contains(out, "\"presses\":0") && Contains(out, "\"paused\":true"));
-    ticks = 0;
-    game.on_sleep = [&] {
-        if (++ticks == 5) assert(Contains(HandleRequest("speed 1", h), "\"ok\":false"));
-    };
-    out = HandleRequest("wait_until 1719.6.1 timeout=1", h);
-    assert(Contains(out, "\"inputs\":0,"));
-    game.on_sleep = nullptr;
     game.buttons_blocked = false;
 
     // Without the main thread the keys do the same, as before.
@@ -1074,14 +1054,14 @@ static void TestSpeedButtons() {
     assert(Contains(out, "\"ok\":true") && Contains(out, "\"via\":\"key\"") && Contains(out, "\"speed\":5"));
     assert(game.pressed.size() == 1 && game.buttons.empty());
 
-    // A press that faults turns the buttons off for the rest of the process.
+    // A press that faults turns the buttons off until the game exits (this gate's breaker).
     game.button_fault = 0xC0000005;
     out = HandleRequest("speed 1", h);
     assert(Contains(out, "\"ok\":false") && Contains(out, "exception 0xC0000005") && Contains(out, "\"presses\":0"));
     game.button_fault = 0;
     out = HandleRequest("resume", h);
     assert(Contains(out, "\"ok\":false") && Contains(out, "off until the game exits"));
-    assert(game.buttons.empty());
+    assert(game.buttons.empty() && h.gate->Tripped(Breaker::SpeedButtons));
 }
 
 static void TestParseDate() {
@@ -2083,25 +2063,6 @@ static void TestUnitCommands() {
     assert(Contains(HandleRequest("unit split 12", off), "{\"ok\":false,\"error\":\"input_disabled\""));
     assert(posted.size() == before);
 
-    // Counted: a posted command is one input of a wait in progress, a command that posted nothing none.
-    screen.game.clock_runs_date = true;
-    screen.game.state.paused_flag = false;
-    screen.game.state.paused = false;
-    int ticks = 0;
-    answer = {};
-    answer.units = 1;
-    answer.posted = 1;
-    screen.game.on_sleep = [&] {
-        if (++ticks == 5) assert(Contains(HandleRequest("unit split 12", h), "\"ok\":true"));
-    };
-    out = HandleRequest("wait_until 1719.4.1", h);
-    assert(Contains(out, "\"ok\":true") && Contains(out, "\"inputs\":1,\"client_calls\":0,\"game_calls\":0"));
-    ticks = 0;
-    answer.posted = 0;
-    answer.skipped = 1;
-    out = HandleRequest("wait_until 1719.4.15", h);
-    assert(Contains(out, "\"ok\":true") && Contains(out, "\"inputs\":0,"));
-    screen.game.on_sleep = nullptr;
 }
 
 static void TestInputsCount() {
@@ -2119,7 +2080,7 @@ static void TestInputsCount() {
     // A client call of another client during the wait (ADR 0003).
     ticks = 0;
     game.on_sleep = [&] {
-        if (++ticks == 5) assert(CountClientCall(h, "province open", game.state) >= 1);
+        if (++ticks == 5) h.gate->Counted(h, CommandType::ClientCall, "province open", 1, game.state);
     };
     out = HandleRequest("wait_until 1719.4.15", h);
     assert(Contains(out, "\"ok\":true") && Contains(out, "\"inputs\":0,\"client_calls\":1,\"game_calls\":0"));
@@ -2464,36 +2425,6 @@ static void TestConsoleCommand() {
     console.read_error = "cannot read the console manager";
     assert(Contains(HandleRequest("console echo x", h), "\"error\":\"console_unavailable\""));
     console.read_error.clear();
-
-    // A game call by another client during the wait marks the run.
-    console.game.clock_runs_date = true;
-    console.game.state.paused_flag = false;
-    int ticks = 0;
-    console.game.on_sleep = [&] {
-        if (++ticks == 5) assert(Contains(HandleRequest("console echo y", h), "\"ok\":true"));
-    };
-    out = HandleRequest("wait_until 1719.4.1", h);
-    assert(Contains(out, "\"ok\":true") && Contains(out, "\"inputs\":0,\"client_calls\":0,\"game_calls\":1,"));
-    console.game.on_sleep = nullptr;
-    assert(Contains(HandleRequest("wait_until 1719.5.1", h), "\"game_calls\":0,"));
-    console.game.clock_runs_date = false;
-    console.game.state.paused_flag = true;
-
-    // game_calls_total counts since the save was loaded: another session object, or an earlier date.
-    const std::string total = HandleRequest("state", h);
-    assert(Contains(total, "\"game_calls_total\":") && !Contains(total, "\"game_calls_total\":0"));
-    console.game.state.session = 0x6000;
-    assert(Contains(HandleRequest("state", h), "\"game_calls_total\":0"));
-    console.raw.session = 0x6000;
-    assert(Contains(HandleRequest("console echo z", h), "\"game_calls_total\":1"));
-    console.game.state.date_raw = *ParseGameDate("1719.1.1");
-    assert(Contains(HandleRequest("state", h), "\"game_calls_total\":0"));
-    // Reloading the same save keeps the session object and the date; the load the state reads saw tells it.
-    assert(Contains(HandleRequest("console echo y", h), "\"game_calls_total\":1"));
-    assert(Contains(HandleRequest("state", h), "\"game_calls_total\":1"));
-    console.game.state.load = 7;
-    assert(Contains(HandleRequest("state", h), "\"game_calls_total\":0"));
-    assert(Contains(HandleRequest("console echo y", h), "\"game_calls_total\":1"));
 
     // A fault trips game calls until the game exits; reads keep working.
     console.fault = true;
@@ -3067,26 +2998,6 @@ static void TestSubscribeCommands() {
     assert(Contains(HandleRequest("help", h), "\"subscribe\",\"unsubscribe\""));
     assert(Contains(HandleRequest("ping", h), "\"command\":\"ping\""));
 
-    // activity: every input of any client, with the client and the running count.
-    const std::shared_ptr<Subscription> activity = sub;
-    assert(Contains(HandleRequest("resume", h, 4), "\"ok\":true"));
-    assert(Contains(HandleRequest("pause", h, 2), "\"ok\":true"));
-    assert(Contains(HandleRequest("pause", h, 2), "\"presses\":0"));  // nothing pressed: no input
-    std::vector<std::string> lines = Lines(activity->Take(0));
-    assert(lines.size() == 2);
-    assert(Contains(lines[0], "\"notification\":\"activity\",\"seq\":1,\"date\":\"1719.3.17\"") &&
-           Contains(lines[0], "\"what\":\"input\",\"command\":\"resume\",\"inputs\":") && Contains(lines[0], ",\"client\":4}"));
-    assert(Contains(lines[1], "\"command\":\"pause\"") && Contains(lines[1], ",\"client\":2}"));
-    // A client call: its own `what`, the running count of client calls, and client_calls_total.
-    game.state.load = 9;
-    const std::uint64_t total = CountClientCall(h, "province goto", game.state);
-    assert(total == 1);
-    lines = Lines(activity->Take(0));
-    assert(lines.size() == 1 && Contains(lines[0], "\"what\":\"client_call\",\"command\":\"province goto\",\"client_calls\":"));
-    assert(Contains(HandleRequest("state", h), "\"client_calls_total\":1"));
-    game.state.load = 10;  // another session: the total starts again
-    assert(Contains(HandleRequest("state", h), "\"client_calls_total\":0"));
-    hub.Unsubscribe(activity);
 }
 
 // Fake GUI definitions in this process's memory. Maps are built the way the game's
@@ -4516,6 +4427,48 @@ static void TestMapModeCommand() {
     assert(Contains(HandleRequest("map_mode political", h), "\"error\":\"map_mode_tripped\""));
 }
 
+// tongs.navigation (docs/adr/0004): the pipe's checks for another plugin, on its main thread.
+struct NavigationFake {
+    std::uint32_t thread = 7, main = 7;
+    bool in_game = true, suspended = false;
+    ProvinceViewRaw view;
+    NavigationFacts facts;
+    WorldFailure read_failure;
+    int reads = 0, calls = 0, counted = 0;
+    bool close_views = false, camera = false, fault = false;
+    std::vector<std::string> logged;
+    std::shared_ptr<ActivityGate> gate = MakeActivityGate();  // the plugin's: the pipe shares its breaker
+
+    NavigationServiceHost Host() {
+        NavigationServiceHost h;
+        h.current_thread = [this] { return thread; };
+        h.main_thread = [this] { return main; };
+        h.in_game = [this] { return in_game; };
+        h.suspended = [this] { return suspended; };
+        h.read_view = [this](ProvinceViewRaw& out) {
+            out = view;
+            return read_failure;
+        };
+        h.read_facts = [this](std::int32_t id, NavigationFacts& out) {
+            ++reads;
+            out = facts;
+            out.id = id;
+            return read_failure;
+        };
+        h.call = [this](const NavigationFacts&, bool close, bool cam, unsigned long& code) {
+            ++calls;
+            close_views = close;
+            camera = cam;
+            code = 0xC0000005;
+            return !fault;
+        };
+        h.gate = gate;
+        h.count = [this] { ++counted; };
+        h.log_error = [this](const std::string& message) { logged.push_back(message); };
+        return h;
+    }
+};
+
 static void TestNavigationCommands() {
     Handlers h;
     h.now_ms = SteadyMs;
@@ -4677,6 +4630,13 @@ static void TestNavigationCommands() {
     out = HandleRequest("province goto 295", h);
     assert(Contains(out, "\"error\":\"faulted\"") && Contains(out, "0xC0000005"));
     assert(Contains(HandleRequest("province goto 295", h), "\"error\":\"navigation_tripped\""));
+    // tongs.navigation goes through the same gate: its open_province is off too (ADR 0004).
+    NavigationFake service_fake;
+    service_fake.facts.land = true;
+    service_fake.gate = h.gate;
+    NavigationService service(service_fake.Host());
+    std::uint32_t outcome = 99;
+    assert(service.OpenProvince(295, 0, &outcome) == ANVIL_OK && outcome == TONGS_NAV_TRIPPED && service_fake.calls == 0);
 }
 
 static std::string FromHex(std::string_view hex) {
@@ -5017,46 +4977,6 @@ static void TestSaveLoadFromMenu() {
     assert(Contains(HandleRequest("save load x", h), "\"error\":\"no_such_save\"") && game_loads == 1 && posts == menu_posts);
 }
 
-// tongs.navigation (docs/adr/0004): the pipe's checks for another plugin, on its main thread.
-struct NavigationFake {
-    std::uint32_t thread = 7, main = 7;
-    bool in_game = true, suspended = false;
-    ProvinceViewRaw view;
-    NavigationFacts facts;
-    WorldFailure read_failure;
-    int reads = 0, calls = 0, counted = 0;
-    bool close_views = false, camera = false, fault = false;
-    std::vector<std::string> logged;
-
-    NavigationServiceHost Host() {
-        NavigationServiceHost h;
-        h.current_thread = [this] { return thread; };
-        h.main_thread = [this] { return main; };
-        h.in_game = [this] { return in_game; };
-        h.suspended = [this] { return suspended; };
-        h.read_view = [this](ProvinceViewRaw& out) {
-            out = view;
-            return read_failure;
-        };
-        h.read_facts = [this](std::int32_t id, NavigationFacts& out) {
-            ++reads;
-            out = facts;
-            out.id = id;
-            return read_failure;
-        };
-        h.call = [this](const NavigationFacts&, bool close, bool cam, unsigned long& code) {
-            ++calls;
-            close_views = close;
-            camera = cam;
-            code = 0xC0000005;
-            return !fault;
-        };
-        h.count = [this] { ++counted; };
-        h.log_error = [this](const std::string& message) { logged.push_back(message); };
-        return h;
-    }
-};
-
 static void TestNavigationService() {
     NavigationFake fake;
     fake.facts.land = true;
@@ -5145,22 +5065,43 @@ static void TestNavigationService() {
     // A locked camera refuses `goto`, not opening a view.
     fake.facts.camera_locked = true;
     assert(service.OpenProvince(295, 0, &outcome) == ANVIL_OK && outcome == TONGS_NAV_OPENED);
-    assert(!NavigationTripped());
+    assert(!fake.gate->Tripped(Breaker::Navigation));
 }
 
 static void TestNavigationServiceTripped() {
-    // The pipe's fault (TestNavigationCommands) turns the service's navigation off too.
+    // A fault in the game's code turns the service's navigation off, and the pipe's province open
+    // and goto with it: one breaker, the gate's (ADR 0004). Counted: it called the game.
     NavigationFake fake;
     fake.facts.land = true;
+    fake.fault = true;
     NavigationService service(fake.Host());
     std::uint32_t outcome = 99;
-    assert(NavigationTripped());
+    assert(service.OpenProvince(295, 0, &outcome) == ANVIL_OK && outcome == TONGS_NAV_FAULTED && fake.counted == 1);
+    assert(fake.gate->Tripped(Breaker::Navigation) && Contains(fake.logged.back(), "faulted"));
+    fake.fault = false;
     assert(service.OpenProvince(295, 0, &outcome) == ANVIL_OK && outcome == TONGS_NAV_TRIPPED);
-    assert(fake.reads == 0 && fake.calls == 0);
+    assert(fake.calls == 1 && fake.counted == 1);
     // province_view still reads.
     TongsProvinceView view{};
     view.size = sizeof view;
     assert(service.ProvinceView(&view) == ANVIL_OK);
+    // The pipe with the plugin's gate refuses before the main thread.
+    Handlers h;
+    h.gate = fake.gate;
+    h.read_state = [] { return StateSnapshot{}; };
+    h.send_input = [](const std::vector<InputEvent>&) { return std::string(); };
+    h.sleep_ms = SleepMs;
+    h.now_ms = SteadyMs;
+    Dispatcher d(SteadyMs);
+    h.dispatcher = &d;
+    h.read_navigation = [](std::int32_t, NavigationFacts&) { return WorldFailure{}; };
+    h.call_navigation = [](bool, const NavigationFacts&, unsigned long&) { return true; };
+    h.read_camera = [](CameraRaw&) { return WorldFailure{}; };
+    h.read_selection = [](SelectionRaw&) { return WorldFailure{}; };
+    h.read_ui = [](UiTree&) { return std::string(); };
+    assert(Contains(HandleRequest("province open 295", h), "\"error\":\"navigation_tripped\""));
+    // Another plugin instance has a gate of its own.
+    assert(!MakeActivityGate()->Tripped(Breaker::Navigation));
 }
 
 static void TestCursorCommand() {
@@ -5374,13 +5315,461 @@ static void TestJournal() {
     std::filesystem::remove_all(folder, ec);
 }
 
-int main(int argc, char** argv) {
-    // A process of its own: a fault trips game calls for the rest of the process.
-    if (argc > 1 && std::string_view(argv[1]) == "save-load-fault") {
-        TestSaveLoadCommand(true);
-        std::puts("ok");
-        return 0;
+// The marked-run rules of ADR 0001, 0003, 0004 and 0005, tested once, through ActivityGate's
+// interface: per command type the switch, Anvil's suspension, the breaker, the turn across
+// clients, the count (only when the activity acted), the total since the save was loaded, the
+// promotion of a client call, the `activity` notification and the Anvil log line.
+static void TestActivityGate() {
+    FakeGame game = LoadedGame();
+    Handlers h = game.Make();
+    h.game_calls.enabled = true;
+    std::vector<std::pair<int, std::string>> logged;
+    h.log = [&logged](int level, const std::string& message) { logged.emplace_back(level, message); };
+    std::uint64_t clock = 0;
+    NotificationHub hub([&clock] { return clock; });
+    h.notifications = &hub;
+    SubscribeRequest wants;
+    wants.kinds = Bit(NotificationKind::Activity);
+    const auto subscription = hub.Subscribe(wants);
+    const auto notes = [&subscription] { return Lines(subscription->Take(0)); };
+    ActivityGate& gate = *h.gate;
+
+    static constexpr Command kInput{"an input", CommandType::Input, false, "an input", nullptr};
+    static constexpr Command kClient{"a client call", CommandType::ClientCall, false, "a client call", nullptr};
+    static constexpr Command kGame{"a game call", CommandType::GameCall, false, "a game call", nullptr};
+    // A plan whose refusals answer "refused ERROR" and whose action answers "acted" after `act`.
+    const auto plan = [](std::function<void(ActivityGate::Activity&)> act = {}) {
+        ActivityGate::Plan p;
+        p.subject = "x";
+        p.refuse = [](const Refusal& r) { return "refused " + r.error; };
+        p.act = [act](ActivityGate::Activity& a) {
+            if (act) act(a);
+            return std::string("acted");
+        };
+        return p;
+    };
+    const auto run = [](const Handlers& with, const Command& c, const ActivityGate::Plan& p, int client = 3) {
+        return with.gate->Run(Request{with, c, c.name, {}, client}, p);
+    };
+    const std::string date = FormatGameDate(DecodeGameDate(game.state.date_raw));
+
+    // The switch: inputs and client calls need input = true, game calls game_calls = true, reads none.
+    assert(!ActivityGate::Switch(Handlers{}, CommandType::Read).refused());
+    Handlers off = h;
+    off.send_input = nullptr;
+    off.game_calls.enabled = false;
+    assert(run(off, kInput, plan()) == "refused input_disabled" && run(off, kClient, plan()) == "refused input_disabled");
+    assert(run(off, kGame, plan()) == "refused game_calls_disabled");
+    // Logged: a game call's refusal as a warning, a client call's as info, an input's not at all.
+    assert(logged.size() == 2 && logged[0].first == kLogInfo && logged[1].first == kLogWarning);
+    assert(logged[0].second == "a client call x (pipe 3, " + date +
+                                   "): refused: input_disabled (input commands are disabled (set input = true in "
+                                   "anvil/data/tongs/settings.toml))");
+    assert(logged[1].second.starts_with("a game call x (pipe 3, " + date + "): refused: game_calls_disabled (game calls are"));
+
+    // Anvil's suspension, and the order: first, the switch, the suspension, check, the breaker.
+    bool suspended = true;
+    Handlers anvil = h;
+    anvil.suspended = [&suspended] { return suspended; };
+    for (const Command* c : {&kInput, &kClient, &kGame}) assert(run(anvil, *c, plan()) == "refused suspended");
+    Handlers ordered = anvil;
+    ordered.gate = MakeActivityGate();
+    ordered.gate->Trip(Breaker::MapMode);
+    ordered.send_input = nullptr;
+    ActivityGate::Plan checks = plan();
+    checks.breaker = Breaker::MapMode;
+    checks.first = [] { return Refusal{"first", "its arguments"}; };
+    checks.check = [] { return Refusal{"check", "not set up"}; };
+    assert(run(ordered, kClient, checks) == "refused first");
+    checks.first = {};
+    assert(run(ordered, kClient, checks) == "refused input_disabled");
+    ordered.send_input = h.send_input;
+    assert(run(ordered, kClient, checks) == "refused suspended");
+    suspended = false;
+    assert(run(ordered, kClient, checks) == "refused check");
+    checks.check = {};
+    assert(run(ordered, kClient, checks) == "refused map_mode_tripped");
+
+    // The breakers: a client call's own, game calls' for every game call, none for an input (the
+    // speed buttons check theirs at each press). Each gate has its own.
+    Handlers b = h;
+    b.gate = MakeActivityGate();
+    ActivityGate::Plan nav = plan();
+    nav.breaker = Breaker::Navigation;
+    ActivityGate::Plan map = plan();
+    map.breaker = Breaker::MapMode;
+    b.gate->Trip(Breaker::Navigation);
+    assert(run(b, kClient, nav) == "refused navigation_tripped" && run(b, kClient, map) == "acted");
+    assert(run(b, kGame, plan()) == "acted");
+    b.gate->Trip(Breaker::GameCalls);
+    b.gate->Trip(Breaker::SpeedButtons);
+    b.gate->Trip(Breaker::MapMode);
+    assert(run(b, kGame, plan()) == "refused game_calls_tripped" && run(b, kInput, plan()) == "acted");
+    assert(ActivityGate::TrippedRefusal(Breaker::GameCalls).detail ==
+           "game calls are off until the game exits after a game call faulted");
+    Handlers faults = h;
+    faults.gate = MakeActivityGate();
+    ActivityGate::Plan trips = plan([](ActivityGate::Activity& a) {
+        assert(!a.Tripped());
+        a.Trip();  // a fault in the game's code
+        assert(a.Tripped());
+    });
+    trips.breaker = Breaker::MapMode;
+    assert(run(faults, kClient, trips) == "acted" && run(faults, kClient, trips) == "refused map_mode_tripped");
+    assert(!faults.gate->Tripped(Breaker::Navigation) && !gate.Tripped(Breaker::MapMode) && !gate.Tripped(Breaker::GameCalls));
+    logged.clear();
+
+    // The turn: one activity at a time across all clients; run_until gives it up while it waits.
+    std::atomic<bool> second{false};
+    std::thread other;
+    assert(run(h, kInput, plan([&](ActivityGate::Activity&) {
+               other = std::thread([&] {
+                   assert(run(h, kClient, plan([&](ActivityGate::Activity&) { second = true; }), 4) == "acted");
+               });
+               SleepMs(50);
+               assert(!second);
+           })) == "acted");
+    other.join();
+    assert(second);
+    second = false;
+    assert(run(h, kInput, plan([&](ActivityGate::Activity& a) {
+               a.Release();
+               std::thread t([&] { run(h, kGame, plan([&](ActivityGate::Activity&) { second = true; }), 4); });
+               t.join();
+               a.Take();
+           })) == "acted");
+    assert(second && gate.counts().inputs == 0 && notes().empty());
+
+    // An input counts once, when it ends, if anything was sent, pressed, posted or chosen through
+    // its handlers: in `inputs` of every wait and in an `activity` notification with its client.
+    InputEvent move;
+    move.type = InputEvent::Type::MouseMove;
+    run(h, kInput, plan([&](ActivityGate::Activity& a) {
+        assert(a.handlers().send_input({move}).empty() && a.handlers().send_input({move}).empty());
+        assert(gate.counts().inputs == 0);
+    }));
+    assert(gate.counts().inputs == 1);
+    std::vector<std::string> lines = notes();
+    assert(lines.size() == 1 && Contains(lines[0], ("\"date\":\"" + date + "\"").c_str()) &&
+           Contains(lines[0], ",\"what\":\"input\",\"command\":\"an input\",\"inputs\":1,\"client\":3}"));
+    // Nothing sent, a send that failed, the window minimized (nothing sent at all): no input.
+    run(h, kInput, plan());
+    game.push_error = "SDL is not ready";
+    run(h, kInput, plan([&](ActivityGate::Activity& a) { assert(a.handlers().send_input({move}) == "SDL is not ready"); }));
+    game.push_error.clear();
+    game.window.found = true;
+    game.window.minimized = true;
+    const std::size_t events = game.events.size();
+    run(h, kInput, plan([&](ActivityGate::Activity& a) { assert(a.handlers().send_input({move}) == kWindowMinimized); }));
+    assert(game.events.size() == events);
+    game.window = {};
+    assert(gate.counts().inputs == 1 && notes().empty());
+    // A speed button pressed, a unit command posted, an event option chosen: each one input.
+    bool pressed = false;
+    UnitPost post;
+    ServiceChoice choice;
+    h.press_speed_button = [&pressed](SpeedButton) {
+        SpeedButtonPress p;
+        p.pressed = pressed;
+        return p;
+    };
+    h.post_units = [&post](const UnitRequest&) { return post; };
+    h.choose_option = [&choice](std::int32_t, std::int32_t) { return choice; };
+    const ActivityGate::Plan acts = plan([](ActivityGate::Activity& a) {
+        a.handlers().press_speed_button(SpeedButton::Pause);
+        a.handlers().post_units(UnitRequest{});
+        a.handlers().choose_option(1, 0);
+    });
+    run(h, kInput, acts);
+    assert(gate.counts().inputs == 1);
+    post.posted = 1;
+    run(h, kInput, acts);
+    post.posted = 0;
+    choice.posted = 1;
+    run(h, kInput, acts);
+    choice.posted = 0;
+    pressed = true;
+    run(h, kInput, acts);
+    assert(gate.counts().inputs == 4 && notes().size() == 3);
+    // A part counted under a name of its own (`run_until events=first: choice`), within the turn.
+    run(h, kInput, plan([&](ActivityGate::Activity& a) {
+        {
+            const ActivityGate::Part part = a.CountAs("an input: a part");
+            assert(part.handlers().send_input({move}).empty());
+        }
+        assert(gate.counts().inputs == 5);
+    }));
+    lines = notes();
+    assert(gate.counts().inputs == 5 && lines.size() == 1 &&
+           Contains(lines[0], "\"command\":\"an input: a part\",\"inputs\":5,\"client\":3}"));
+
+    // A client call counts once it is made: client_calls, client_calls_total of the save it was
+    // made in, the notification, no log line. A new session, another session object or an
+    // earlier date is another save, whose total starts again.
+    std::uint64_t total = 0;
+    const ActivityGate::Plan client_call = plan([&](ActivityGate::Activity& a) {
+        a.Called();
+        total = a.Total(game.state);
+        assert(a.Total(game.state) == total);  // once
+    });
+    run(h, kClient, client_call, 5);
+    assert(total == 1 && gate.counts().client_calls == 1 && gate.Total(CommandType::ClientCall, game.state) == 1);
+    assert(gate.Total(CommandType::GameCall, game.state) == 0 && logged.empty());
+    lines = notes();
+    assert(lines.size() == 1 && Contains(lines[0], ",\"what\":\"client_call\",\"command\":\"a client call\",\"client_calls\":1,\"client\":5}"));
+    run(h, kClient, client_call);
+    assert(total == 2 && gate.Total(CommandType::ClientCall, game.state) == 2);
+    game.state.load += 1;
+    assert(gate.Total(CommandType::ClientCall, game.state) == 0);
+    run(h, kClient, client_call);
+    assert(total == 1);
+    game.state.session = 0x77;
+    assert(gate.Total(CommandType::ClientCall, game.state) == 0);
+    run(h, kClient, client_call);
+    game.state.date_raw -= 24;
+    assert(total == 1 && gate.Total(CommandType::ClientCall, game.state) == 0 && gate.counts().client_calls == 4);
+    (void)notes();
+
+    // A game call: game_calls, game_calls_total, the notification with the command's own members,
+    // and its log lines with the date of the save it was made in.
+    const std::string earlier = FormatGameDate(DecodeGameDate(game.state.date_raw));
+    run(h, kGame, plan([&](ActivityGate::Activity& a) {
+            a.Called(",\"line\":\"echo x\"");
+            total = a.Total(game.state);
+            a.Log(kLogInfo, "called");
+        }),
+        6);
+    assert(total == 1 && gate.counts().game_calls == 1 && gate.Total(CommandType::GameCall, game.state) == 1);
+    lines = notes();
+    assert(lines.size() == 1 &&
+           Contains(lines[0], ",\"what\":\"game_call\",\"command\":\"a game call\",\"line\":\"echo x\",\"game_calls\":1,\"client\":6}"));
+    assert(logged.size() == 1 && logged[0] == std::make_pair(kLogInfo, "a game call x (pipe 6, " + earlier + "): called"));
+    // A refusal on the main thread is logged as its type says: never for an input.
+    run(h, kGame, plan([](ActivityGate::Activity& a) { a.Refused({"not_in_game", "no game loaded"}); }));
+    assert(logged.size() == 2 && logged[1].first == kLogWarning && Contains(logged[1].second, "refused: not_in_game (no game loaded)"));
+    run(h, kInput, plan([](ActivityGate::Activity& a) { a.Refused({"covered", "a window"}); }));
+    assert(logged.size() == 2);
+
+    // ADR 0003: a client call that would change game state is a game call: refused without
+    // game_calls (needs_game_calls), while game calls are tripped, and in ironman or multiplayer
+    // without their switches; otherwise counted, totalled and logged as a game call.
+    Refusal promoted;
+    std::string mode;
+    const ActivityGate::Plan promote = plan([&](ActivityGate::Activity& a) {
+        promoted = a.Promote("it would discover a capital", "it discovers a capital");
+        mode = a.mode();
+        assert(a.promoted());
+        if (promoted.refused()) {
+            a.Refused(promoted);
+            return;
+        }
+        a.Called();
+        total = a.Total(game.state);
+    });
+    Handlers no_calls = h;
+    no_calls.game_calls.enabled = false;
+    run(no_calls, kClient, promote);
+    assert(promoted.error == "needs_game_calls" && promoted.detail == "it would discover a capital");
+    assert(logged.back().first == kLogWarning && Contains(logged.back().second, "refused: needs_game_calls"));
+    ConsoleRaw console;
+    console.session = 1;
+    console.ironman = true;
+    h.read_console = [&console](ConsoleRaw& raw) {
+        raw = console;
+        return std::string();
+    };
+    run(h, kClient, promote);
+    assert(promoted.error == "ironman");
+    h.game_calls.ironman = true;
+    const ActivityGate::Counts counts = gate.counts();
+    logged.clear();
+    run(h, kClient, promote, 7);
+    assert(!promoted.refused() && Contains(mode, ",\"mode\":{\"ironman\":true,\"multiplayer\":false,"));
+    assert(gate.counts().game_calls == counts.game_calls + 1 && gate.counts().client_calls == counts.client_calls);
+    assert(total == 2 && gate.Total(CommandType::GameCall, game.state) == 2);
+    lines = notes();
+    assert(lines.size() == 1 && Contains(lines[0], ",\"what\":\"game_call\",\"command\":\"a client call\",\"game_calls\":2,\"client\":7}"));
+    assert(logged.size() == 1 && logged[0] == std::make_pair(kLogWarning, "a client call x (pipe 7, " + earlier +
+                                                                              "): made as a game call: it discovers a capital"));
+    h.read_console = nullptr;
+    h.game_calls.ironman = false;
+    Handlers tripped = h;
+    tripped.gate = MakeActivityGate();
+    tripped.gate->Trip(Breaker::GameCalls);
+    run(tripped, kClient, promote);
+    assert(promoted.error == "game_calls_tripped");
+
+    // A call made outside an activity of a pipe request: another plugin's open_province, a save
+    // load nobody waits for any more. Counted, totalled and published as one.
+    gate.Counted(h, CommandType::ClientCall, "tongs.navigation open_province", 0, game.state);
+    assert(gate.counts().client_calls == counts.client_calls + 1 && gate.Total(CommandType::ClientCall, game.state) == 1);
+    lines = notes();
+    assert(lines.size() == 1 && Contains(lines[0], "\"command\":\"tongs.navigation open_province\",\"client_calls\":5,\"client\":0}"));
+    hub.Unsubscribe(subscription);
+}
+
+// The command table: every entry is reached from its usage line and from a request of its own,
+// `help` lists exactly the table, every entry of a type but read is refused by the gate's
+// switch and Anvil's suspension before it acts, and no read is refused while suspended.
+static void TestCommandTable() {
+    const std::span<const Command> table = Commands();
+    // A request of each entry that its parser takes, in the table's order.
+    const std::vector<std::pair<std::string_view, std::string_view>> samples = {
+        {"ping", "ping"},
+        {"state", "state"},
+        {"window", "window"},
+        {"threads", "threads"},
+        {"screenshot", "screenshot x"},
+        {"frames", "frames"},
+        {"ui find", "ui find a"},
+        {"ui tree", "ui tree"},
+        {"ui click", "ui click a"},
+        {"event list", "event list"},
+        {"event choose", "event choose 1"},
+        {"province", "province 295"},
+        {"province open", "province open 295"},
+        {"province goto", "province goto 295"},
+        {"country", "country RUS"},
+        {"player", "player"},
+        {"selection", "selection"},
+        {"units", "units"},
+        {"cursor", "cursor"},
+        {"journal", "journal"},
+        {"help", "help"},
+        {"wait_until", "wait_until 1720.1.1 timeout=1"},
+        {"cancel", "cancel"},
+        {"key", "key space"},
+        {"text", "text a"},
+        {"move", "move 1 1"},
+        {"click", "click 1 1"},
+        {"scroll", "scroll 1"},
+        {"release", "release"},
+        {"pause", "pause"},
+        {"resume", "resume"},
+        {"speed", "speed 3"},
+        {"run_until", "run_until 1720.1.1 timeout=1"},
+        {"unit drill", "unit drill start 12"},
+        {"unit split", "unit split 12"},
+        {"unit merge", "unit merge 12 34"},
+        {"console", "console echo x"},
+        {"save load", "save load x"},
+        {"map_mode", "map_mode political"},
+        {"subscribe", "subscribe state"},
+        {"unsubscribe", "unsubscribe"},
+    };
+    assert(samples.size() == table.size());
+    std::set<std::string_view> names;
+    for (std::size_t i = 0; i < table.size(); ++i) {
+        const Command& c = table[i];
+        assert(samples[i].first == c.name && names.insert(c.name).second && c.handler != nullptr);
+        assert(CommandOf(samples[i].second) == &c && CommandOf(c.usage) == &c);
     }
+    // Another verb goes to its group's first entry, whose handler answers the usage.
+    assert(CommandOf("ui bogus")->name == "ui find" && CommandOf("save x")->name == "save load");
+    assert(CommandOf("province bogus")->name == "province" && CommandOf("  ") == nullptr && CommandOf("nosuch") == nullptr);
+    Handlers none;
+    assert(Contains(HandleRequest("ui bogus", none), "\"command\":\"ui\"") && Contains(HandleRequest("save x", none), "usage: save load"));
+
+    // help: the commands as before the table, byte for byte, then the type of every entry.
+    std::string types;
+    for (const Command& c : table) {
+        types += (types.empty() ? "\"" : ",\"") + std::string(c.name) + "\":\"" + CommandTypeName(c.type) + "\"";
+    }
+    assert(HandleRequest("help", none) ==
+           "{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"frames\",\"ui\",\"event\","
+           "\"province\",\"country\",\"player\",\"selection\",\"units\",\"cursor\",\"journal\",\"help\",\"wait_until\","
+           "\"cancel\",\"key\",\"text\",\"move\",\"click\",\"scroll\",\"release\",\"pause\",\"resume\",\"speed\","
+           "\"run_until\",\"unit\",\"console\",\"save\",\"map_mode\",\"subscribe\",\"unsubscribe\"],\"input\":false,"
+           "\"main_thread\":false,\"game_calls\":false,\"game_calls_tripped\":false,\"suspended\":false,\"types\":{" +
+               types + "}}");
+    assert(Contains(types, "\"province open\":\"client_call\",\"province goto\":\"client_call\",\"country\":\"read\""));
+
+    // Every entry of a type but read: refused by the switch, and by the suspension, before it acts.
+    FakeGame game = LoadedGame();
+    Handlers on = game.Make();
+    on.game_calls.enabled = true;
+    Handlers off = on;
+    off.send_input = nullptr;
+    off.game_calls.enabled = false;
+    Handlers suspended = on;
+    suspended.suspended = [] { return true; };
+    for (std::size_t i = 0; i < table.size(); ++i) {
+        const Command& c = table[i];
+        const std::string_view line = samples[i].second;
+        if (c.type == CommandType::Read) {
+            assert(!Contains(HandleRequest(line, suspended), "Anvil suspended Tongs"));
+            continue;
+        }
+        const std::string refused = HandleRequest(line, off);
+        assert(Contains(refused, c.type == CommandType::GameCall ? "game_calls = true" : "input = true") &&
+               Contains(refused, "\"ok\":false"));
+        assert(Contains(HandleRequest(line, suspended), "Anvil suspended Tongs"));
+    }
+    assert(game.events.empty() && game.pressed.empty());
+    const ActivityGate::Counts counts = on.gate->counts();
+    assert(counts.inputs == 0 && counts.client_calls == 0 && counts.game_calls == 0);
+}
+
+// The text of a file without carriage returns (a Windows checkout may have them).
+static std::string ReadText(const char* path) {
+    std::ifstream in(path, std::ios::binary);
+    std::stringstream text;
+    text << in.rdbuf();
+    std::string out = text.str();
+    out.erase(std::remove(out.begin(), out.end(), '\r'), out.end());
+    return out;
+}
+
+// docs/commands.json is the command table as CommandsJson() writes it.
+static int CheckCommandsJson(const char* path) {
+    if (ReadText(path) == CommandsJson()) return 0;
+    std::fprintf(stderr, "%s is not the command table: rewrite it with `cmake --build build --target tongs-commands-json`\n", path);
+    return 1;
+}
+
+static int WriteCommandsJson(const char* path) {
+    std::ofstream out(path, std::ios::binary);
+    out << CommandsJson();
+    return out ? 0 : 1;
+}
+
+// docs/commands.md: the tables of its "Commands" section have a row for every entry of the
+// command table, with the entry's usage as written there, and no row of a command the table lacks.
+static int CheckCommandsMd(const char* path) {
+    std::istringstream text(ReadText(path));
+    std::set<std::string_view> documented;
+    bool section = false;
+    int errors = 0;
+    for (std::string line; std::getline(text, line);) {
+        if (line.starts_with("## ")) section = line == "## Commands";
+        if (!section || !line.starts_with("| `")) continue;
+        const std::size_t end = line.find('`', 3);
+        std::string usage = line.substr(3, end - 3);
+        for (std::size_t at; (at = usage.find("\\|")) != std::string::npos;) usage.replace(at, 2, "|");
+        const Command* c = CommandOf(usage);
+        if (c == nullptr || c->usage != usage) {
+            std::fprintf(stderr, "%s names `%s`, which the command table lacks%s%s\n", path, usage.c_str(),
+                         c ? "; the table has " : "", c ? std::string(c->usage).c_str() : "");
+            ++errors;
+            continue;
+        }
+        documented.insert(c->name);
+    }
+    for (const Command& c : Commands()) {
+        if (documented.count(c.name) != 0) continue;
+        std::fprintf(stderr, "%s has no row for `%s`\n", path, std::string(c.usage).c_str());
+        ++errors;
+    }
+    return errors == 0 ? 0 : 1;
+}
+
+int main(int argc, char** argv) {
+    // ctest: docs/commands.json and docs/commands.md against the command table.
+    if (argc == 3 && std::string_view(argv[1]) == "commands-json") return CheckCommandsJson(argv[2]);
+    if (argc == 3 && std::string_view(argv[1]) == "write-commands-json") return WriteCommandsJson(argv[2]);
+    if (argc == 3 && std::string_view(argv[1]) == "commands-md") return CheckCommandsMd(argv[2]);
+    TestActivityGate();
+    TestCommandTable();
     TestWorldParsing();
     TestWorldAnswers();
     TestWorldFlagsAndVariables();
@@ -5443,7 +5832,7 @@ int main(int argc, char** argv) {
     TestPauseResume();
     TestPauseTimeoutAndErrors();
     TestSpeed();
-    TestSpeedButtons();  // trips the speed buttons for the rest of the process
+    TestSpeedButtons();
     TestDispatcher();
     TestFrameStats();
     TestFramesCommand();
@@ -5453,12 +5842,13 @@ int main(int argc, char** argv) {
     TestUiCommand();
     TestConsoleRules();
     TestNavigationService();
-    TestNavigationCommands();  // trips navigation for the rest of the process
-    TestMapModeCommand();      // trips map_mode for the rest of the process
+    TestNavigationCommands();
+    TestMapModeCommand();
     TestNavigationServiceTripped();
     TestSaveLoadCommand();
+    TestSaveLoadCommand(true);
     TestSaveLoadFromMenu();
-    TestConsoleCommand();  // last: it trips game calls for the rest of the process
+    TestConsoleCommand();
     std::puts("ok");
     return 0;
 }

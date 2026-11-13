@@ -1,4 +1,5 @@
 // Tongs — Anvil plugin entry point (plugin API 2).
+#include "activity_gate.hpp"
 #include "game_commands.hpp"
 #include "world_flags.hpp"
 #include "journal.hpp"
@@ -38,6 +39,7 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -68,6 +70,10 @@ std::uint64_t UnixNowMs() {
 std::atomic<bool> g_suspended{false};
 
 struct Tongs : anvil::Plugin {
+    // The activity gate of this instance (activity_gate.hpp): the counts, totals and breakers
+    // of the pipe's commands and of tongs.navigation's calls.
+    std::shared_ptr<tongs::ActivityGate> gate = tongs::MakeActivityGate();
+
     void load(anvil::Host& host) override {
         // symbols.toml limits the plugin to the one build whose layout it declares.
         const std::filesystem::path data_dir = host.data_dir();
@@ -93,7 +99,7 @@ struct Tongs : anvil::Plugin {
         });
         // tongs.navigation makes client calls for other plugins only (docs/adr/0004), whatever the settings.
         if (const std::string error = tongs::RegisterNavigationService(
-                image_base, [] { return g_suspended.load(std::memory_order_acquire); });
+                image_base, [] { return g_suspended.load(std::memory_order_acquire); }, gate);
             error.empty()) {
             host.info("service {} v{} registered", TONGS_NAVIGATION_SERVICE, TONGS_NAVIGATION_SERVICE_VERSION);
         } else {
@@ -106,6 +112,7 @@ struct Tongs : anvil::Plugin {
         const tongs::GameLayout game_layout = tongs::GameLayout::Load();
         const tongs::EventLayout event_layout = tongs::EventLayout::Load();
         tongs::Handlers handlers;
+        handlers.gate = gate;
         handlers.process_id = GetCurrentProcessId();
         handlers.process_start_ms = ProcessStartMs();
         // The command journal (docs/commands.md, "Journal"): outside the game, never in its saves.
@@ -354,7 +361,8 @@ struct Tongs : anvil::Plugin {
         // Another plugin's open_province counts in the pipe's client_calls (ADR 0003).
         tongs::CountNavigationServiceCalls([handlers] {
             if (handlers.read_state) {
-                tongs::CountClientCall(handlers, "tongs.navigation open_province", handlers.read_state());
+                handlers.gate->Counted(handlers, tongs::CommandType::ClientCall, "tongs.navigation open_province", 0,
+                                       handlers.read_state());
             }
         });
         // A pipe that failed to start only turns the plugin into a no-op (and there is no socket without it).

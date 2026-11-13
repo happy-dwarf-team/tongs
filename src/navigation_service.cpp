@@ -1,20 +1,16 @@
 #include "navigation_service.hpp"
 
-#include <atomic>
+#include "activity_gate.hpp"
+
 #include <cstdio>
 
 namespace tongs {
 namespace {
 
-std::atomic<bool> g_navigation_tripped{false};
-
 // The fields of version 1 a consumer's TongsProvinceView must hold.
 constexpr std::uint32_t kProvinceViewV1 = sizeof(TongsProvinceView);
 
 }  // namespace
-
-bool NavigationTripped() { return g_navigation_tripped.load(); }
-void TripNavigation() { g_navigation_tripped.store(true); }
 
 std::uint32_t NavigationOutcome(const WorldFailure& refusal) {
     const std::string& e = refusal.error;
@@ -67,7 +63,7 @@ AnvilResult NavigationService::OpenProvince(std::int32_t id, std::uint32_t flags
         *outcome = TONGS_NAV_SUSPENDED;
         return ANVIL_OK;
     }
-    if (NavigationTripped()) {
+    if (host_.gate->Tripped(Breaker::Navigation)) {
         *outcome = TONGS_NAV_TRIPPED;
         return ANVIL_OK;
     }
@@ -92,7 +88,7 @@ AnvilResult NavigationService::OpenProvince(std::int32_t id, std::uint32_t flags
     const bool ok = host_.call(facts, (flags & TONGS_NAV_KEEP_VIEWS) == 0, (flags & TONGS_NAV_NO_CAMERA) == 0, code);
     if (host_.count) host_.count();
     if (!ok) {
-        TripNavigation();
+        host_.gate->Trip(Breaker::Navigation);
         char text[16];
         std::snprintf(text, sizeof text, "0x%08lX", code);
         if (host_.log_error) {

@@ -29,7 +29,8 @@ constexpr TongsNavigationService kTable = {sizeof(TongsNavigationService), &Prov
 
 }  // namespace
 
-std::string RegisterNavigationService(std::uintptr_t image_base, std::function<bool()> suspended) {
+std::string RegisterNavigationService(std::uintptr_t image_base, std::function<bool()> suspended,
+                                      std::shared_ptr<ActivityGate> gate) {
     const anvil::Host host;
     // plugin.toml requires anvil-game, which knows the main thread.
     const auto* game = host.service<AnvilGameService>(ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION);
@@ -49,6 +50,7 @@ std::string RegisterNavigationService(std::uintptr_t image_base, std::function<b
                                       unsigned long& fault_code) {
         return CallOpen(image_base, navigation, facts, close_views, camera, fault_code);
     };
+    h.gate = std::move(gate);
     h.count = [] {
         if (g_count) g_count();
     };

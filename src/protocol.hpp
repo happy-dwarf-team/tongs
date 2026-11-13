@@ -17,6 +17,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -104,13 +105,6 @@ struct SpeedButtonPress {
     std::string error;             // the session was not readable; nothing was called
 };
 
-// Protocol: UTF-8 lines. A request is one command line; the answer is one
-// JSON object on one line. Commands: ping, state, window, threads, screenshot,
-// frames, ui, event, province, country, player, selection, units, help, wait_until, cancel,
-// subscribe (see below), and with input enabled key, text, move, click, scroll,
-// release, pause, resume, speed, run_until, ui click, event choose, province open/goto, unit,
-// and with game calls enabled console. Input commands and game calls answer with
-// the state read after the action; they take turns across clients.
 // What anvil-game.commands answered for an event option (include/anvil/anvil_game.h of Anvil).
 struct ServiceChoice {
     bool available = false;  // the service took the type: false for NOT_DECLARED or UNSUPPORTED
@@ -120,7 +114,21 @@ struct ServiceChoice {
 
 class Journal;
 
+// What a command may do to the game (GLOSSARY.md "Command type"); a command of any type but
+// Read can make a run a marked run. Whether it needs the main thread is a separate attribute.
+enum class CommandType { Read, Input, ClientCall, GameCall };
+
+// "read", "input", "client_call", "game_call": in `help`, docs/commands.json and `activity`.
+const char* CommandTypeName(CommandType type);
+
+class ActivityGate;  // activity_gate.hpp
+std::shared_ptr<ActivityGate> MakeActivityGate();
+
 struct Handlers {
+    // Runs the inputs, client calls and game calls (activity_gate.hpp) and holds their
+    // counts, totals and breakers. Each Handlers starts with a gate of its own; the plugin
+    // sets the one of its instance, which tongs.navigation shares; copies share it.
+    std::shared_ptr<ActivityGate> gate = MakeActivityGate();
     std::function<StateSnapshot()> read_state;
     std::function<WindowSnapshot()> read_window;
     std::function<ThreadsSnapshot()> read_threads;
@@ -254,8 +262,43 @@ struct Handlers {
     int key_settle_ms = 100;     // key, text and mouse commands wait this long before reading the state
 };
 
-// `client` is the pipe instance (from 1) that sent the line, for the log.
+// Protocol: UTF-8 lines. A request is one command line; the answer is one JSON object on
+// one line. `client` is the pipe instance (from 1) that sent the line, for the log. The
+// command table (Commands()) dispatches every line.
 std::string HandleRequest(std::string_view line, const Handlers& handlers, int client = 0);
+
+struct Command;
+
+// One request as its command's handler gets it.
+struct Request {
+    const Handlers& handlers;
+    const Command& command;     // the entry the line was dispatched to
+    std::string_view line;      // the whole request, trimmed
+    std::string_view argument;  // what follows the command's first word
+    int client = 0;
+};
+
+// One entry of the command table: one per command name as answers print it in "command"
+// (`province`, `province open`, `ui click`, `save load`, ...).
+struct Command {
+    std::string_view name;
+    CommandType type;
+    bool main_thread;  // needs the game's main thread (anvil-game's outer frames)
+    std::string_view usage;
+    std::string (*handler)(const Request&);
+};
+
+// The command table, in the order `help` lists the commands.
+std::span<const Command> Commands();
+
+// The entry a request line goes to: `WORD VERB` when the table has it (`province open 295`),
+// else `WORD` (`province 295`), else the first entry of WORD's group, whose handler answers
+// the usage (`ui bogus`); null for an empty line or a word the table lacks.
+const Command* CommandOf(std::string_view line);
+
+// docs/commands.json: every command of the table with its type, main_thread and usage, one
+// per line. ctest checks the checked-in file against it.
+std::string CommandsJson();
 
 // While a ClientScope lives on a thread, a wait_until / run_until that thread runs ends as soon as
 // `left()` says the client that sent it is gone, as a `cancel` would (run_until pauses the game
@@ -287,11 +330,5 @@ std::string JsonEscape(std::string_view text);
 // "tongs" when `save load` made the session `session` (StateSnapshot::load), else null:
 // `loaded_by` of the entered_game notification.
 const char* LoadedBy(std::uint64_t session);
-
-// Counts one client call (ADR 0003) that called the game: `client_calls` of
-// every wait in progress, an `activity` notification with what "client_call",
-// and client_calls_total of the save `before` was read in, which it returns.
-// For the commands that make client calls: province open and province goto.
-std::uint64_t CountClientCall(const Handlers& handlers, std::string_view command, const StateSnapshot& before);
 
 }  // namespace tongs

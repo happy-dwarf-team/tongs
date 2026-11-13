@@ -1,5 +1,6 @@
 #include "protocol.hpp"
 
+#include "activity_gate.hpp"
 #include "journal.hpp"
 
 #include "map_modes.hpp"
@@ -23,143 +24,19 @@ namespace tongs {
 namespace {
 
 constexpr int kMaxSpeedPresses = 8;  // speed 1 -> 5 needs 4; the rest is slack for a lost press
-// Levels of Handlers::log (AnvilLogLevel).
-constexpr int kLogInfo = 1;
-constexpr int kLogWarning = 2;
-constexpr int kLogError = 3;
 constexpr int kPauseSettleFrames = 3;      // frames with one date before a pause answers
 constexpr int kPauseSettleMaxFrames = 30;
 constexpr int kDefaultRunTimeoutS = 3600;
 constexpr int kMaxRunTimeoutS = 4 * 3600;
 
-// Shared by all pipe clients: input commands take turns, and `cancel` ends
-// every wait_until / run_until that started before it.
-std::mutex g_input_mutex;
+// Shared by all pipe clients: `cancel` ends every wait_until / run_until that started before it.
 std::atomic<std::uint64_t> g_cancel_generation{0};
-// Input commands sent by any client, for `inputs` in wait_until / run_until.
-std::atomic<std::uint64_t> g_inputs{0};
-// Game calls made for any client, for `game_calls` in wait_until / run_until.
-std::atomic<std::uint64_t> g_game_calls{0};
-// Client calls made for any client, for `client_calls` in wait_until / run_until (ADR 0003).
-std::atomic<std::uint64_t> g_client_calls{0};
-// Set by a game call that faulted; refuses every later game call until the game exits.
-std::atomic<bool> g_game_calls_tripped{false};
-// Set by a speed button press that faulted; pause, resume and speed refuse until the game exits.
-std::atomic<bool> g_speed_buttons_tripped{false};
 // The pipe instance (from 1) whose request this thread is handling, for `activity`.
 thread_local int t_client = 0;
 // Whether the client of this thread's request has left (ClientScope); null: no connection to watch.
 thread_local const std::function<bool()>* t_client_left = nullptr;
 
 bool ClientLeft() { return t_client_left != nullptr && (*t_client_left)(); }
-
-// An `activity` notification, when anyone subscribes to them.
-void PublishActivity(const Handlers& h, const std::string& members) {
-    if (!h.notifications || !h.notifications->Wants(NotificationKind::Activity)) return;
-    std::optional<std::int32_t> date;
-    if (h.read_state) {
-        const StateSnapshot s = h.read_state();
-        if (s.in_game) date = s.date_raw;
-    }
-    h.notifications->Publish(NotificationKind::Activity, date, members + ",\"client\":" + std::to_string(t_client));
-}
-
-// Calls since the save was loaded, for `game_calls_total` and
-// `client_calls_total` in `state`. A loaded save is told by the session the
-// state reads saw (LoadWatch: a moment without a game in between), its session
-// object, or a date earlier than the last call's. Guarded by g_total_mutex.
-struct TotalCalls {
-    std::uint64_t load = 0;
-    std::uintptr_t session = 0;
-    std::int32_t date_raw = 0;
-    std::uint64_t count = 0;
-};
-std::mutex g_total_mutex;
-TotalCalls g_game_total;
-TotalCalls g_client_total;
-
-bool SameSave(const TotalCalls& total, const StateSnapshot& s) {
-    return s.load == total.load && s.session == total.session && s.date_raw >= total.date_raw;
-}
-
-std::uint64_t TotalCallsFor(const TotalCalls& total, const StateSnapshot& s) {
-    std::lock_guard lock(g_total_mutex);
-    return SameSave(total, s) ? total.count : 0;
-}
-
-std::uint64_t AddTotalCall(TotalCalls& total, const StateSnapshot& s) {
-    std::lock_guard lock(g_total_mutex);
-    if (!SameSave(total, s)) total = {s.load, s.session, s.date_raw, 0};
-    total.date_raw = s.date_raw;
-    return ++total.count;
-}
-
-// While the game window is minimized the game leaves its event queue alone and
-// handles what waits there when the window is restored: a Space sent then
-// resumed the paused game only when the window came back (live check,
-// 2026-11-09). Input that goes through
-// the queue is therefore refused, with this error, while the window is
-// minimized; the speed and pause buttons are calls on the main thread and work.
-constexpr char kWindowMinimized[] =
-    "the game window is minimized: the game handles input only after it is restored, so nothing was sent";
-
-std::string MinimizedError(const std::function<WindowSnapshot()>& read_window) {
-    if (!read_window) return {};
-    const WindowSnapshot w = read_window();
-    return w.found && w.minimized ? kWindowMinimized : std::string();
-}
-
-// The handlers with a send_input and a press_speed_button that notice whether
-// anything was queued or pressed; the command counts as one input when it was,
-// and an `activity` notification names it.
-class CountedInput {
-public:
-    CountedInput(const Handlers& h, std::string_view command) : handlers_(h), command_(command) {
-        handlers_.send_input = [this, send = h.send_input, window = h.read_window](const std::vector<InputEvent>& events) {
-            if (std::string error = MinimizedError(window); !error.empty()) return error;
-            std::string error = send(events);
-            if (error.empty()) sent_ = true;
-            return error;
-        };
-        if (h.press_speed_button) {
-            handlers_.press_speed_button = [this, press = h.press_speed_button](SpeedButton button) {
-                SpeedButtonPress p = press(button);
-                if (p.pressed) sent_ = true;
-                return p;
-            };
-        }
-        // A unit command the service posted counts as the button press it stands for.
-        if (h.post_units) {
-            handlers_.post_units = [this, post = h.post_units](const UnitRequest& request) {
-                UnitPost p = post(request);
-                if (!p.failure.failed() && p.posted != 0) sent_ = true;
-                return p;
-            };
-        }
-        // A choice the service made counts as the click it stands for.
-        if (h.choose_option) {
-            handlers_.choose_option = [this, choose = h.choose_option](std::int32_t pending, std::int32_t option) {
-                ServiceChoice c = choose(pending, option);
-                if (c.posted != 0) sent_ = true;
-                return c;
-            };
-        }
-    }
-    CountedInput(const CountedInput&) = delete;
-    CountedInput& operator=(const CountedInput&) = delete;
-    ~CountedInput() {
-        if (!sent_) return;
-        const std::uint64_t total = g_inputs.fetch_add(1) + 1;
-        PublishActivity(handlers_, ",\"what\":\"input\",\"command\":\"" + JsonEscape(command_) +
-                                       "\",\"inputs\":" + std::to_string(total));
-    }
-    const Handlers& handlers() const { return handlers_; }
-
-private:
-    Handlers handlers_;
-    std::string command_;
-    bool sent_ = false;
-};
 
 std::string_view Trim(std::string_view s) {
     while (!s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r' || s.front() == '\n')) {
@@ -347,9 +224,7 @@ private:
     // (ADR 0005); without the main thread, the key that does the same in single player.
     bool Press(SpeedButton button, std::string_view key_name, ActionResult& r) {
         if (!Buttons()) return Send(KeyPressEvents(*FindKey(key_name)), 1, r);
-        if (g_speed_buttons_tripped.load()) {
-            return Refuse(r, "the speed and pause buttons are off until the game exits after a press faulted");
-        }
+        if (h_.gate->Tripped(Breaker::SpeedButtons)) return Refuse(r, ActivityGate::TrippedRefusal(Breaker::SpeedButtons).detail);
         SpeedButtonPress press;
         const Dispatcher::Outcome o = h_.dispatcher->Run(
             Dispatcher::Kind::GameCall,
@@ -360,7 +235,7 @@ private:
             h_.dispatch_timeout_ms);
         if (!o.ran) return Refuse(r, o.error + "; nothing was pressed");
         if (press.fault_code != 0) {
-            g_speed_buttons_tripped = true;
+            h_.gate->Trip(Breaker::SpeedButtons);
             char code[16];
             std::snprintf(code, sizeof code, "0x%08lX", press.fault_code);
             const std::string detail = std::string("exception ") + code +
@@ -494,9 +369,7 @@ using PollHook = std::function<bool(WaitResult&)>;
 WaitResult WaitForDate(const Handlers& h, std::int32_t target, int timeout_s, int max_pause_s, const PollHook& hook = {}) {
     WaitResult w;
     const std::uint64_t generation = g_cancel_generation.load();
-    const std::uint64_t inputs = g_inputs.load();
-    const std::uint64_t game_calls = g_game_calls.load();
-    const std::uint64_t client_calls = g_client_calls.load();
+    const ActivityGate::Counts before = h.gate->counts();
     const std::uint64_t start = h.now_ms();
     const std::uint64_t deadline = start + static_cast<std::uint64_t>(timeout_s) * 1000;
     w.state = h.read_state();
@@ -555,9 +428,10 @@ WaitResult WaitForDate(const Handlers& h, std::int32_t target, int timeout_s, in
         w.state = h.read_state();
     }
     if (!w.reached) w.wall_ms = h.now_ms() - start;
-    w.inputs = g_inputs.load() - inputs;
-    w.game_calls = g_game_calls.load() - game_calls;
-    w.client_calls = g_client_calls.load() - client_calls;
+    const ActivityGate::Counts after = h.gate->counts();
+    w.inputs = after.inputs - before.inputs;
+    w.game_calls = after.game_calls - before.game_calls;
+    w.client_calls = after.client_calls - before.client_calls;
     return w;
 }
 
@@ -650,8 +524,8 @@ std::string WindowFields(const WindowSnapshot& w) {
     return out;
 }
 
-// The last mouse position sent, for the relative motion of the next move.
-// Guarded by g_input_mutex.
+// The last mouse position sent, for the relative motion of the next move. Only
+// activities send mouse events, so the gate's turn guards it.
 struct MouseTrack {
     bool known = false;
     int x = 0;
@@ -659,9 +533,20 @@ struct MouseTrack {
 };
 MouseTrack g_mouse;
 // Where Tongs holds the virtual cursor (game_cursor.hpp) since the last mouse
-// command, until `release`; `province open` puts it back after its hover check.
-// Guarded by g_input_mutex.
+// command, until `release` (a read, outside the turn); `province open` puts it
+// back after its hover check.
+std::mutex g_held_mutex;
 MouseTrack g_held;
+
+void Hold(MouseTrack held) {
+    std::lock_guard lock(g_held_mutex);
+    g_held = held;
+}
+
+MouseTrack Held() {
+    std::lock_guard lock(g_held_mutex);
+    return g_held;
+}
 
 InputEvent MoveTo(int x, int y) {
     InputEvent e;
@@ -694,7 +579,7 @@ std::string CheckPoint(const Handlers& h, int x, int y) {
 std::string PointAt(const Handlers& h, int x, int y) {
     if (h.set_cursor) {
         h.set_cursor(x, y);
-        g_held = {true, x, y};
+        Hold({true, x, y});
     }
     return ",\"x\":" + std::to_string(x) + ",\"y\":" + std::to_string(y) + ",\"cursor\":\"" +
            (h.set_cursor ? "virtual" : "events only") + "\"";
@@ -805,22 +690,11 @@ std::string TextCommand(const Handlers& h, std::string_view text) {
     return ActionJson("text", actions.Settled(events, count, ",\"characters\":" + std::to_string(count)));
 }
 
-bool InputReady(const Handlers& h) { return h.send_input && h.read_state && h.sleep_ms && h.now_ms; }
-
-constexpr char kInputDisabled[] = "input commands are disabled (set input = true in anvil/data/tongs/settings.toml)";
 constexpr char kNoDispatch[] = "main-thread commands are unavailable (anvil-game's outer frames are not available)";
-constexpr char kSuspended[] =
-    "Anvil suspended Tongs in this ironman or multiplayer game; the player can allow it with allow_ironman or "
-    "allow_multiplayer = [\"tongs\"] in anvil/anvil.toml";
 
-bool Suspended(const Handlers& h) { return h.suspended && h.suspended(); }
-
-// Why input commands cannot run now, or empty.
-std::string InputUnavailable(const Handlers& h) {
-    if (!InputReady(h)) return kInputDisabled;
-    if (Suspended(h)) return kSuspended;
-    return {};
-}
+// {"ok":false,"error":DETAIL}: how the keyboard, mouse, speed, ui click, event choose and run_until
+// commands answer a refusal before they act (the error is the detail, without its name).
+std::string ErrorOf(const Refusal& r) { return Error(r.detail); }
 
 constexpr int kMaxDispatchTimeoutS = 600;
 
@@ -920,11 +794,10 @@ std::string ScreenFailure(std::string_view command, const Screen& s) {
     return "{\"ok\":false,\"error\":" + Quote(s.error) + ",\"command\":" + Quote(command) + DispatchTimes(s.outcome) + "}";
 }
 
-// What clicking a widget needs: input, the cursor hook and main-thread reads.
-std::string ClickUnavailable(const Handlers& h) {
-    if (std::string error = InputUnavailable(h); !error.empty()) return error;
-    if (!h.dispatcher || !h.read_ui || !h.read_hovered) return kNoDispatch;
-    if (!h.set_cursor) return "clicking a widget needs the cursor hook, which is not installed";
+// What clicking a widget needs besides the gate's checks: main-thread reads and the cursor hook.
+Refusal ClickUnavailable(const Handlers& h) {
+    if (!h.dispatcher || !h.read_ui || !h.read_hovered) return {"unavailable", kNoDispatch};
+    if (!h.set_cursor) return {"unavailable", "clicking a widget needs the cursor hook, which is not installed"};
     return {};
 }
 
@@ -947,13 +820,13 @@ struct HoverOutcome {
 
 // Moves the GUI pointer to the centre of `rect` and checks on the main thread,
 // on a frame after the move, whether the game hovers `target` (or a widget
-// inside it) there. The caller holds the input lock.
+// inside it) there. The caller is an activity, holding the turn.
 HoverOutcome HoverCheck(const Handlers& h, std::uintptr_t target, const UiRect& rect, int timeout_ms) {
     HoverOutcome out;
     const int x = rect.x + rect.w / 2;
     const int y = rect.y + rect.h / 2;
     h.set_cursor(x, y);
-    g_held = {true, x, y};
+    Hold({true, x, y});
     UiCoverCheck& cover = out.cover;
     for (int attempt = 1;; ++attempt) {
         out.attempts = attempt;
@@ -1067,11 +940,17 @@ constexpr int kClickWaitPollMs = 250;  // ui click wait=S: how often it looks ag
 // wait=S a widget that is missing or hidden, and a main thread too busy to read the screen (a save
 // loading), are looked for again until S passes: for a notice that comes later, such as Anbennar's
 // "Vanilla achievements can no longer be earned" before a continue= load (lab, 12.11.2026).
-std::string UiClick(const Handlers& handlers, const UiRequest& request) {
-    if (std::string error = ClickUnavailable(handlers); !error.empty()) return Error(error);
-    std::lock_guard lock(g_input_mutex);
-    const CountedInput counted(handlers, "ui click");
-    const Handlers& h = counted.handlers();
+std::string UiClickAct(const Handlers& h, const UiRequest& request);
+
+std::string UiClick(const Request& r, const UiRequest& request) {
+    ActivityGate::Plan plan;
+    plan.check = [&r] { return ClickUnavailable(r.handlers); };
+    plan.refuse = ErrorOf;
+    plan.act = [&request](ActivityGate::Activity& a) { return UiClickAct(a.handlers(), request); };
+    return r.handlers.gate->Run(r, plan);
+}
+
+std::string UiClickAct(const Handlers& h, const UiRequest& request) {
     const int timeout_ms = TimeoutOr(h, request.timeout_ms);
     const std::uint64_t start = h.now_ms();
     const std::uint64_t generation = g_cancel_generation.load();
@@ -1233,12 +1112,20 @@ std::string NotChosen() {
 }
 
 // event choose N | text^="..." [event=N | event=title^="..."] [timeout=S]
-std::string EventChoose(const Handlers& handlers, const EventRequest& r) {
-    if (std::string error = ClickUnavailable(handlers); !error.empty()) return Error(error);
-    if (!handlers.read_events) return Error(kNoDispatch);
-    std::lock_guard lock(g_input_mutex);
-    const CountedInput counted(handlers, "event choose");
-    const Handlers& h = counted.handlers();
+std::string EventChooseAct(const Handlers& h, const EventRequest& r);
+
+std::string EventChoose(const Request& request, const EventRequest& r) {
+    ActivityGate::Plan plan;
+    plan.check = [&request] {
+        if (Refusal x = ClickUnavailable(request.handlers); x.refused()) return x;
+        return request.handlers.read_events ? Refusal{} : Refusal{"unavailable", kNoDispatch};
+    };
+    plan.refuse = ErrorOf;
+    plan.act = [&r](ActivityGate::Activity& a) { return EventChooseAct(a.handlers(), r); };
+    return request.handlers.gate->Run(request, plan);
+}
+
+std::string EventChooseAct(const Handlers& h, const EventRequest& r) {
     const int timeout_ms = TimeoutOr(h, r.timeout_ms);
     const std::uint64_t start = h.now_ms();
     Screen s;
@@ -1292,23 +1179,38 @@ std::string EventChoose(const Handlers& handlers, const EventRequest& r) {
     return out + "," + StateFields(state) + "}";
 }
 
-std::string EventCommand(const Handlers& h, std::string_view argument) {
+// event list / event choose, and the usage of `event` with another verb.
+std::string EventCommand(const Request& r) {
     EventRequest request;
-    if (std::string error = ParseEventRequest(argument, request); !error.empty()) {
-        const bool choose = argument.starts_with("choose");
+    if (std::string error = ParseEventRequest(r.argument, request); !error.empty()) {
+        const bool choose = r.argument.starts_with("choose");
         return "{\"ok\":false" + error + ",\"command\":\"" + (choose ? "event choose" : "event") + "\"}";
     }
-    return request.verb == EventRequest::Verb::List ? EventList(h, request) : EventChoose(h, request);
+    return request.verb == EventRequest::Verb::List ? EventList(r.handlers, request) : EventChoose(r, request);
 }
 
 // anvil-game.commands' answers that run_until events=first tries again (AnvilResult).
 constexpr int kServiceWrongPhase = 8;
 constexpr int kServiceNotFound = 11;
 
+// The turn of an activity that gave it up (run_until while it waits), taken again for a scope.
+class Retake {
+public:
+    explicit Retake(ActivityGate::Activity& a) : a_(a) { a_.Take(); }
+    ~Retake() { a_.Release(); }
+    Retake(const Retake&) = delete;
+    Retake& operator=(const Retake&) = delete;
+
+private:
+    ActivityGate::Activity& a_;
+};
+
 // run_until events=first: between the polls of the wait, chooses the first
-// enabled option of the topmost open event, as `event choose` would.
+// enabled option of the topmost open event, as `event choose` would. Each choice,
+// and the resume after it, is an input of its own.
 struct EventsFirst {
-    const Handlers& h;
+    const Handlers& h;  // the request's: run_until's own presses are not counted (ADR 0005)
+    ActivityGate::Activity& activity;
     std::string choices;  // JSON objects, comma separated
     std::string error;    // why the run ends
     std::string members;  // with the error: the event
@@ -1372,7 +1274,7 @@ struct EventsFirst {
         ServiceChoice sc;
         Dispatcher::Outcome run;
         {
-            const CountedInput counted(h, "run_until events=first: choice");
+            const ActivityGate::Part counted = activity.CountAs("run_until events=first: choice");
             const auto& choose = counted.handlers().choose_option;
             const std::int32_t pending = e.pending_id, option = o.index;
             run = h.dispatcher->Run(
@@ -1425,7 +1327,7 @@ struct EventsFirst {
         // An event that paused the game with the player pause leaves it paused.
         const StateSnapshot after = h.read_state();
         if (after.in_game && after.paused_flag) {
-            const CountedInput counted(h, "run_until events=first: resume");
+            const ActivityGate::Part counted = activity.CountAs("run_until events=first: resume");
             Actions actions(counted.handlers());
             const ActionResult resume = actions.SetPaused(false);
             if (!resume.ok) return Stop("resume after choosing an event failed: " + resume.error);
@@ -1439,7 +1341,7 @@ struct EventsFirst {
     bool Poll() {
         // One word from the pipe thread; the main thread is asked only while events are open.
         if (h.now_ms() < next_look || h.count_event_windows() <= 0) return true;
-        std::lock_guard lock(g_input_mutex);
+        const Retake turn(activity);
         Screen s;
         if (!ReadScreen(h, h.dispatch_timeout_ms, true, s)) return Stop(s.Error());
         if (s.events.empty()) {
@@ -1473,7 +1375,7 @@ struct EventsFirst {
         const UiWidget& button = s.tree.widgets[o.widget];
         ClickOutcome c;
         {
-            const CountedInput counted(h, "run_until events=first: choice");
+            const ActivityGate::Part counted = activity.CountAs("run_until events=first: choice");
             c = ClickWidget(counted.handlers(), button.address, button.rect, h.dispatch_timeout_ms, false);
         }
         if (!c.ok && c.error != "covered") return Fail(e, c.error, c.members);
@@ -1495,37 +1397,50 @@ struct EventsFirst {
     }
 };
 
+std::string RunUntilAct(const Handlers& h, const RunRequest& request, ActivityGate::Activity& a);
+
 // Sets the speed, resumes, waits for the date and pauses again. The wait runs
-// without the input lock, so other clients can read the state or cancel.
-std::string RunUntil(const Handlers& h, std::string_view argument) {
+// without the turn, so other clients can read the state, act or cancel.
+std::string RunUntil(const Request& r) {
+    const Handlers& h = r.handlers;
     RunRequest request;
-    if (std::string error = ParseRunRequest(argument, true, request); !error.empty()) return Error(error);
-    if (request.events_first) {
-        std::string missing = ClickUnavailable(h);
-        if (missing.empty() && (!h.read_events || !h.count_event_windows)) missing = kNoDispatch;
-        if (!missing.empty()) return Error("events=first: " + missing);
-    }
-    Actions actions(h);
-    StateSnapshot before;
-    {
-        std::lock_guard lock(g_input_mutex);
-        before = h.read_state();
-        if (!before.in_game) return Error("no game loaded");
-        if (before.date_raw >= request.target) return Error("the game is already at or past " + DateText(request.target));
-        if (request.speed != 0) {
-            const ActionResult speed = actions.SetSpeed(request.speed);
-            if (!speed.ok) return ActionJson("run_until", speed);
+    ActivityGate::Plan plan;
+    plan.check = [&] {
+        if (std::string error = ParseRunRequest(r.argument, true, request); !error.empty()) {
+            return Refusal{"bad_command", error};
         }
-        const ActionResult resume = actions.SetPaused(false);
-        if (!resume.ok) return ActionJson("run_until", resume);
+        if (request.events_first) {
+            Refusal missing = ClickUnavailable(h);
+            if (!missing.refused() && (!h.read_events || !h.count_event_windows)) missing = {"unavailable", kNoDispatch};
+            if (missing.refused()) return Refusal{missing.error, "events=first: " + missing.detail};
+        }
+        return Refusal{};
+    };
+    plan.refuse = ErrorOf;
+    plan.act = [&](ActivityGate::Activity& a) { return RunUntilAct(h, request, a); };
+    return h.gate->Run(r, plan);
+}
+
+// `h` is the request's: run_until does not count its own presses (ADR 0005).
+std::string RunUntilAct(const Handlers& h, const RunRequest& request, ActivityGate::Activity& a) {
+    Actions actions(h);
+    const StateSnapshot before = h.read_state();
+    if (!before.in_game) return Error("no game loaded");
+    if (before.date_raw >= request.target) return Error("the game is already at or past " + DateText(request.target));
+    if (request.speed != 0) {
+        const ActionResult speed = actions.SetSpeed(request.speed);
+        if (!speed.ok) return ActionJson("run_until", speed);
     }
-    EventsFirst events{h};
+    const ActionResult resume = actions.SetPaused(false);
+    if (!resume.ok) return ActionJson("run_until", resume);
+    a.Release();
+    EventsFirst events{h, a};
     PollHook hook;
     if (request.events_first) hook = [&events](WaitResult&) { return events.Poll(); };
     const WaitResult w = WaitForDate(h, request.target, request.timeout_s, request.max_pause_s, hook);
     ActionResult pause;
     {
-        std::lock_guard lock(g_input_mutex);
+        const Retake turn(a);
         pause = actions.SetPaused(true);
     }
     const char* wait_error = WaitError(w);
@@ -1548,14 +1463,16 @@ std::string RunUntil(const Handlers& h, std::string_view argument) {
 
 // ui find SEL [all] [stale] [limit=N] / ui tree [SEL] [depth=N] [limit=N] [all]: the selector is
 // checked on the pipe thread, the tree is read on the main thread, and the answer is
-// built back on the pipe thread.
-std::string UiCommand(const Handlers& h, std::string_view argument) {
+// built back on the pipe thread. Also ui click, and the usage of `ui` with another verb.
+std::string UiCommand(const Request& r) {
+    const Handlers& h = r.handlers;
+    const std::string_view argument = r.argument;
     UiRequest request;
     const std::string parse_error = ParseUiRequest(argument, request);
     const std::string_view verb = argument.substr(0, argument.find_first_of(" 	"));
     const std::string command = verb == "find" || verb == "tree" || verb == "click" ? "ui " + std::string(verb) : "ui";
     if (!parse_error.empty()) return "{\"ok\":false" + parse_error + ",\"command\":\"" + command + "\"}";
-    if (request.verb == UiRequest::Verb::Click) return UiClick(h, request);
+    if (request.verb == UiRequest::Verb::Click) return UiClick(r, request);
     if (!h.dispatcher || !h.read_ui || !h.now_ms) return Error(kNoDispatch);
     UiTree tree;
     std::string read_error;
@@ -1582,13 +1499,18 @@ std::string UiCommand(const Handlers& h, std::string_view argument) {
 // province ID / country TAG / player / selection [timeout=S]: world reads, on the
 // main thread after an outer frame, with the state of that frame. Not counted:
 // they need only `enabled`, and run while suspended and during a run_until.
-std::string NavigationCommand(const Handlers& h, const WorldRequest& request);
+std::string NavigationCommand(const Request& r, const WorldRequest& request);
 
-std::string WorldCommand(const Handlers& h, std::string_view command, std::string_view argument) {
+// The first word of a command's name: `province` of `province open`.
+std::string_view FirstWord(std::string_view name) { return name.substr(0, name.find(' ')); }
+
+std::string WorldCommand(const Request& r) {
+    const Handlers& h = r.handlers;
+    const std::string_view command = FirstWord(r.command.name);
     WorldRequest request;
-    WorldFailure failure = ParseWorldRequest(command, argument, request);
+    WorldFailure failure = ParseWorldRequest(command, r.argument, request);
     if (!failure.failed() && (request.kind == WorldRequest::Kind::Open || request.kind == WorldRequest::Kind::Goto)) {
-        return NavigationCommand(h, request);
+        return NavigationCommand(r, request);
     }
     const bool readers = h.read_province && h.read_country && h.read_player && h.read_selection;
     if (!failure.failed() && (!h.dispatcher || !h.read_state || !h.now_ms || !readers ||
@@ -1762,30 +1684,45 @@ std::string CursorCommand(const Handlers& h, std::string_view argument) {
     return "{\"ok\":true,\"command\":" + Quote(command) + CursorMembers(raw) + tail + "}";
 }
 
+std::string UnitAct(const Handlers& h, const std::function<UnitPost(const UnitRequest&)>& post, const UnitRequest& request,
+                    const std::string& command, int client);
+
 // unit drill start|stop UNITS / unit split UNIT / unit merge UNITS [timeout=S]: what the
 // unit panel's buttons post, through anvil-game.commands version 1 (Anvil 1.17). An input
 // (needs `input = true`, counted in `inputs` when something was posted), as an event
 // option chosen through the service is.
-std::string UnitCommand(const Handlers& h, std::string_view argument) {
+std::string UnitCommand(const Request& r) {
+    const Handlers& h = r.handlers;
     UnitRequest request;
     std::string command;
-    const WorldFailure parse = ParseUnitRequest(argument, request, command);
+    const WorldFailure parse = ParseUnitRequest(r.argument, request, command);
     const auto state_tail = [&h] { return h.read_state ? "," + StateFields(h.read_state()) : std::string(); };
     const auto refuse = [&](const std::string& error, const std::string& detail, const std::string& tail) {
         return "{\"ok\":false,\"error\":" + Quote(error) + ",\"detail\":" + Quote(detail) + ",\"command\":" +
                Quote(command) + tail + "}";
     };
     if (parse.failed()) return refuse(parse.error, parse.detail, state_tail());
-    if (!InputReady(h)) return refuse("input_disabled", kInputDisabled, state_tail());
-    if (Suspended(h)) return refuse("suspended", kSuspended, state_tail());
-    if (!h.dispatcher || !h.read_state || !h.now_ms || !h.post_units) {
-        return refuse("unavailable",
-                      h.dispatcher ? "the unit commands need anvil-game.commands of Anvil 1.17 or newer" : kNoDispatch,
-                      state_tail());
-    }
-    std::lock_guard lock(g_input_mutex);  // the unit commands take turns with input
-    const CountedInput counted(h, command);
-    const auto& post = counted.handlers().post_units;
+    ActivityGate::Plan plan;
+    plan.check = [&h] {
+        if (h.dispatcher && h.read_state && h.now_ms && h.post_units) return Refusal{};
+        return Refusal{"unavailable",
+                       h.dispatcher ? "the unit commands need anvil-game.commands of Anvil 1.17 or newer" : kNoDispatch};
+    };
+    plan.refuse = [&](const Refusal& x) { return refuse(x.error, x.detail, state_tail()); };
+    plan.act = [&](ActivityGate::Activity& a) {
+        const auto& post = a.handlers().post_units;
+        return UnitAct(h, post, request, command, r.client);
+    };
+    return h.gate->Run(r, plan);
+}
+
+std::string UnitAct(const Handlers& h, const std::function<UnitPost(const UnitRequest&)>& post, const UnitRequest& request,
+                    const std::string& command, int client) {
+    const auto state_tail = [&h] { return h.read_state ? "," + StateFields(h.read_state()) : std::string(); };
+    const auto refuse = [&](const std::string& error, const std::string& detail, const std::string& tail) {
+        return "{\"ok\":false,\"error\":" + Quote(error) + ",\"detail\":" + Quote(detail) + ",\"command\":" +
+               Quote(command) + tail + "}";
+    };
     UnitPost result;
     StateSnapshot state;
     const Dispatcher::Outcome outcome = h.dispatcher->Run(
@@ -1810,7 +1747,7 @@ std::string UnitCommand(const Handlers& h, std::string_view argument) {
                                std::to_string(result.posted) + ",\"skipped\":" + std::to_string(result.skipped) +
                                ",\"refused\":" + std::to_string(result.refused);
     if (h.log) {
-        h.log(1, command + " (pipe " + std::to_string(t_client) + "): " + UnitResultName(result.result) + ", " +
+        h.log(kLogInfo, command + " (pipe " + std::to_string(client) + "): " + UnitResultName(result.result) + ", " +
                      std::to_string(result.units) + " units, posted " + std::to_string(result.posted) + ", skipped " +
                      std::to_string(result.skipped) + ", refused " + std::to_string(result.refused));
     }
@@ -1823,65 +1760,58 @@ std::string UnitCommand(const Handlers& h, std::string_view argument) {
 
 constexpr std::size_t kLogText = 200;  // characters of a game call's text in the log
 
-// `mode` in a game call's answer (ADR 0001): with a switch on, once the main
-// thread has read the mode; a refusal before that has none.
-std::string ModeMembers(const GameCallPolicy& policy, const ConsoleRaw& raw) {
-    if ((!policy.ironman && !policy.multiplayer) || raw.session == 0) return {};
-    return std::string(",\"mode\":{\"ironman\":") + Bool(raw.ironman) + ",\"multiplayer\":" + Bool(raw.multiplayer) +
-           ",\"game_calls_ironman\":" + Bool(policy.ironman) + ",\"game_calls_multiplayer\":" + Bool(policy.multiplayer) + "}";
-}
-
 // Game calls: one console line run on the main thread (ADR 0001).
 class ConsoleCall {
 public:
-    ConsoleCall(const Handlers& h, std::string_view line, int client) : h_(h), line_(line), client_(client) {}
+    explicit ConsoleCall(const Request& r) : r_(r), h_(r.handlers), line_(r.argument) {}
 
     std::string Run() {
-        if (!h_.game_calls.enabled) {
-            return Refuse("game_calls_disabled",
-                          "game calls are disabled (set game_calls = true in anvil/data/tongs/settings.toml)");
-        }
-        if (Suspended(h_)) return Refuse("suspended", kSuspended);
-        if (!h_.dispatcher || !h_.read_console || !h_.call_console || !h_.read_state || !h_.now_ms) {
-            return Refuse("unavailable", kNoDispatch);
-        }
-        if (std::string error = SplitConsoleLine(line_, tokens_); !error.empty()) return Refuse("bad_command", error);
-        // The typed name first, without the main thread; the game's own name follows there.
-        if (ConsoleRefusal r = CheckConsoleName(h_.game_calls, tokens_[0]); r.refused()) return Refuse(r.error, r.detail);
-        if (g_game_calls_tripped.load()) return Refuse("game_calls_tripped", kTripped);
+        ActivityGate::Plan plan;
+        plan.subject = Quoted(line_.substr(0, kLogText));
+        plan.check = [this]() -> Refusal {
+            if (!h_.dispatcher || !h_.read_console || !h_.call_console || !h_.read_state || !h_.now_ms) {
+                return {"unavailable", kNoDispatch};
+            }
+            if (std::string error = SplitConsoleLine(line_, tokens_); !error.empty()) return {"bad_command", error};
+            // The typed name first, without the main thread; the game's own name follows there.
+            if (ConsoleRefusal r = CheckConsoleName(h_.game_calls, tokens_[0]); r.refused()) return {r.error, r.detail};
+            return {};
+        };
+        plan.refuse = [this](const Refusal& r) { return Refuse(r); };
+        plan.act = [this](ActivityGate::Activity& a) { return Act(a); };
+        return h_.gate->Run(r_, plan);
+    }
 
-        std::lock_guard lock(g_input_mutex);  // game calls take turns with input
+private:
+    std::string Act(ActivityGate::Activity& a) {
+        activity_ = &a;
         outcome_ = h_.dispatcher->Run(Dispatcher::Kind::GameCall, [this] { return OnMainThread(); }, h_.dispatch_timeout_ms);
-        if (!outcome_.ran) return Refuse(outcome_.error, "the main thread did not run the game call");
-        if (!refusal_.error.empty()) return Refuse(refusal_.error, refusal_.detail);
+        if (!outcome_.ran) return Refused(a, {outcome_.error, "the main thread did not run the game call"});
+        if (refusal_.refused()) return Refused(a, refusal_);
         std::uint64_t total = 0;
         if (called_) {
-            const std::uint64_t calls = g_game_calls.fetch_add(1) + 1;
-            total = AddTotalCall(g_game_total, before_);
-            PublishActivity(h_, ",\"what\":\"game_call\",\"command\":\"console\",\"line\":" + Quoted(line_) +
-                                    ",\"name\":" + Quoted(name_) + ",\"game_calls\":" + std::to_string(calls));
+            a.Called(",\"line\":" + Quoted(line_) + ",\"name\":" + Quoted(name_));
+            total = a.Total(before_);
         }
         const StateSnapshot after = h_.read_state();
         const std::string text = GameTextToUtf8(result_.text);
         if (result_.faulted) {
             char code[16];
             std::snprintf(code, sizeof code, "0x%08X", result_.fault_code);
-            const std::string detail = std::string("exception ") + code + " in the game call; " + kTripped;
-            Log(kLogError, "faulted (" + detail + ")");
+            const std::string detail = std::string("exception ") + code + " in the game call; " +
+                                       ActivityGate::TrippedRefusal(Breaker::GameCalls).detail;
+            a.Log(kLogError, "faulted (" + detail + ")");
             return Answer(false, "faulted", detail) + ",\"game_calls_total\":" + std::to_string(total) + Tail(after);
         }
         const bool mode = raw_.ironman || raw_.multiplayer;
-        Log(mode ? kLogWarning : kLogInfo,
-            std::string("called") + (mode ? " in " + ModeText() : std::string()) + ", success byte " +
-                (result_.success ? "1" : "0") + ", text \"" + JsonEscape(text.substr(0, kLogText)) + "\"");
+        a.Log(mode ? kLogWarning : kLogInfo,
+              std::string("called") + (mode ? " in " + ModeText() : std::string()) + ", success byte " +
+                  (result_.success ? "1" : "0") + ", text \"" + JsonEscape(text.substr(0, kLogText)) + "\"");
         std::string out = Answer(true, {}, {});
         out += ",\"text\":" + Quoted(text) + ",\"success_hint\":" + Bool(result_.success);
         out += ",\"game_calls_total\":" + std::to_string(total);
         return out + Tail(after);
     }
-
-private:
-    static constexpr char kTripped[] = "game calls are off until the game exits after a game call faulted";
 
     // Main thread, after an outer frame: checks the game, then calls.
     std::string OnMainThread() {
@@ -1899,7 +1829,7 @@ private:
             return {};
         }
         if (ConsoleRefusal r = CheckConsoleMode(h_.game_calls, raw_); r.refused()) {
-            refusal_ = r;
+            refusal_ = {r.error, r.detail};
             return {};
         }
         const ConsoleEntry* entry = FindConsoleEntry(raw_.entries, tokens_[0]);
@@ -1909,16 +1839,16 @@ private:
         }
         name_ = entry->name;
         if (ConsoleRefusal r = CheckConsoleName(h_.game_calls, name_); r.refused()) {
-            refusal_ = r;
+            refusal_ = {r.error, r.detail};
             return {};
         }
-        if (g_game_calls_tripped.load()) {
-            refusal_ = {"game_calls_tripped", kTripped};
+        if (activity_->Tripped()) {
+            refusal_ = ActivityGate::TrippedRefusal(Breaker::GameCalls);
             return {};
         }
         h_.call_console(tokens_, result_);
         called_ = true;
-        if (result_.faulted) g_game_calls_tripped.store(true);
+        if (result_.faulted) activity_->Trip();
         return {};
     }
 
@@ -1926,22 +1856,17 @@ private:
         return raw_.ironman && raw_.multiplayer ? "ironman multiplayer" : raw_.ironman ? "ironman" : "multiplayer";
     }
 
-    void Log(int level, const std::string& what) const {
-        if (!h_.log) return;
-        std::string date = "no game";
-        const StateSnapshot& s = before_.in_game ? before_ : (h_.read_state ? h_.read_state() : before_);
-        if (s.in_game) date = DateText(s.date_raw);
-        h_.log(level, "console \"" + JsonEscape(line_.substr(0, kLogText)) + "\" (pipe " + std::to_string(client_) + ", " +
-                          date + "): " + what);
+    std::string Refused(const ActivityGate::Activity& a, const Refusal& r) {
+        a.Refused(r);
+        return Refuse(r);
     }
 
-    std::string Refuse(const std::string& error, const std::string& detail) {
-        Log(kLogWarning, error + " (" + detail + ")");
+    std::string Refuse(const Refusal& r) {
         const StateSnapshot state = h_.read_state ? h_.read_state() : StateSnapshot{};
-        return Answer(false, error, detail) + (h_.read_state ? Tail(state) : "}");
+        return Answer(false, r.error, r.detail) + (h_.read_state ? Tail(state) : "}");
     }
 
-    std::string Quoted(std::string_view text) const { return "\"" + JsonEscape(text) + "\""; }
+    static std::string Quoted(std::string_view text) { return "\"" + JsonEscape(text) + "\""; }
 
     // The members up to the command's own: ok, error, command, line, name.
     std::string Answer(bool ok, const std::string& error, const std::string& detail) const {
@@ -1964,12 +1889,13 @@ private:
         return out + "," + StateFields(state) + "}";
     }
 
+    const Request& r_;
     const Handlers& h_;
     std::string_view line_;
-    int client_;
+    ActivityGate::Activity* activity_ = nullptr;
     std::vector<std::string> tokens_;
     Dispatcher::Outcome outcome_;
-    ConsoleRefusal refusal_;
+    Refusal refusal_;
     StateSnapshot before_;
     ConsoleRaw raw_;
     std::string name_;
@@ -1977,33 +1903,47 @@ private:
     bool called_ = false;
 };
 
-// A fault in a navigation call (here or in tongs.navigation) refuses every later
-// one until the game exits: NavigationTripped, navigation_service.hpp.
+// The answer of a refused province open or goto.
+std::string NavigationRefused(const Handlers& h, std::string_view command, std::int32_t id, const std::string& error,
+                              const std::string& detail, const std::string& extra = {}) {
+    return "{\"ok\":false,\"error\":" + Quote(error) + ",\"detail\":" + Quote(detail) + ",\"command\":" +
+           Quote(command) + ",\"province\":" + std::to_string(id) + extra +
+           (h.read_state ? "," + StateFields(h.read_state()) : std::string()) + "}";
+}
 
-// province open ID / province goto ID [timeout=S]: client calls (ADR 0003). One
-// main-thread job checks and calls (it ends its batch), later jobs check what
-// the next outer frames show and follow the camera, all within `timeout=`.
-std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
+std::string NavigationAct(const Handlers& h, const WorldRequest& request, ActivityGate::Activity& a);
+
+// province open ID / province goto ID [timeout=S]: client calls (ADR 0003) behind the
+// navigation breaker, which tongs.navigation shares (ADR 0004). One main-thread job
+// checks and calls (it ends its batch), later jobs check what the next outer frames
+// show and follow the camera, all within `timeout=`.
+std::string NavigationCommand(const Request& r, const WorldRequest& request) {
+    const Handlers& h = r.handlers;
+    ActivityGate::Plan plan;
+    plan.subject = std::to_string(request.id);
+    plan.breaker = Breaker::Navigation;
+    plan.check = [&h]() -> Refusal {
+        if (h.dispatcher && h.read_navigation && h.call_navigation && h.read_camera && h.read_selection && h.read_ui) return {};
+        return {"unavailable", h.dispatcher ? "navigation is not set up" : kNoDispatch};
+    };
+    plan.refuse = [&](const Refusal& x) { return NavigationRefused(h, r.command.name, request.id, x.error, x.detail); };
+    plan.act = [&](ActivityGate::Activity& a) { return NavigationAct(h, request, a); };
+    return h.gate->Run(r, plan);
+}
+
+std::string NavigationAct(const Handlers& h, const WorldRequest& request, ActivityGate::Activity& a) {
     const bool open = request.kind == WorldRequest::Kind::Open;
     const std::string command = open ? "province open" : "province goto";
     const std::string province = ",\"province\":" + std::to_string(request.id);
     const auto state_tail = [&h] { return h.read_state ? "," + StateFields(h.read_state()) : std::string(); };
+    // Every refusal goes to the log (ADR 0003); a fault has its own line.
+    const auto fail = [&](const std::string& error, const std::string& detail, const std::string& extra = {}) {
+        return NavigationRefused(h, command, request.id, error, detail, extra);
+    };
     const auto refuse = [&](const std::string& error, const std::string& detail, const std::string& extra = {}) {
-        return "{\"ok\":false,\"error\":" + Quote(error) + ",\"detail\":" + Quote(detail) + ",\"command\":" +
-               Quote(command) + province + extra + state_tail() + "}";
+        a.Refused({error, detail});
+        return fail(error, detail, extra);
     };
-    const auto log = [&h, &command, &request](int level, const std::string& what) {
-        if (h.log) h.log(level, command + " " + std::to_string(request.id) + " (pipe " + std::to_string(t_client) + "): " + what);
-    };
-    if (!InputReady(h)) return refuse("input_disabled", kInputDisabled);
-    if (Suspended(h)) return refuse("suspended", kSuspended);
-    if (!h.dispatcher || !h.read_navigation || !h.call_navigation || !h.read_camera || !h.read_selection || !h.read_ui) {
-        return refuse("unavailable", h.dispatcher ? "navigation is not set up" : kNoDispatch);
-    }
-    if (NavigationTripped()) {
-        return refuse("navigation_tripped", "navigation is off until the game exits after a call faulted");
-    }
-    std::lock_guard lock(g_input_mutex);  // client calls take turns with input
     const std::uint64_t start = h.now_ms();
     const int timeout_ms = request.timeout_ms > 0 ? request.timeout_ms : h.dispatch_timeout_ms;
     const std::uint64_t deadline = start + static_cast<std::uint64_t>(timeout_ms);
@@ -2015,8 +1955,6 @@ std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
     NavigationFacts facts;
     WorldFailure refusal;
     StateSnapshot before;
-    bool promoted = false;
-    std::string mode;  // of a promoted call
     bool faulted = false;
     unsigned long fault_code = 0;
     CameraRaw set;  // the camera right after the call: the target it set
@@ -2034,27 +1972,16 @@ std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
             if (!refusal.failed()) refusal = NavigationRefusal(open, facts);
             if (!refusal.failed() && open && facts.discover) {
                 // Opening this view posts a command: a game call (ADR 0003, promotion).
-                promoted = true;
-                if (!h.game_calls.enabled) {
-                    refusal = {"needs_game_calls",
-                               "opening this province's view would make the player discover its owner's capital, a "
-                               "change of game state; it needs game_calls = true"};
-                } else if (g_game_calls_tripped.load()) {
-                    refusal = {"game_calls_tripped", "game calls are off until the game exits after a game call faulted"};
-                } else if (h.read_console) {
-                    ConsoleRaw raw;
-                    if (std::string error = h.read_console(raw); !error.empty()) {
-                        refusal = {"console_unavailable", error};
-                    } else {
-                        mode = ModeMembers(h.game_calls, raw);
-                        if (ConsoleRefusal r = CheckConsoleMode(h.game_calls, raw); r.refused()) refusal = {r.error, r.detail};
-                    }
-                }
+                const Refusal r = a.Promote(
+                    "opening this province's view would make the player discover its owner's capital, a change of game "
+                    "state; it needs game_calls = true",
+                    "the player discovers the owner's capital");
+                refusal = {r.error, r.detail};
             }
             if (refusal.failed()) return std::string();
             faulted = !h.call_navigation(open, facts, fault_code);
             if (faulted) {
-                TripNavigation();
+                a.Trip();
             } else {
                 camera_failure = h.read_camera(set);
             }
@@ -2062,27 +1989,19 @@ std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
         },
         timeout_ms);
     if (!o.ran) return refuse(o.error, "no outer frame came within the timeout; nothing was called");
-    if (refusal.failed()) {
-        log(promoted ? kLogWarning : kLogInfo, "refused: " + refusal.error + " (" + refusal.detail + ")");
-        return refuse(refusal.error, refusal.detail, mode);
-    }
+    if (refusal.failed()) return refuse(refusal.error, refusal.detail, a.mode());
     // Counted once: a client call, or a game call when it posts a command.
-    std::string counts;
-    if (promoted) {
-        const std::uint64_t calls = g_game_calls.fetch_add(1) + 1;
-        const std::uint64_t total = AddTotalCall(g_game_total, before);
-        PublishActivity(h, ",\"what\":\"game_call\",\"command\":" + Quote(command) + ",\"game_calls\":" + std::to_string(calls));
-        log(kLogWarning, "made as a game call: the player discovers the owner's capital");
-        counts = ",\"game_call\":true,\"game_calls_total\":" + std::to_string(total) + mode;
-    } else {
-        counts = ",\"client_calls_total\":" + std::to_string(CountClientCall(h, command, before));
-    }
+    a.Called();
+    const std::uint64_t total = a.Total(before);
+    const std::string counts = a.promoted()
+                                   ? ",\"game_call\":true,\"game_calls_total\":" + std::to_string(total) + a.mode()
+                                   : ",\"client_calls_total\":" + std::to_string(total);
     if (faulted) {
         char code[16];
         std::snprintf(code, sizeof code, "0x%08lX", fault_code);
         const std::string detail = std::string("exception ") + code + " in the game's code; navigation is off until the game exits";
-        log(kLogError, "faulted (" + detail + ")");
-        return refuse("faulted", detail, counts);
+        a.Log(kLogError, "faulted (" + detail + ")");
+        return fail("faulted", detail, counts);
     }
 
     // open: the next outer frame selects the province, shows it in the view and shows the view.
@@ -2144,7 +2063,7 @@ std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
     std::string covered_by = "null";
     if (open && h.set_cursor && h.read_hovered && h.send_input &&
         CheckPoint(h, view_rect.x + view_rect.w / 2, view_rect.y + view_rect.h / 2).empty()) {
-        const MouseTrack held = g_held;
+        const MouseTrack held = Held();
         const HoverOutcome hover = HoverCheck(h, view_widget, view_rect, left());
         if (hover.error.empty() && hover.cover.covered && !hover.cover.covered_by.empty()) {
             covered_by = Quote(hover.cover.covered_by);
@@ -2153,10 +2072,10 @@ std::string NavigationCommand(const Handlers& h, const WorldRequest& request) {
         if (held.known) {
             h.set_cursor(held.x, held.y);
             h.send_input({MoveTo(held.x, held.y)});
-            g_held = held;
+            Hold(held);
         } else if (h.release_cursor) {
             h.release_cursor();
-            g_held = {};
+            Hold({});
         }
     }
 
@@ -2175,9 +2094,6 @@ constexpr int kDefaultLoadTimeoutS = 120;
 constexpr int kMaxLoadTimeoutS = 600;
 
 std::string Refused(std::string_view command, std::string_view error, std::string_view detail);
-
-// A fault in SetCurrentMapMode refuses every later map_mode until the game exits.
-std::atomic<bool> g_map_mode_tripped{false};
 
 // The number MODE names: a plugin mode's id (it has a '.'), a number of the game's tabs
 // or of a plugin mode, or the name of a mode on the game's tabs (map_modes.hpp).
@@ -2203,12 +2119,19 @@ std::int32_t ResolveMapMode(const Handlers& h, const std::string& mode, WorldFai
     return number;
 }
 
+// A command's answer to a refusal: error, detail and members after the command's own.
+using RefusalAnswer = std::function<std::string(const std::string& error, const std::string& detail, const std::string& extra)>;
+
+std::string MapModeAct(const Handlers& h, const std::string& mode, int timeout_ms, ActivityGate::Activity& a,
+                       const RefusalAnswer& fail);
+
 // map_mode MODE [timeout=S]: a client call (ADR 0003) that shows a map mode as the minimap's
 // button does (SetCurrentMapMode(mode, false, false) on the main thread). It changes only
 // what the map shows.
-std::string MapModeCommand(const Handlers& h, std::string_view argument) {
+std::string MapModeCommand(const Request& r) {
+    const Handlers& h = r.handlers;
     const std::string command = "map_mode";
-    const std::vector<std::string_view> words = SplitWords(argument);
+    const std::vector<std::string_view> words = SplitWords(r.argument);
     constexpr char kUsage[] = "usage: map_mode NAME|NUMBER|PLUGIN-ID [timeout=S]";
     if (words.empty() || words.size() > 2) return Refused(command, "bad_command", kUsage);
     int timeout_ms = h.dispatch_timeout_ms;
@@ -2220,20 +2143,29 @@ std::string MapModeCommand(const Handlers& h, std::string_view argument) {
         timeout_ms = seconds * 1000;
     }
     const std::string mode(words[0].substr(0, 96));
-    const auto refuse = [&](const std::string& error, const std::string& detail, const std::string& extra = {}) {
+    const RefusalAnswer fail = [&](const std::string& error, const std::string& detail, const std::string& extra) {
         return "{\"ok\":false,\"error\":" + Quote(error) + ",\"detail\":" + Quote(detail) +
                ",\"command\":\"map_mode\",\"mode\":" + Quote(mode) + extra +
                (h.read_state ? "," + StateFields(h.read_state()) : std::string()) + "}";
     };
-    if (!InputReady(h)) return refuse("input_disabled", kInputDisabled);
-    if (Suspended(h)) return refuse("suspended", kSuspended);
-    if (!h.dispatcher || !h.read_state || !h.set_map_mode) {
-        return refuse("unavailable", h.dispatcher ? "map modes are not set up" : kNoDispatch);
-    }
-    if (g_map_mode_tripped.load()) {
-        return refuse("map_mode_tripped", "map_mode is off until the game exits after a call faulted");
-    }
-    std::lock_guard lock(g_input_mutex);  // client calls take turns with input
+    ActivityGate::Plan plan;
+    plan.subject = mode;
+    plan.breaker = Breaker::MapMode;
+    plan.check = [&h]() -> Refusal {
+        if (h.dispatcher && h.read_state && h.set_map_mode) return {};
+        return {"unavailable", h.dispatcher ? "map modes are not set up" : kNoDispatch};
+    };
+    plan.refuse = [&](const Refusal& x) { return fail(x.error, x.detail, {}); };
+    plan.act = [&](ActivityGate::Activity& a) { return MapModeAct(h, mode, timeout_ms, a, fail); };
+    return h.gate->Run(r, plan);
+}
+
+std::string MapModeAct(const Handlers& h, const std::string& mode, int timeout_ms, ActivityGate::Activity& a,
+                       const RefusalAnswer& fail) {
+    const auto refuse = [&](const std::string& error, const std::string& detail, const std::string& extra = {}) {
+        a.Refused({error, detail});
+        return fail(error, detail, extra);
+    };
     StateSnapshot before;
     WorldFailure refusal;
     std::int32_t number = -1;
@@ -2250,19 +2182,20 @@ std::string MapModeCommand(const Handlers& h, std::string_view argument) {
             number = ResolveMapMode(h, mode, refusal);
             if (refusal.failed()) return std::string();
             faulted = !h.set_map_mode(before.session, number, fault_code);
-            if (faulted) g_map_mode_tripped.store(true);
+            if (faulted) a.Trip();
             return std::string();
         },
         timeout_ms);
     if (!o.ran) return refuse(o.error, "no outer frame came within the timeout; nothing was called");
     if (refusal.failed()) return refuse(refusal.error, refusal.detail);
-    const std::string counts = ",\"client_calls_total\":" + std::to_string(CountClientCall(h, command, before));
+    a.Called();
+    const std::string counts = ",\"client_calls_total\":" + std::to_string(a.Total(before));
     if (faulted) {
         char code[16];
         std::snprintf(code, sizeof code, "0x%08lX", fault_code);
-        if (h.log) h.log(kLogError, "map_mode " + mode + ": exception " + code + " in the game's code");
-        return refuse("faulted", std::string("exception ") + code + " in the game's code; map_mode is off until the game exits",
-                      counts);
+        const std::string detail = std::string("exception ") + code + " in the game's code; map_mode is off until the game exits";
+        a.Log(kLogError, "faulted (" + detail + ")");
+        return fail("faulted", detail, counts);
     }
     return "{\"ok\":true,\"command\":\"map_mode\",\"mode\":" + Quote(mode) + ",\"number\":" + std::to_string(number) +
            counts + "," + StateFields(h.read_state()) + "}";
@@ -2272,7 +2205,9 @@ std::string MapModeCommand(const Handlers& h, std::string_view argument) {
 // dialog's own loader. The metadata is read first, on the pipe thread; one
 // main-thread job checks the game and calls the loader, which returns after the
 // whole load; the next outer frame checks the loaded session.
-std::string SaveLoad(const Handlers& h, std::string_view argument, int client) {
+std::string SaveLoad(const Request& r, std::string_view argument) {
+    const Handlers& h = r.handlers;
+    const int client = r.client;
     std::string name;
     std::string_view rest;
     const std::string name_error = ParseSaveName(argument, name, rest);
@@ -2284,280 +2219,281 @@ std::string SaveLoad(const Handlers& h, std::string_view argument, int client) {
         if (!name.empty()) out += ",\"save\":" + Quote(name);
         return out + extra + state_tail() + "}";
     };
-    const auto log = [&h, &name, client](int level, const std::string& what) {
-        if (h.log) h.log(level, "save load \"" + JsonEscape(name) + "\" (pipe " + std::to_string(client) + "): " + what);
-    };
-    const auto refuse = [&](const std::string& error, const std::string& detail, const std::string& extra = {}) {
-        log(kLogWarning, error + " (" + detail + ")");
-        return answer(false, error, detail, extra);
-    };
-    if (!name_error.empty()) return refuse("bad_name", name_error);
     int timeout_s = kDefaultLoadTimeoutS;
-    for (const std::string_view word : SplitWords(rest)) {
-        int seconds = 0;
-        if (!word.starts_with("timeout=") || !ParseInt(word.substr(8), seconds) || seconds < 1 || seconds > kMaxLoadTimeoutS) {
-            return refuse("bad_command", "save load takes NAME and an optional timeout=SECONDS (1-" +
-                                             std::to_string(kMaxLoadTimeoutS) + ")");
+    ActivityGate::Plan plan;
+    plan.subject = "\"" + JsonEscape(name) + "\"";
+    plan.first = [&]() -> Refusal {
+        if (!name_error.empty()) return {"bad_name", name_error};
+        for (const std::string_view word : SplitWords(rest)) {
+            int seconds = 0;
+            if (!word.starts_with("timeout=") || !ParseInt(word.substr(8), seconds) || seconds < 1 || seconds > kMaxLoadTimeoutS) {
+                return {"bad_command",
+                        "save load takes NAME and an optional timeout=SECONDS (1-" + std::to_string(kMaxLoadTimeoutS) + ")"};
+            }
+            timeout_s = seconds;
         }
-        timeout_s = seconds;
-    }
-    if (!h.game_calls.enabled) {
-        return refuse("game_calls_disabled", "game calls are disabled (set game_calls = true in anvil/data/tongs/settings.toml)");
-    }
-    if (Suspended(h)) return refuse("suspended", kSuspended);
-    if (!h.dispatcher || !h.read_state || !h.now_ms || !h.locate_save || !h.read_save || !h.call_load ||
-        !h.close_windows || !h.read_loading || !h.read_player) {
-        return refuse("unavailable", h.dispatcher ? "loading saves is not set up" : kNoDispatch);
-    }
-    if (g_game_calls_tripped.load()) return refuse("game_calls_tripped", "game calls are off until the game exits after a game call faulted");
-
-    // The file and its metadata, before anything is called.
-    std::string path, bytes;
-    bool exists = false;
-    if (std::string error = h.locate_save(name, path, exists); !error.empty()) return refuse("unavailable", error);
-    if (!exists) return refuse("no_such_save", "no " + name + ".eu4 in save games");
-    SaveMeta meta;
-    if (std::string error = h.read_save(path, bytes); !error.empty()) return refuse("unreadable_save", error);
-    if (std::string error = ReadSaveMeta(bytes, h.save_tokens, meta); !error.empty()) return refuse("unreadable_save", error);
-    bytes.clear();
-    bytes.shrink_to_fit();
-    if (meta.ironman && !h.game_calls.ironman) {
-        return refuse("ironman_save", "the save is an ironman save, which the game would write to after the load; "
-                                      "it needs game_calls_ironman = true");
-    }
-    std::array<int, 4> running{};
-    const bool version = h.read_version && h.read_version(running);
-    const bool compatible = version && VersionListed(meta.versions, running);
-    std::string game_version = "null";
-    if (version) {
-        game_version = "\"" + std::to_string(running[0]) + "." + std::to_string(running[1]) + "." +
-                       std::to_string(running[2]) + "." + std::to_string(running[3]) + "\"";
-    }
-    std::string save_versions = "[";
-    for (std::size_t i = 0; i < meta.versions.size(); ++i) save_versions += (i ? "," : "") + Quote(meta.versions[i]);
-    const std::string meta_members = ",\"save_date\":\"" + DateText(meta.date_raw) + "\",\"player\":" + Quote(meta.player) +
-                                     ",\"compatible\":" + Bool(compatible) + ",\"save_versions\":" + save_versions +
-                                     "],\"game_version\":" + game_version;
-
-    std::lock_guard lock(g_input_mutex);  // game calls take turns with input
-    const std::uint64_t start = h.now_ms();
-    const std::uint64_t deadline = start + static_cast<std::uint64_t>(timeout_s) * 1000;
-    // The job, on a thread of its own: the answer can come at the timeout while the load still runs.
-    struct Call {
-        std::mutex mutex;
-        std::condition_variable done_cv;
-        bool done = false;
-        bool called = false;     // the loader was called
-        bool menu = false;       // the main menu was asked to continue the save (the load runs on later frames)
-        bool abandoned = false;  // the answer went out at the timeout: the thread counts the call
-        Dispatcher::Outcome outcome;
-        std::string refusal, refusal_detail;
-        std::string mode;  // read before the call, so not in the answer at the timeout
-        StateSnapshot before;
-        LoadCall load;
-        std::uint64_t load_ms = 0;
-        bool closed = false;
+        return {};
     };
-    auto call = std::make_shared<Call>();
-    const Handlers handlers = h;  // the thread may outlive this request
-    const std::string activity = ",\"what\":\"game_call\",\"command\":\"save load\",\"name\":\"save load\",\"save\":" + Quote(name);
-    std::thread([call, handlers, name, timeout_s, activity, client] {
-        t_client = client;
-        const Handlers& hh = handlers;
-        Dispatcher::Outcome o = hh.dispatcher->Run(
-            Dispatcher::Kind::GameCall,
-            [&] {
-                StateSnapshot before = hh.read_state();
-                call->before = before;
-                const auto refused = [&](const char* error, std::string detail) {
-                    call->refusal = error;
-                    call->refusal_detail = std::move(detail);
-                    return std::string();
-                };
-                if (!before.in_game) {
-                    // The main menu: its own Continue, as a start with continue= (ADR 0001 game call).
-                    if (!hh.call_menu_load || !hh.read_continue_flag || !hh.clear_continue) {
-                        return refused("not_in_game", before.reason ? before.reason : "no game loaded");
-                    }
-                    if (g_game_calls_tripped.load()) return refused("game_calls_tripped", "game calls are off until the game exits");
-                    const LoadCall posted = hh.call_menu_load(name);
-                    if (!posted.faulted && posted.result == 4) {
-                        return refused("not_in_menu", "the game shows neither a game nor its main menu");
-                    }
-                    g_tongs_load.store(before.load + 1);
-                    call->called = true;
-                    call->menu = true;
-                    call->load = posted;
-                    if (posted.faulted) g_game_calls_tripped.store(true);
-                    return std::string();
-                }
-                if (!before.paused) return refused("not_paused", "the game runs; a player loads from the paused in-game menu");
-                if (hh.read_console) {
-                    ConsoleRaw raw;
-                    if (std::string error = hh.read_console(raw); !error.empty()) return refused("console_unavailable", error);
-                    call->mode = ModeMembers(hh.game_calls, raw);
-                    if (ConsoleRefusal r = CheckConsoleMode(hh.game_calls, raw); r.refused()) {
-                        call->refusal = r.error;
-                        call->refusal_detail = r.detail;
+    plan.check = [&h]() -> Refusal {
+        if (h.dispatcher && h.read_state && h.now_ms && h.locate_save && h.read_save && h.call_load && h.close_windows &&
+            h.read_loading && h.read_player) {
+            return {};
+        }
+        return {"unavailable", h.dispatcher ? "loading saves is not set up" : kNoDispatch};
+    };
+    plan.refuse = [&](const Refusal& x) { return answer(false, x.error, x.detail, {}); };
+    // The save's file and metadata are read with the turn held, after the breaker.
+    plan.act = [&](ActivityGate::Activity& a) -> std::string {
+        const auto refuse = [&](const std::string& error, const std::string& detail, const std::string& extra = {}) {
+            a.Refused({error, detail});
+            return answer(false, error, detail, extra);
+        };
+        // The file and its metadata, before anything is called.
+        std::string path, bytes;
+        bool exists = false;
+        if (std::string error = h.locate_save(name, path, exists); !error.empty()) return refuse("unavailable", error);
+        if (!exists) return refuse("no_such_save", "no " + name + ".eu4 in save games");
+        SaveMeta meta;
+        if (std::string error = h.read_save(path, bytes); !error.empty()) return refuse("unreadable_save", error);
+        if (std::string error = ReadSaveMeta(bytes, h.save_tokens, meta); !error.empty()) return refuse("unreadable_save", error);
+        bytes.clear();
+        bytes.shrink_to_fit();
+        if (meta.ironman && !h.game_calls.ironman) {
+            return refuse("ironman_save", "the save is an ironman save, which the game would write to after the load; "
+                                          "it needs game_calls_ironman = true");
+        }
+        std::array<int, 4> running{};
+        const bool version = h.read_version && h.read_version(running);
+        const bool compatible = version && VersionListed(meta.versions, running);
+        std::string game_version = "null";
+        if (version) {
+            game_version = "\"" + std::to_string(running[0]) + "." + std::to_string(running[1]) + "." +
+                           std::to_string(running[2]) + "." + std::to_string(running[3]) + "\"";
+        }
+        std::string save_versions = "[";
+        for (std::size_t i = 0; i < meta.versions.size(); ++i) save_versions += (i ? "," : "") + Quote(meta.versions[i]);
+        const std::string meta_members = ",\"save_date\":\"" + DateText(meta.date_raw) + "\",\"player\":" + Quote(meta.player) +
+                                         ",\"compatible\":" + Bool(compatible) + ",\"save_versions\":" + save_versions +
+                                         "],\"game_version\":" + game_version;
+
+        const std::uint64_t start = h.now_ms();
+        const std::uint64_t deadline = start + static_cast<std::uint64_t>(timeout_s) * 1000;
+        // The job, on a thread of its own: the answer can come at the timeout while the load still runs.
+        struct Call {
+            std::mutex mutex;
+            std::condition_variable done_cv;
+            bool done = false;
+            bool called = false;     // the loader was called
+            bool menu = false;       // the main menu was asked to continue the save (the load runs on later frames)
+            bool abandoned = false;  // the answer went out at the timeout: the thread counts the call
+            Dispatcher::Outcome outcome;
+            std::string refusal, refusal_detail;
+            std::string mode;  // read before the call, so not in the answer at the timeout
+            StateSnapshot before;
+            LoadCall load;
+            std::uint64_t load_ms = 0;
+            bool closed = false;
+        };
+        auto call = std::make_shared<Call>();
+        const Handlers handlers = h;  // the thread may outlive this request
+        // The members of the `activity` notification after "command".
+        const std::string activity = ",\"name\":\"save load\",\"save\":" + Quote(name);
+        std::thread([call, handlers, name, timeout_s, activity, client] {
+            t_client = client;
+            const Handlers& hh = handlers;
+            Dispatcher::Outcome o = hh.dispatcher->Run(
+                Dispatcher::Kind::GameCall,
+                [&] {
+                    StateSnapshot before = hh.read_state();
+                    call->before = before;
+                    const auto refused = [&](const char* error, std::string detail) {
+                        call->refusal = error;
+                        call->refusal_detail = std::move(detail);
+                        return std::string();
+                    };
+                    if (!before.in_game) {
+                        // The main menu: its own Continue, as a start with continue= (ADR 0001 game call).
+                        if (!hh.call_menu_load || !hh.read_continue_flag || !hh.clear_continue) {
+                            return refused("not_in_game", before.reason ? before.reason : "no game loaded");
+                        }
+                        if (hh.gate->Tripped(Breaker::GameCalls)) return refused("game_calls_tripped", "game calls are off until the game exits");
+                        const LoadCall posted = hh.call_menu_load(name);
+                        if (!posted.faulted && posted.result == 4) {
+                            return refused("not_in_menu", "the game shows neither a game nor its main menu");
+                        }
+                        g_tongs_load.store(before.load + 1);
+                        call->called = true;
+                        call->menu = true;
+                        call->load = posted;
+                        if (posted.faulted) hh.gate->Trip(Breaker::GameCalls);
                         return std::string();
                     }
-                }
-                if (g_game_calls_tripped.load()) return refused("game_calls_tripped", "game calls are off until the game exits");
-                g_tongs_load.store(before.load + 1);
-                call->called = true;
-                const std::uint64_t t0 = hh.now_ms();
-                call->load = hh.call_load(name);
-                call->load_ms = hh.now_ms() - t0;
-                if (call->load.faulted) {
-                    g_game_calls_tripped.store(true);
-                } else if (call->load.result == 0) {
-                    unsigned long code = 0;
-                    call->closed = hh.close_windows(code);
-                }
-                return std::string();
-            },
-            timeout_s * 1000);
-        std::lock_guard g(call->mutex);
-        call->outcome = o;
-        call->done = true;
-        if (call->abandoned && call->called) {
-            // Nobody waits for this load any more; it is still one game call.
-            const std::uint64_t calls = g_game_calls.fetch_add(1) + 1;
-            AddTotalCall(g_game_total, hh.read_state());
-            PublishActivity(hh, activity + ",\"game_calls\":" + std::to_string(calls));
-        }
-        call->done_cv.notify_all();
-    }).detach();
-    {
-        const std::uint64_t now = h.now_ms();
-        std::unique_lock g(call->mutex);
-        call->done_cv.wait_for(g, std::chrono::milliseconds(deadline > now ? deadline - now : 0), [&call] { return call->done; });
-        if (!call->done) {
-            // The job started (a queued one is withdrawn at its own limit): the load is still running.
-            call->abandoned = true;
-            log(kLogWarning, "timeout while the game loads; its effect is unknown");
-            return answer(false, "timeout", "the load did not finish within " + std::to_string(timeout_s) + " s; its effect is unknown",
-                          ",\"started\":true" + meta_members);
-        }
-    }
-    if (!call->outcome.ran) return refuse(call->outcome.error, "no outer frame came within the timeout; nothing was called");
-    if (!call->refusal.empty()) return refuse(call->refusal, call->refusal_detail, meta_members + call->mode);
-
-    // Called: one game call, counted in the session it made (game_calls_total is 1 afterwards).
-    const std::uint64_t calls = g_game_calls.fetch_add(1) + 1;
-    PublishActivity(h, activity + ",\"game_calls\":" + std::to_string(calls));
-    std::string called = ",\"called\":true,\"load_ms\":" + std::to_string(call->load_ms) + meta_members + call->mode;
-    if (call->load.faulted) {
-        char code[16];
-        std::snprintf(code, sizeof code, "0x%08lX", call->load.fault_code);
-        log(kLogError, std::string("faulted (exception ") + code + ")");
-        const StateSnapshot after = h.read_state();
-        const std::uint64_t total = AddTotalCall(g_game_total, after.in_game ? after : call->before);
-        return refuse("faulted", std::string("exception ") + code + " in the game's loader; game calls are off until the game exits",
-                      called + ",\"game_calls_total\":" + std::to_string(total));
-    }
-    if (call->menu) {
-        // Posted: the menu takes it on its next frame (its Update clears the flag), then loads.
-        bool taken = false;
-        const Dispatcher::Outcome next = h.dispatcher->Run(
-            Dispatcher::Kind::Read,
-            [&] {
-                bool set = true;
-                taken = h.read_continue_flag(set) && !set;
-                if (!taken) h.clear_continue();  // another menu screen: take it back
-                return std::string();
-            },
-            deadline > h.now_ms() ? static_cast<int>(deadline - h.now_ms()) : 1);
-        if (!next.ran || !taken) {
-            if (!next.ran) h.clear_continue();
-            const std::uint64_t total = AddTotalCall(g_game_total, call->before);
-            return refuse("not_taken",
-                          "the main menu did not take the load on its next frame (another menu screen such as the lobby or the "
-                          "settings is open); nothing was loaded",
-                          called + ",\"game_calls_total\":" + std::to_string(total));
-        }
-        // The load: wait for the new session in game, past its loading.
-        const std::uint64_t t0 = h.now_ms();
-        for (;;) {
-            StateSnapshot seen;
-            bool loading = true, read = false;
-            const int left = deadline > h.now_ms() ? static_cast<int>(deadline - h.now_ms()) : 0;
-            if (left <= 0) break;
-            const Dispatcher::Outcome frame = h.dispatcher->Run(
-                Dispatcher::Kind::Read,
-                [&] {
-                    seen = h.read_state();
-                    if (seen.in_game) read = h.read_loading(loading);
+                    if (!before.paused) return refused("not_paused", "the game runs; a player loads from the paused in-game menu");
+                    if (hh.read_console) {
+                        ConsoleRaw raw;
+                        if (std::string error = hh.read_console(raw); !error.empty()) return refused("console_unavailable", error);
+                        call->mode = ModeMembers(hh.game_calls, raw);
+                        if (ConsoleRefusal r = CheckConsoleMode(hh.game_calls, raw); r.refused()) {
+                            call->refusal = r.error;
+                            call->refusal_detail = r.detail;
+                            return std::string();
+                        }
+                    }
+                    if (hh.gate->Tripped(Breaker::GameCalls)) return refused("game_calls_tripped", "game calls are off until the game exits");
+                    g_tongs_load.store(before.load + 1);
+                    call->called = true;
+                    const std::uint64_t t0 = hh.now_ms();
+                    call->load = hh.call_load(name);
+                    call->load_ms = hh.now_ms() - t0;
+                    if (call->load.faulted) {
+                        hh.gate->Trip(Breaker::GameCalls);
+                    } else if (call->load.result == 0) {
+                        unsigned long code = 0;
+                        call->closed = hh.close_windows(code);
+                    }
                     return std::string();
                 },
-                left);
-            if (frame.ran && seen.in_game && seen.load > call->before.load && read && !loading) break;
-            if (h.sleep_ms) h.sleep_ms(50);
-        }
-        call->load_ms = h.now_ms() - t0;
-        called = ",\"called\":true,\"load_ms\":" + std::to_string(call->load_ms) + meta_members + ",\"via\":\"menu\"";
-    } else if (call->load.result != 0) {
-        const int r = call->load.result;
-        const char* error = r == 1 ? "bad_name" : r == 2 ? "no_such_save" : "rejected";
-        const std::string detail = r == 1   ? "the game found the name empty"
-                                   : r == 2 ? "the game found no such save"
-                                   : r == 3 ? "the game rejected the save's metadata (no player, or ironman in a modded game)"
-                                            : "the game's loader returned " + std::to_string(r);
-        const StateSnapshot after = h.read_state();
-        const std::uint64_t total = AddTotalCall(g_game_total, after.in_game ? after : call->before);
-        return refuse(error, detail, called + ",\"result\":" + std::to_string(r) + ",\"game_calls_total\":" + std::to_string(total));
-    }
-
-    // The next outer frame: in game, not loading, the save's date and player.
-    StateSnapshot after;
-    bool loading = true, read_loading = false;
-    PlayerRaw player;
-    WorldFailure player_failure;
-    const int left = deadline > h.now_ms() ? static_cast<int>(deadline - h.now_ms()) : 1;
-    const Dispatcher::Outcome check = h.dispatcher->Run(
-        Dispatcher::Kind::Read,
-        [&] {
-            after = h.read_state();
-            read_loading = h.read_loading(loading);
-            if (after.in_game) player_failure = h.read_player(player);
-            return std::string();
-        },
-        left);
-    if (!check.ran) return refuse("not_loaded", "the load returned, but no outer frame came to check it", called);
-    const std::uint64_t total = AddTotalCall(g_game_total, after.in_game ? after : call->before);
-    const std::string counts = ",\"game_calls_total\":" + std::to_string(total);
-    if (!after.in_game || !read_loading || loading || player_failure.failed() || after.date_raw != meta.date_raw ||
-        player.tag != meta.player) {
-        std::string seen = ",\"seen\":{\"in_game\":" + std::string(Bool(after.in_game)) +
-                           ",\"loading\":" + (read_loading ? Bool(loading) : "null");
-        if (after.in_game) seen += ",\"date\":\"" + DateText(after.date_raw) + "\",\"player\":" + Quote(player.tag);
-        return refuse("not_loaded", "the frame after the load does not show the save", called + counts + seen + "}");
-    }
-
-    // What the game hovers at the middle of the window: a window over the map, or null.
-    std::string covered_by = "null";
-    if (h.set_cursor && h.read_hovered && h.read_ui && h.send_input && h.read_window) {
-        const WindowSnapshot w = h.read_window();
-        if (w.found && w.width > 0 && w.height > 0) {
-            const MouseTrack held = g_held;
-            const HoverOutcome hover = HoverCheck(h, 0, UiRect{0, 0, w.width, w.height}, left);
-            if (hover.error.empty() && hover.cover.covered && !hover.cover.covered_by.empty()) {
-                covered_by = Quote(hover.cover.covered_by);
+                timeout_s * 1000);
+            std::lock_guard g(call->mutex);
+            call->outcome = o;
+            call->done = true;
+            if (call->abandoned && call->called) {
+                // Nobody waits for this load any more; it is still one game call.
+                hh.gate->Counted(hh, CommandType::GameCall, "save load", client, hh.read_state(), activity);
             }
-            if (held.known) {
-                h.set_cursor(held.x, held.y);
-                h.send_input({MoveTo(held.x, held.y)});
-                g_held = held;
-            } else if (h.release_cursor) {
-                h.release_cursor();
-                g_held = {};
+            call->done_cv.notify_all();
+        }).detach();
+        {
+            const std::uint64_t now = h.now_ms();
+            std::unique_lock g(call->mutex);
+            call->done_cv.wait_for(g, std::chrono::milliseconds(deadline > now ? deadline - now : 0), [&call] { return call->done; });
+            if (!call->done) {
+                // The job started (a queued one is withdrawn at its own limit): the load is still running.
+                call->abandoned = true;
+                a.Log(kLogWarning, "timeout while the game loads; its effect is unknown");
+                return answer(false, "timeout", "the load did not finish within " + std::to_string(timeout_s) + " s; its effect is unknown",
+                              ",\"started\":true" + meta_members);
             }
         }
-    }
-    log(kLogWarning, "loaded in " + std::to_string(call->load_ms) + " ms (the running game was discarded without saving)");
-    return answer(true, {}, {},
-                  called + ",\"session\":" + std::to_string(after.load) + ",\"covered_by\":" + covered_by +
-                      counts + ",\"windows_closed\":" + Bool(call->closed) + ",\"waited_ms\":" + std::to_string(h.now_ms() - start));
+        if (!call->outcome.ran) return refuse(call->outcome.error, "no outer frame came within the timeout; nothing was called");
+        if (!call->refusal.empty()) return refuse(call->refusal, call->refusal_detail, meta_members + call->mode);
+
+        // Called: one game call, counted in the session it made (game_calls_total is 1 afterwards).
+        a.Called(activity);
+        std::string called = ",\"called\":true,\"load_ms\":" + std::to_string(call->load_ms) + meta_members + call->mode;
+        if (call->load.faulted) {
+            char code[16];
+            std::snprintf(code, sizeof code, "0x%08lX", call->load.fault_code);
+            a.Log(kLogError, std::string("faulted (exception ") + code + ")");
+            const StateSnapshot after = h.read_state();
+            const std::uint64_t total = a.Total(after.in_game ? after : call->before);
+            return refuse("faulted", std::string("exception ") + code + " in the game's loader; game calls are off until the game exits",
+                          called + ",\"game_calls_total\":" + std::to_string(total));
+        }
+        if (call->menu) {
+            // Posted: the menu takes it on its next frame (its Update clears the flag), then loads.
+            bool taken = false;
+            const Dispatcher::Outcome next = h.dispatcher->Run(
+                Dispatcher::Kind::Read,
+                [&] {
+                    bool set = true;
+                    taken = h.read_continue_flag(set) && !set;
+                    if (!taken) h.clear_continue();  // another menu screen: take it back
+                    return std::string();
+                },
+                deadline > h.now_ms() ? static_cast<int>(deadline - h.now_ms()) : 1);
+            if (!next.ran || !taken) {
+                if (!next.ran) h.clear_continue();
+                const std::uint64_t total = a.Total(call->before);
+                return refuse("not_taken",
+                              "the main menu did not take the load on its next frame (another menu screen such as the lobby or the "
+                              "settings is open); nothing was loaded",
+                              called + ",\"game_calls_total\":" + std::to_string(total));
+            }
+            // The load: wait for the new session in game, past its loading.
+            const std::uint64_t t0 = h.now_ms();
+            for (;;) {
+                StateSnapshot seen;
+                bool loading = true, read = false;
+                const int left = deadline > h.now_ms() ? static_cast<int>(deadline - h.now_ms()) : 0;
+                if (left <= 0) break;
+                const Dispatcher::Outcome frame = h.dispatcher->Run(
+                    Dispatcher::Kind::Read,
+                    [&] {
+                        seen = h.read_state();
+                        if (seen.in_game) read = h.read_loading(loading);
+                        return std::string();
+                    },
+                    left);
+                if (frame.ran && seen.in_game && seen.load > call->before.load && read && !loading) break;
+                if (h.sleep_ms) h.sleep_ms(50);
+            }
+            call->load_ms = h.now_ms() - t0;
+            called = ",\"called\":true,\"load_ms\":" + std::to_string(call->load_ms) + meta_members + ",\"via\":\"menu\"";
+        } else if (call->load.result != 0) {
+            const int r = call->load.result;
+            const char* error = r == 1 ? "bad_name" : r == 2 ? "no_such_save" : "rejected";
+            const std::string detail = r == 1   ? "the game found the name empty"
+                                       : r == 2 ? "the game found no such save"
+                                       : r == 3 ? "the game rejected the save's metadata (no player, or ironman in a modded game)"
+                                                : "the game's loader returned " + std::to_string(r);
+            const StateSnapshot after = h.read_state();
+            const std::uint64_t total = a.Total(after.in_game ? after : call->before);
+            return refuse(error, detail, called + ",\"result\":" + std::to_string(r) + ",\"game_calls_total\":" + std::to_string(total));
+        }
+
+        // The next outer frame: in game, not loading, the save's date and player.
+        StateSnapshot after;
+        bool loading = true, read_loading = false;
+        PlayerRaw player;
+        WorldFailure player_failure;
+        const int left = deadline > h.now_ms() ? static_cast<int>(deadline - h.now_ms()) : 1;
+        const Dispatcher::Outcome check = h.dispatcher->Run(
+            Dispatcher::Kind::Read,
+            [&] {
+                after = h.read_state();
+                read_loading = h.read_loading(loading);
+                if (after.in_game) player_failure = h.read_player(player);
+                return std::string();
+            },
+            left);
+        if (!check.ran) return refuse("not_loaded", "the load returned, but no outer frame came to check it", called);
+        const std::uint64_t total = a.Total(after.in_game ? after : call->before);
+        const std::string counts = ",\"game_calls_total\":" + std::to_string(total);
+        if (!after.in_game || !read_loading || loading || player_failure.failed() || after.date_raw != meta.date_raw ||
+            player.tag != meta.player) {
+            std::string seen = ",\"seen\":{\"in_game\":" + std::string(Bool(after.in_game)) +
+                               ",\"loading\":" + (read_loading ? Bool(loading) : "null");
+            if (after.in_game) seen += ",\"date\":\"" + DateText(after.date_raw) + "\",\"player\":" + Quote(player.tag);
+            return refuse("not_loaded", "the frame after the load does not show the save", called + counts + seen + "}");
+        }
+
+        // What the game hovers at the middle of the window: a window over the map, or null.
+        std::string covered_by = "null";
+        if (h.set_cursor && h.read_hovered && h.read_ui && h.send_input && h.read_window) {
+            const WindowSnapshot w = h.read_window();
+            if (w.found && w.width > 0 && w.height > 0) {
+                const MouseTrack held = Held();
+                const HoverOutcome hover = HoverCheck(h, 0, UiRect{0, 0, w.width, w.height}, left);
+                if (hover.error.empty() && hover.cover.covered && !hover.cover.covered_by.empty()) {
+                    covered_by = Quote(hover.cover.covered_by);
+                }
+                if (held.known) {
+                    h.set_cursor(held.x, held.y);
+                    h.send_input({MoveTo(held.x, held.y)});
+                    Hold(held);
+                } else if (h.release_cursor) {
+                    h.release_cursor();
+                    Hold({});
+                }
+            }
+        }
+        a.Log(kLogWarning, "loaded in " + std::to_string(call->load_ms) + " ms (the running game was discarded without saving)");
+        return answer(true, {}, {},
+                      called + ",\"session\":" + std::to_string(after.load) + ",\"covered_by\":" + covered_by +
+                          counts + ",\"windows_closed\":" + Bool(call->closed) + ",\"waited_ms\":" + std::to_string(h.now_ms() - start));
+    };
+    return h.gate->Run(r, plan);
 }
 
 std::string Ping(const Handlers& h) {
@@ -2581,6 +2517,13 @@ std::string Refused(std::string_view command, std::string_view error, std::strin
            Quote(command.substr(0, 64)) + "}";
 }
 
+// save load NAME [timeout=S], and the usage of `save` with another verb.
+std::string SaveCommand(const Request& r) {
+    const auto [verb, rest] = SplitCommand(r.argument);
+    if (verb != "load") return Refused("save", "bad_command", "usage: save load NAME [timeout=S]");
+    return SaveLoad(r, rest);
+}
+
 // Whether the plugin can serve a kind (the others answer `unavailable` in `subscribe`).
 bool Served(const Handlers& h, NotificationKind kind) {
     switch (kind) {
@@ -2591,19 +2534,254 @@ bool Served(const Handlers& h, NotificationKind kind) {
     }
 }
 
+std::string UnknownCommand(const Request& r) { return Error("unknown command: " + std::string(r.line.substr(0, 64))); }
+
+std::string PingCommand(const Request& r) { return r.argument.empty() ? Ping(r.handlers) : UnknownCommand(r); }
+
+std::string StateCommand(const Request& r) {
+    if (!r.argument.empty()) return UnknownCommand(r);
+    const Handlers& h = r.handlers;
+    if (!h.read_state) return Error("state reader unavailable");
+    const StateSnapshot s = h.read_state();
+    std::string out = "{\"ok\":true," + StateFields(s);
+    if (s.in_game) {
+        out += ",\"game_calls_total\":" + std::to_string(h.gate->Total(CommandType::GameCall, s));
+        out += ",\"client_calls_total\":" + std::to_string(h.gate->Total(CommandType::ClientCall, s));
+    }
+    return out + "}";
+}
+
+std::string WindowCommand(const Request& r) {
+    if (!r.argument.empty()) return UnknownCommand(r);
+    if (!r.handlers.read_window) return Error("window reader unavailable");
+    return "{\"ok\":true," + WindowFields(r.handlers.read_window()) + "}";
+}
+
+std::string ThreadsCommand(const Request& r) {
+    if (!r.argument.empty()) return UnknownCommand(r);
+    if (!r.handlers.read_threads) return Error("thread reader unavailable");
+    return ThreadsJson(r.handlers.read_threads());
+}
+
+std::string ScreenshotCommand(const Request& r) {
+    const std::string_view argument = r.argument;
+    if (!r.handlers.take_screenshot) return Error("screenshots unavailable");
+    if (argument.size() > 48 || argument.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") !=
+                                    std::string_view::npos) {
+        return Error("screenshot takes an optional name of 1-48 letters, digits, _ or -");
+    }
+    const ScreenshotResult shot = r.handlers.take_screenshot(argument);
+    if (!shot.ok) return Error(shot.error);
+    return "{\"ok\":true,\"command\":\"screenshot\",\"path\":\"" + JsonEscape(shot.path) + "\",\"width\":" +
+           std::to_string(shot.width) + ",\"height\":" + std::to_string(shot.height) + ",\"bytes\":" +
+           std::to_string(shot.bytes) + ",\"method\":\"" + shot.method + "\",\"blank\":" + Bool(shot.blank) + "}";
+}
+
+std::string JournalCommand(const Request& r) {
+    if (!r.argument.empty()) return UnknownCommand(r);
+    const Journal* journal = r.handlers.journal;
+    if (journal == nullptr || !journal->IsOpen()) return "{\"ok\":true,\"command\":\"journal\",\"enabled\":false}";
+    return "{\"ok\":true,\"command\":\"journal\",\"enabled\":true,\"path\":\"" + JsonEscape(journal->Path()) +
+           "\",\"lines\":" + std::to_string(journal->Lines()) + ",\"truncated\":" + Bool(journal->Truncated()) + "}";
+}
+
+// The command table's commands (their first words, as before 0.35) and the type of each.
+std::string HelpCommand(const Request& r) {
+    if (!r.argument.empty()) return UnknownCommand(r);
+    const Handlers& h = r.handlers;
+    std::vector<std::string_view> words;
+    std::string types;
+    for (const Command& c : Commands()) {
+        if (std::find(words.begin(), words.end(), FirstWord(c.name)) == words.end()) words.push_back(FirstWord(c.name));
+        types += (types.empty() ? "" : ",") + Quote(c.name) + ":\"" + CommandTypeName(c.type) + "\"";
+    }
+    std::string commands;
+    for (const std::string_view word : words) commands += (commands.empty() ? "" : ",") + Quote(word);
+    return "{\"ok\":true,\"commands\":[" + commands + "],\"input\":" +
+           Bool(!ActivityGate::Switch(h, CommandType::Input).refused()) + ",\"main_thread\":" + Bool(h.dispatcher != nullptr) +
+           ",\"game_calls\":" + Bool(h.game_calls.enabled) + ",\"game_calls_tripped\":" +
+           Bool(h.gate->Tripped(Breaker::GameCalls)) + ",\"suspended\":" + Bool(ActivityGate::Suspension(h).refused()) +
+           ",\"types\":{" + types + "}}";
+}
+
+std::string CancelCommand(const Request& r) {
+    if (!r.argument.empty()) return UnknownCommand(r);
+    g_cancel_generation.fetch_add(1);
+    const int withdrawn = r.handlers.dispatcher ? r.handlers.dispatcher->CancelQueued() : 0;
+    return "{\"ok\":true,\"command\":\"cancel\",\"withdrawn\":" + std::to_string(withdrawn) + "}";
+}
+
+std::string WaitUntilCommand(const Request& r) {
+    const Handlers& h = r.handlers;
+    if (!h.read_state || !h.sleep_ms || !h.now_ms) return Error("state reader unavailable");
+    return WaitUntil(h, r.argument);
+}
+
+std::string SubscribeCommand(const Request&) { return Error("subscribe needs a pipe connection of its own"); }
+
+std::string UnsubscribeCommand(const Request& r) { return r.argument.empty() ? Error("not subscribed") : UnknownCommand(r); }
+
+// Hands the pointer back to the real mouse. A read: it changes nothing in the game, so it is
+// never counted and works while Anvil suspends Tongs; it needs `input = true`, without which
+// Tongs holds no pointer.
+std::string ReleaseCommand(const Request& r) {
+    if (!r.argument.empty()) return UnknownCommand(r);
+    if (const Refusal off = ActivityGate::Switch(r.handlers, CommandType::Input); off.refused()) return ErrorOf(off);
+    if (r.handlers.release_cursor) r.handlers.release_cursor();
+    Hold({});
+    return "{\"ok\":true,\"command\":\"release\"}";
+}
+
+// The keyboard, mouse and speed commands: inputs that answer a refusal before they act with its text alone.
+std::string RunInput(const Request& r, const std::function<std::string(const Handlers&)>& act) {
+    ActivityGate::Plan plan;
+    plan.refuse = ErrorOf;
+    plan.act = [&act](ActivityGate::Activity& a) { return act(a.handlers()); };
+    return r.handlers.gate->Run(r, plan);
+}
+
+std::string KeyCommand(const Request& r) {
+    return RunInput(r, [&r](const Handlers& h) {
+        const auto chord = FindKeyChord(r.argument);
+        if (!chord) return Error("unknown key: " + std::string(r.argument.substr(0, 32)));
+        Actions actions(h);
+        return ActionJson("key", actions.Settled(KeyChordEvents(*chord), 1));
+    });
+}
+
+std::string TextHandler(const Request& r) {
+    return RunInput(r, [&r](const Handlers& h) { return TextCommand(h, r.argument); });
+}
+
+std::string MouseHandler(const Request& r) {
+    return RunInput(r, [&r](const Handlers& h) { return MouseCommand(h, r.command.name, r.argument); });
+}
+
+std::string PauseCommand(const Request& r) {
+    return RunInput(r, [&r](const Handlers& h) {
+        const std::string_view command = r.command.name;
+        if (!r.argument.empty()) return Error(std::string(command) + " takes no argument");
+        Actions actions(h);
+        return ActionJson(command, actions.SetPaused(command == "pause"));
+    });
+}
+
+std::string SpeedCommand(const Request& r) {
+    return RunInput(r, [&r](const Handlers& h) {
+        const std::string_view argument = r.argument;
+        if (argument.size() != 1 || argument[0] < '1' || argument[0] > '5') return Error("speed takes one number from 1 to 5");
+        Actions actions(h);
+        return ActionJson("speed", actions.SetSpeed(argument[0] - '0'));
+    });
+}
+
+std::string FramesHandler(const Request& r) { return FramesCommand(r.handlers, r.argument); }
+std::string UnitsHandler(const Request& r) { return UnitsCommand(r.handlers, r.argument); }
+std::string CursorHandler(const Request& r) { return CursorCommand(r.handlers, r.argument); }
+std::string ConsoleHandler(const Request& r) { return ConsoleCall(r).Run(); }
+
+using enum CommandType;
+
+// The command table: one entry per command name as answers print it. `help` lists them in
+// this order (the first words, then the types); docs/commands.json and docs/commands.md
+// follow it (tests). An entry of any type but Read runs its activity through the gate.
+constexpr Command kCommands[] = {
+    {"ping", Read, false, "ping", &PingCommand},
+    {"state", Read, false, "state", &StateCommand},
+    {"window", Read, false, "window", &WindowCommand},
+    {"threads", Read, false, "threads", &ThreadsCommand},
+    {"screenshot", Read, false, "screenshot [NAME]", &ScreenshotCommand},
+    {"frames", Read, true, "frames [timeout=S]", &FramesHandler},
+    {"ui find", Read, true, "ui find SEL [all] [stale] [limit=N]", &UiCommand},
+    {"ui tree", Read, true, "ui tree [SEL] [depth=N] [limit=N] [all]", &UiCommand},
+    {"ui click", Input, true, "ui click SEL [timeout=S] [wait=S]", &UiCommand},
+    {"event list", Read, true, "event list [timeout=S]", &EventCommand},
+    {"event choose", Input, true, "event choose N|text^=\"...\" [event=N|event=title^=\"...\"] [timeout=S]", &EventCommand},
+    {"province", Read, true, "province ID [timeout=S]", &WorldCommand},
+    {"province open", ClientCall, true, "province open ID [timeout=S]", &WorldCommand},
+    {"province goto", ClientCall, true, "province goto ID [timeout=S]", &WorldCommand},
+    {"country", Read, true, "country TAG [timeout=S]", &WorldCommand},
+    {"player", Read, true, "player [timeout=S]", &WorldCommand},
+    {"selection", Read, true, "selection [timeout=S]", &WorldCommand},
+    {"units", Read, true, "units [TAG] [timeout=S]", &UnitsHandler},
+    {"cursor", Read, true, "cursor [timeout=S]", &CursorHandler},
+    {"journal", Read, false, "journal", &JournalCommand},
+    {"help", Read, false, "help", &HelpCommand},
+    {"wait_until", Read, false, "wait_until DATE [timeout=S] [max_pause=S]", &WaitUntilCommand},
+    {"cancel", Read, false, "cancel", &CancelCommand},
+    {"key", Input, false, "key [MOD+]NAME", &KeyCommand},
+    {"text", Input, false, "text STRING", &TextHandler},
+    {"move", Input, false, "move X Y", &MouseHandler},
+    {"click", Input, false, "click X Y [left|right|middle] [double]", &MouseHandler},
+    {"scroll", Input, false, "scroll STEPS [X Y]", &MouseHandler},
+    {"release", Read, false, "release", &ReleaseCommand},
+    {"pause", Input, false, "pause", &PauseCommand},
+    {"resume", Input, false, "resume", &PauseCommand},
+    {"speed", Input, false, "speed N", &SpeedCommand},
+    {"run_until", Input, false, "run_until DATE [speed=N] [timeout=S] [max_pause=S] [events=first|stop]", &RunUntil},
+    {"unit drill", Input, true, "unit drill start|stop UNITS [timeout=S]", &UnitCommand},
+    {"unit split", Input, true, "unit split UNIT [timeout=S]", &UnitCommand},
+    {"unit merge", Input, true, "unit merge UNITS [timeout=S]", &UnitCommand},
+    {"console", GameCall, true, "console LINE", &ConsoleHandler},
+    {"save load", GameCall, true, "save load NAME [timeout=S]", &SaveCommand},
+    {"map_mode", ClientCall, true, "map_mode MODE [timeout=S]", &MapModeCommand},
+    {"subscribe", Read, false, "subscribe KINDS [date=day|month|year]", &SubscribeCommand},
+    {"unsubscribe", Read, false, "unsubscribe", &UnsubscribeCommand},
+};
+
+// The entry a line goes to: `WORD VERB` when the table has it (`province open`), else `WORD`
+// (`province 295`), else the first entry of WORD's group, whose handler answers the usage
+// (`ui bogus`, `save x`); null for a word the table lacks.
+const Command* FindCommand(std::string_view word, std::string_view argument) {
+    const std::string_view verb = SplitCommand(argument).first;
+    const Command* single = nullptr;
+    const Command* group = nullptr;
+    for (const Command& c : kCommands) {
+        if (FirstWord(c.name) != word) continue;
+        if (c.name.size() == word.size()) {
+            single = &c;
+        } else if (c.name.substr(word.size() + 1) == verb) {
+            return &c;
+        } else if (group == nullptr) {
+            group = &c;
+        }
+    }
+    return single != nullptr ? single : group;
+}
+
 }  // namespace
+
+const char* CommandTypeName(CommandType type) {
+    switch (type) {
+        case CommandType::Read: return "read";
+        case CommandType::Input: return "input";
+        case CommandType::ClientCall: return "client_call";
+        case CommandType::GameCall: return "game_call";
+    }
+    return "read";
+}
+
+std::span<const Command> Commands() { return kCommands; }
+
+const Command* CommandOf(std::string_view line) {
+    const auto [word, argument] = SplitCommand(line);
+    return word.empty() ? nullptr : FindCommand(word, argument);
+}
+
+std::string CommandsJson() {
+    std::string out = "{\n  \"commands\": [\n";
+    const std::span<const Command> commands = Commands();
+    for (std::size_t i = 0; i < commands.size(); ++i) {
+        const Command& c = commands[i];
+        out += "    {\"name\": " + Quote(c.name) + ", \"type\": \"" + CommandTypeName(c.type) + "\", \"main_thread\": " +
+               Bool(c.main_thread) + ", \"usage\": " + Quote(c.usage) + "}" + (i + 1 < commands.size() ? "," : "") + "\n";
+    }
+    return out + "  ]\n}\n";
+}
 
 bool IsSubscribe(std::string_view line) { return SplitCommand(line).first == "subscribe"; }
 
 const char* LoadedBy(std::uint64_t session) { return session != 0 && session == g_tongs_load.load() ? "tongs" : nullptr; }
-
-std::uint64_t CountClientCall(const Handlers& h, std::string_view command, const StateSnapshot& before) {
-    const std::uint64_t calls = g_client_calls.fetch_add(1) + 1;
-    const std::uint64_t total = AddTotalCall(g_client_total, before);
-    PublishActivity(h, ",\"what\":\"client_call\",\"command\":" + Quote(command) +
-                           ",\"client_calls\":" + std::to_string(calls));
-    return total;
-}
 
 std::string Subscribe(std::string_view line, const Handlers& h, std::shared_ptr<Subscription>& out) {
     const std::string_view argument = SplitCommand(line).second;
@@ -2687,124 +2865,10 @@ std::string JsonEscape(std::string_view text) {
 std::string HandleRequest(std::string_view line, const Handlers& handlers, int client) {
     t_client = client;
     const std::string_view request = Trim(line);
-    const auto [command, argument] = SplitCommand(request);
-
-    if (command == "ping" && argument.empty()) return Ping(handlers);
-    if (command == "subscribe") return Error("subscribe needs a pipe connection of its own");
-    if (command == "unsubscribe" && argument.empty()) return Error("not subscribed");
-    if (command == "state" && argument.empty()) {
-        if (!handlers.read_state) return Error("state reader unavailable");
-        const StateSnapshot s = handlers.read_state();
-        std::string out = "{\"ok\":true," + StateFields(s);
-        if (s.in_game) {
-            out += ",\"game_calls_total\":" + std::to_string(TotalCallsFor(g_game_total, s));
-            out += ",\"client_calls_total\":" + std::to_string(TotalCallsFor(g_client_total, s));
-        }
-        return out + "}";
-    }
-    if (command == "screenshot") {
-        if (!handlers.take_screenshot) return Error("screenshots unavailable");
-        if (argument.size() > 48 || argument.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") !=
-                                        std::string_view::npos) {
-            return Error("screenshot takes an optional name of 1-48 letters, digits, _ or -");
-        }
-        const ScreenshotResult shot = handlers.take_screenshot(argument);
-        if (!shot.ok) return Error(shot.error);
-        return "{\"ok\":true,\"command\":\"screenshot\",\"path\":\"" + JsonEscape(shot.path) + "\",\"width\":" +
-               std::to_string(shot.width) + ",\"height\":" + std::to_string(shot.height) + ",\"bytes\":" +
-               std::to_string(shot.bytes) + ",\"method\":\"" + shot.method + "\",\"blank\":" + Bool(shot.blank) + "}";
-    }
-    if (command == "threads" && argument.empty()) {
-        if (!handlers.read_threads) return Error("thread reader unavailable");
-        return ThreadsJson(handlers.read_threads());
-    }
-    if (command == "window" && argument.empty()) {
-        if (!handlers.read_window) return Error("window reader unavailable");
-        return "{\"ok\":true," + WindowFields(handlers.read_window()) + "}";
-    }
-    if (command == "help" && argument.empty()) {
-        return std::string("{\"ok\":true,\"commands\":[\"ping\",\"state\",\"window\",\"threads\",\"screenshot\",\"frames\",\"ui\",\"event\",\"province\",\"country\",\"player\",\"selection\",\"units\",\"cursor\",\"journal\",\"help\",") +
-               "\"wait_until\",\"cancel\",\"key\",\"text\",\"move\",\"click\",\"scroll\",\"release\",\"pause\",\"resume\",\"speed\"," +
-               "\"run_until\",\"unit\",\"console\",\"save\",\"map_mode\",\"subscribe\",\"unsubscribe\"],\"input\":" + Bool(InputReady(handlers)) + ",\"main_thread\":" +
-               Bool(handlers.dispatcher != nullptr) + ",\"game_calls\":" + Bool(handlers.game_calls.enabled) +
-               ",\"game_calls_tripped\":" + Bool(g_game_calls_tripped.load()) +
-               ",\"suspended\":" + Bool(Suspended(handlers)) + "}";
-    }
-    if (command == "journal" && argument.empty()) {
-        if (handlers.journal == nullptr || !handlers.journal->IsOpen()) {
-            return "{\"ok\":true,\"command\":\"journal\",\"enabled\":false}";
-        }
-        return "{\"ok\":true,\"command\":\"journal\",\"enabled\":true,\"path\":\"" +
-               JsonEscape(handlers.journal->Path()) + "\",\"lines\":" + std::to_string(handlers.journal->Lines()) +
-               ",\"truncated\":" + Bool(handlers.journal->Truncated()) + "}";
-    }
-    if (command == "cancel" && argument.empty()) {
-        g_cancel_generation.fetch_add(1);
-        const int withdrawn = handlers.dispatcher ? handlers.dispatcher->CancelQueued() : 0;
-        return "{\"ok\":true,\"command\":\"cancel\",\"withdrawn\":" + std::to_string(withdrawn) + "}";
-    }
-    if (command == "frames") return FramesCommand(handlers, argument);
-    if (command == "ui") return UiCommand(handlers, argument);
-    if (command == "event") return EventCommand(handlers, argument);
-    if (command == "province" || command == "country" || command == "player" || command == "selection") {
-        return WorldCommand(handlers, command, argument);
-    }
-    if (command == "units") return UnitsCommand(handlers, argument);
-    if (command == "cursor") return CursorCommand(handlers, argument);
-    if (command == "unit") return UnitCommand(handlers, argument);
-    if (command == "map_mode") return MapModeCommand(handlers, argument);
-    if (command == "console") return ConsoleCall(handlers, argument, client).Run();
-    if (command == "save") {
-        const auto [verb, rest] = SplitCommand(argument);
-        if (verb != "load") return Refused("save", "bad_command", "usage: save load NAME [timeout=S]");
-        return SaveLoad(handlers, rest, client);
-    }
-    if (command == "wait_until") {
-        if (!handlers.read_state || !handlers.sleep_ms || !handlers.now_ms) return Error("state reader unavailable");
-        return WaitUntil(handlers, argument);
-    }
-    if (command == "run_until") {
-        if (std::string error = InputUnavailable(handlers); !error.empty()) return Error(error);
-        return RunUntil(handlers, argument);
-    }
-    if (command == "release" && argument.empty()) {
-        // Handing the pointer back changes nothing in the game, so it works while suspended too.
-        if (!InputReady(handlers)) return Error(kInputDisabled);
-        if (handlers.release_cursor) handlers.release_cursor();
-        {
-            std::lock_guard lock(g_input_mutex);
-            g_held = {};
-        }
-        return "{\"ok\":true,\"command\":\"release\"}";
-    }
-    if (command == "text" || command == "move" || command == "click" || command == "scroll") {
-        if (std::string error = InputUnavailable(handlers); !error.empty()) return Error(error);
-        std::lock_guard lock(g_input_mutex);
-        const CountedInput counted(handlers, command);
-        if (command == "text") return TextCommand(counted.handlers(), argument);
-        return MouseCommand(counted.handlers(), command, argument);
-    }
-    if (command == "key" || command == "pause" || command == "resume" || command == "speed") {
-        if (std::string error = InputUnavailable(handlers); !error.empty()) return Error(error);
-        std::lock_guard lock(g_input_mutex);
-        const CountedInput counted(handlers, command);
-        Actions actions(counted.handlers());
-        if (command == "key") {
-            const auto chord = FindKeyChord(argument);
-            if (!chord) return Error("unknown key: " + std::string(argument.substr(0, 32)));
-            return ActionJson(command, actions.Settled(KeyChordEvents(*chord), 1));
-        }
-        if (command == "speed") {
-            if (argument.size() != 1 || argument[0] < '1' || argument[0] > '5') {
-                return Error("speed takes one number from 1 to 5");
-            }
-            return ActionJson(command, actions.SetSpeed(argument[0] - '0'));
-        }
-        if (!argument.empty()) return Error(std::string(command) + " takes no argument");
-        return ActionJson(command, actions.SetPaused(command == "pause"));
-    }
     if (request.empty()) return Error("empty command");
-    return Error("unknown command: " + std::string(request.substr(0, 64)));
+    const Command* command = CommandOf(request);
+    if (command == nullptr) return Error("unknown command: " + std::string(request.substr(0, 64)));
+    return command->handler(Request{handlers, *command, request, SplitCommand(request).second, client});
 }
 
 ClientScope::ClientScope(std::function<bool()> left) : left_(std::move(left)), previous_(t_client_left) {
