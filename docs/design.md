@@ -59,7 +59,10 @@ window for agents that need to look.
 
 - Named pipe `\\.\pipe\tongs`, 8 instances (4 before 0.8.0), each served by its own thread.
   The first is created with `FILE_FLAG_FIRST_PIPE_INSTANCE` (a second game
-  cannot take the name over and logs an error instead); all with
+  cannot take the name over). When the name is in use, a thread tries again
+  every 250 ms for up to 60 s and logs an error after that: the game's own
+  restart (Back without Hamweard, Anvil's Restart game) starts the new process
+  while the old one still serves the pipe for a few seconds. All are created with
   `PIPE_REJECT_REMOTE_CLIENTS` and a DACL that allows only the user running
   the game and SYSTEM.
 - Up to 8 clients at once, one per instance; requests are lines, answers are
