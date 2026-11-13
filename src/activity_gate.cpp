@@ -142,6 +142,8 @@ std::string ActivityGate::Run(const Request& request, const Plan& plan) {
     const Handlers& h = request.handlers;
     const CommandType type = request.command.type;
     assert(type != CommandType::Read && plan.refuse && plan.act);
+    // A read is no activity: a table entry of type read that reached the gate would run unchecked.
+    if (type == CommandType::Read) return plan.refuse({"not_an_activity", "a read runs without the activity gate"});
     std::optional<Breaker> breaker;
     if (type == CommandType::GameCall) breaker = Breaker::GameCalls;
     if (type == CommandType::ClientCall) breaker = plan.breaker;
