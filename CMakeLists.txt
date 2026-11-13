@@ -42,6 +42,10 @@ if(MSVC)
     target_compile_options(tongs_core PUBLIC /W4 /utf-8 /permissive- /EHsc)
 endif()
 
+# The serve loop both transports share and the loopback socket the plugin serves under Wine; the tests drive it directly.
+add_library(tongs_transport STATIC src/serve_client.cpp src/socket_server.cpp)
+target_link_libraries(tongs_transport PUBLIC tongs_core ws2_32 bcrypt)
+
 # The plugin folder <build>/plugin/tongs/{plugin.toml, symbols.toml, settings.toml, translations/, tongs.dll}:
 # anvil gen writes symbols.gen.hpp and settings.gen.hpp from plugin/, and
 # tongs-check runs `anvil check plugin` (with -DEU4_EXE=<eu4.exe> it also
@@ -49,7 +53,7 @@ endif()
 set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
 anvil_add_plugin(tongs PLUGIN_DIR plugin SOURCES src/plugin.cpp src/settings.cpp src/game_state.cpp src/game_input.cpp src/game_window.cpp src/game_cursor.cpp src/game_frame.cpp src/game_threads.cpp src/game_ui.cpp src/game_ui_service.cpp src/game_events.cpp src/game_commands.cpp src/game_console.cpp src/game_world.cpp src/game_map.cpp src/game_navigation.cpp src/game_navigation_service.cpp src/game_speed_buttons.cpp src/game_save.cpp src/game_map_mode.cpp src/game_files.cpp src/game_memory.cpp src/pipe_server.cpp src/screenshot.cpp)
 unset(CMAKE_COMPILE_WARNING_AS_ERROR)
-target_link_libraries(tongs PRIVATE tongs_core advapi32 user32 gdi32 ole32 shell32 windowscodecs)
+target_link_libraries(tongs PRIVATE tongs_core tongs_transport advapi32 user32 gdi32 ole32 shell32 windowscodecs)
 
 if(TONGS_BUILD_TESTS)
     enable_testing()
@@ -61,6 +65,10 @@ if(TONGS_BUILD_TESTS)
     endif()
     add_test(NAME core COMMAND test_core)
     add_test(NAME core_save_load_fault COMMAND test_core save-load-fault)
+    # The loopback socket as a real server in this process, with Winsock clients (no game, no Wine needed on Windows).
+    add_executable(test_bridge tests/test_bridge.cpp)
+    target_link_libraries(test_bridge PRIVATE tongs_transport)
+    add_test(NAME bridge COMMAND test_bridge)
     # symbols.lock matches symbols.toml and says "ok" (anvil check without the game),
     # and every text has a translation in all eight files of plugin/translations/.
     add_test(NAME anvil_check COMMAND "${ANVIL_SDK_TOOL}" check "${CMAKE_CURRENT_SOURCE_DIR}/plugin" --complete-translations)

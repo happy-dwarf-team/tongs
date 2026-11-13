@@ -1,4 +1,5 @@
-"""Client for the Tongs pipe (\\\\.\\pipe\\tongs). Standard library only; the pipe needs Windows.
+"""Client for the Tongs pipe (\\\\.\\pipe\\tongs). Standard library only. On Windows it opens the pipe; elsewhere it reaches Tongs through the loopback
+socket Tongs serves under Wine and Proton when its `bridge` setting is on.
 
 Command line: one answer line per command, in order, over one connection.
 A `subscribe` command, which must come last, then prints notification lines
@@ -48,6 +49,57 @@ WAIT_TIMEOUT_S = 3600  # the plugin's default timeout of wait_until / run_until
 LATE_ANSWER_S = 5.0  # how long a call that timed out or was interrupted waits for its answer
 WAITS = ("wait_until", "run_until")
 LOAD_TIMEOUT_S = 120  # the plugin's default timeout of save load
+
+BRIDGE_STATE = "tongs/bridge.json"  # below $XDG_STATE_HOME (default ~/.local/state); written by Tongs
+
+
+def _bridge_state_path():
+    """Tongs' state file: TONGS_BRIDGE, else tongs/bridge.json in $XDG_STATE_HOME (~/.local/state without it)."""
+    import os
+
+    explicit = os.environ.get("TONGS_BRIDGE")
+    if explicit:
+        return explicit
+    state = os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state")
+    return os.path.join(state, BRIDGE_STATE)
+
+
+def _open_bridge(pipe_name, timeout_s):
+    """A connected socket to Tongs, which under Wine or Proton serves the pipe's commands on 127.0.0.1 when its
+    `bridge` setting is on. The state file Tongs writes names the port and a token; the first line sent is
+    `RELAY <token> <pipe>` (the first line of Anvil's pipe relay too), answered `OK` or `ERR <reason>`. Retries for
+    `timeout_s`."""
+    import json
+    import socket
+
+    deadline = time.monotonic() + timeout_s
+    last = None
+    while True:
+        try:
+            with open(_bridge_state_path(), encoding="utf-8") as state_file:
+                state = json.load(state_file)
+            sock = socket.create_connection(("127.0.0.1", int(state["port"])), timeout=5.0)
+            try:
+                sock.sendall(f"RELAY {state['token']} {pipe_name}\n".encode("ascii"))
+                answer = b""
+                while not answer.endswith(b"\n") and len(answer) < 256:
+                    byte = sock.recv(1)
+                    if not byte:
+                        break
+                    answer += byte
+                if answer.strip() != b"OK":
+                    raise OSError(f"Tongs refused {pipe_name}: {answer.decode('utf-8', 'replace').strip() or 'closed'}")
+            except BaseException:
+                sock.close()
+                raise
+            sock.settimeout(None)
+            return sock
+        except (OSError, ValueError, KeyError) as error:
+            last = error
+            if time.monotonic() >= deadline:
+                raise OSError(f"cannot reach Tongs through its socket ({last}); is the game running, and `bridge = true` set in Tongs' settings (anvil/data/tongs/settings.toml, or ANVIL_TONGS_BRIDGE=1)?") from last
+            time.sleep(0.05)
+
 
 if sys.platform == "win32":
     import ctypes
@@ -179,6 +231,17 @@ class PipeOwnerError(OSError):
     """The pipe's name is taken by a process of another Windows user: it is not the game."""
 
 
+def _under_wine():
+    """Whether this process runs under Wine or Proton (ntdll exports `wine_get_version` only there)."""
+    import ctypes
+
+    try:
+        getattr(ctypes.WinDLL("ntdll"), "wine_get_version")
+        return True
+    except (AttributeError, OSError):
+        return False
+
+
 def _pipe_owner_is_ours(handle):
     """Whether the object behind `handle` belongs to this Windows user or, for a game run as
     administrator, to the Administrators group. Pipe names are shared by all users of a computer,
@@ -205,6 +268,10 @@ def _pipe_owner_is_ours(handle):
                               ctypes.byref(descriptor)) != 0:
         return False
     try:
+        if not owner.value:
+            # Wine's named pipes have no owner SID (GetSecurityInfo succeeds and returns none), and a Wine prefix
+            # belongs to one host user, so there is no other Windows user to guard against. Windows always has one.
+            return _under_wine()
         user = ctypes.create_string_buffer(256)
         size = wintypes.DWORD()
         if not advapi.GetTokenInformation(current_process_token, TOKEN_USER, user, len(user), ctypes.byref(size)):
@@ -220,20 +287,23 @@ class Tongs:
     def __init__(self, timeout_s=2.0, expect_pid=None, expect_start_ms=None, read_timeout_s=None):
         """Opens the pipe, retrying for `timeout_s` (the pipe has 8 instances, and it is not there
         until the plugin starts). With expect_pid / expect_start_ms it checks `ping` first."""
+        self._sock = None
+        self._pipe = None
         if sys.platform != "win32":
-            raise OSError("the Tongs pipe is Windows only")
-        deadline = time.monotonic() + timeout_s
-        while True:
-            try:
-                self._pipe = open(PIPE, "r+b", buffering=0)
-                break
-            except OSError:
-                if time.monotonic() >= deadline:
-                    raise
-                time.sleep(0.05)
-        if not _pipe_owner_is_ours(msvcrt.get_osfhandle(self._pipe.fileno())):
-            self._pipe.close()
-            raise PipeOwnerError(f"{PIPE} belongs to another Windows user: it is not the game")
+            self._sock = _open_bridge("tongs", timeout_s)  # Tongs serves the same commands there; its token is the user's
+        else:
+            deadline = time.monotonic() + timeout_s
+            while True:
+                try:
+                    self._pipe = open(PIPE, "r+b", buffering=0)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise
+                    time.sleep(0.05)
+            if not _pipe_owner_is_ours(msvcrt.get_osfhandle(self._pipe.fileno())):
+                self._pipe.close()
+                raise PipeOwnerError(f"{PIPE} belongs to another Windows user: it is not the game")
         self._buffer = b""
         self._notes = collections.deque()  # notifications read while waiting for an answer
         self.expect_pid = expect_pid
@@ -246,7 +316,7 @@ class Tongs:
     def close(self):
         if not self.closed:
             self.closed = True
-            self._pipe.close()
+            (self._sock or self._pipe).close()
 
     def __enter__(self):
         return self
@@ -255,7 +325,11 @@ class Tongs:
         self.close()
 
     def _available(self):
-        """Bytes waiting in the pipe, without blocking."""
+        """Bytes waiting in the pipe, without blocking (over the socket: 1 when it can be read)."""
+        if self._sock is not None:
+            import select
+
+            return 1 if select.select([self._sock], [], [], 0)[0] else 0
         handle = msvcrt.get_osfhandle(self._pipe.fileno())
         available = wintypes.DWORD(0)
         if not _kernel32.PeekNamedPipe(handle, None, 0, None, ctypes.byref(available), None):
@@ -276,7 +350,7 @@ class Tongs:
                 idle = min(idle * 2, 0.05)
                 continue
             idle = 0.002
-            chunk = self._pipe.read(min(waiting, 65536))
+            chunk = self._sock.recv(65536) if self._sock is not None else self._pipe.read(min(waiting, 65536))
             if not chunk:
                 raise ConnectionError("the pipe closed without an answer")
             self._buffer += chunk
@@ -318,7 +392,11 @@ class Tongs:
             raise ConnectionError("the connection is closed")
         if timeout_s is None:
             timeout_s = self.read_timeout_s if self.read_timeout_s is not None else read_timeout(command)
-        self._pipe.write(command.encode("utf-8") + b"\n")
+        data = command.encode("utf-8") + b"\n"
+        if self._sock is not None:
+            self._sock.sendall(data)
+        else:
+            self._pipe.write(data)
         try:
             text = self._answer_line(timeout_s)
         except KeyboardInterrupt:

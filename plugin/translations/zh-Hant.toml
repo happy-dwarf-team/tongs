@@ -20,3 +20,8 @@ status = "draft"            # "checked" once a native speaker checked it
 "Game calls in an ironman game. Anvil also has to allow Tongs in ironman (allow_ironman = [\"tongs\"] in anvil/anvil.toml)." = "鐵人模式遊戲中的遊戲呼叫。Anvil 也必須允許 Tongs 在鐵人模式中執行（在 anvil/anvil.toml 中設定 allow_ironman = [\"tongs\"]）。"
 "Game calls in multiplayer" = "多人遊戲中的遊戲呼叫"
 "Game calls in a multiplayer game. Anvil also has to allow Tongs in multiplayer (allow_multiplayer = [\"tongs\"] in anvil/anvil.toml)." = "多人遊戲中的遊戲呼叫。Anvil 也必須允許 Tongs 在多人遊戲中執行（在 anvil/anvil.toml 中設定 allow_multiplayer = [\"tongs\"]）。"
+"Loopback socket under Wine" = "Wine 下的回送通訊端"
+"Under Wine and Proton, also serves the pipe's commands on a socket on 127.0.0.1, so that a native Linux client can reach Tongs without a relay. It needs Open the pipe. The port and a token go to bridge.json in the folder below, which only you should be able to enter. Ignored on Windows." = "在 Wine 和 Proton 下，另外透過 127.0.0.1 上的通訊端提供管道的命令，讓原生 Linux 用戶端不需中繼即可存取 Tongs。需要啟用「開啟管道」。連接埠和權杖會寫入下方資料夾中的 bridge.json，只有你本人應能進入該資料夾。在 Windows 上會被忽略。"
+"Folder of bridge.json" = "bridge.json 所在資料夾"
+"Where bridge.json goes, as a Unix path such as /run/user/1000/tongs or a Windows path. Empty means ~/.local/state/tongs. Whoever can read the token can drive the game, so use a folder only you can enter." = "bridge.json 的寫入位置，可以是 /run/user/1000/tongs 這樣的 Unix 路徑，也可以是 Windows 路徑。留空表示 ~/.local/state/tongs。能讀取權杖的人就能控制遊戲，請使用只有你能進入的資料夾。"
+"Wine and Proton" = "Wine 和 Proton"

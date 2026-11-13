@@ -1,6 +1,6 @@
 #include "pipe_server.hpp"
 
-#include "journal.hpp"
+#include "serve_client.hpp"
 
 #include <anvil/anvil_plugin.h>
 
@@ -13,7 +13,6 @@ namespace tongs {
 namespace {
 
 constexpr DWORD kBufferSize = 4096;
-constexpr std::size_t kMaxLine = 4096;
 
 struct Server {
     Handlers handlers;
@@ -52,76 +51,30 @@ HANDLE CreatePipeInstance(Server& server, bool first) {
                             kMaxClients, kBufferSize, kBufferSize, 0, &server.security);
 }
 
-std::uint64_t UnixMs() {
-    FILETIME ft{};
-    GetSystemTimeAsFileTime(&ft);
-    const std::uint64_t ticks = (static_cast<std::uint64_t>(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
-    return ticks / 10000 - 11644473600000ull;  // 100 ns since 1601 -> ms since 1970
-}
-
-bool WriteAll(HANDLE pipe, const std::string& text) {
-    DWORD written = 0;
-    return WriteFile(pipe, text.data(), static_cast<DWORD>(text.size()), &written, nullptr) &&
-           written == text.size();
-}
-
-constexpr int kStreamWaitMs = 20;  // a subscribed connection looks for requests this often
-
-// Serves one connected client until it disconnects. After `subscribe` the
-// thread alternates between writing notifications and looking for a request
-// without blocking (PeekNamedPipe), so the pipe itself stays synchronous. A
-// write to a client that does not read blocks only this thread; its queue
-// drops the oldest notifications meanwhile.
-void ServeClient(Server& server, HANDLE pipe, int number) {
-    std::string pending;
-    std::shared_ptr<Subscription> subscription;
-    NotificationHub* hub = server.handlers.notifications;
-    const auto end = [&subscription, hub] {
-        if (subscription && hub) hub->Unsubscribe(subscription);
-    };
-    char chunk[512];
-    for (;;) {
-        for (std::size_t eol; (eol = pending.find('\n')) != std::string::npos;) {
-            const std::string_view line = std::string_view(pending).substr(0, eol);
-            std::string reply;
-            const std::uint64_t asked_unix_ms = UnixMs();
-            const ULONGLONG asked = GetTickCount64();
-            if (subscription) {
-                reply = SubscribedRequest(line, server.handlers, subscription);
-            } else if (IsSubscribe(line)) {
-                reply = Subscribe(line, server.handlers, subscription);
-            } else {
-                reply = HandleRequest(line, server.handlers, number);
-            }
-            if (server.handlers.journal != nullptr) {
-                server.handlers.journal->Record({asked_unix_ms, number, line, reply, GetTickCount64() - asked});
-            }
-            pending.erase(0, eol + 1);
-            if (!WriteAll(pipe, reply + "\n")) return end();
-        }
-        if (pending.size() > kMaxLine) {
-            WriteAll(pipe, "{\"ok\":false,\"error\":\"line too long\"}\n");
-            return end();
-        }
+// The named pipe as a Channel: byte mode, synchronous, with PeekNamedPipe to look for a request without blocking.
+class PipeChannel final : public Channel {
+public:
+    explicit PipeChannel(HANDLE pipe) : pipe_(pipe) {}
+    bool Read(char* buffer, std::size_t size, std::size_t& got) override {
         DWORD read = 0;
-        if (!subscription) {
-            if (!ReadFile(pipe, chunk, sizeof chunk, &read, nullptr) || read == 0) return;
-            pending.append(chunk, read);
-            continue;
-        }
-        DWORD available = 0;
-        if (!PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr)) return end();  // the client left
-        if (available > 0) {
-            if (!ReadFile(pipe, chunk, available < sizeof chunk ? available : sizeof chunk, &read, nullptr) || read == 0) {
-                return end();
-            }
-            pending.append(chunk, read);
-            continue;
-        }
-        const std::string lines = subscription->Take(kStreamWaitMs);
-        if (!lines.empty() && !WriteAll(pipe, lines)) return end();
+        const bool ok = ReadFile(pipe_, buffer, static_cast<DWORD>(size), &read, nullptr) != 0;
+        got = read;
+        return ok;
     }
-}
+    long Available() override {
+        DWORD available = 0;
+        if (!PeekNamedPipe(pipe_, nullptr, 0, nullptr, &available, nullptr)) return -1;  // the client left
+        return static_cast<long>(available);
+    }
+    bool Write(std::string_view data) override {
+        DWORD written = 0;
+        return WriteFile(pipe_, data.data(), static_cast<DWORD>(data.size()), &written, nullptr) &&
+               written == data.size();
+    }
+
+private:
+    HANDLE pipe_;
+};
 
 struct Instance {
     Server* server;
@@ -135,7 +88,10 @@ DWORD WINAPI InstanceThread(void* param) {
     delete static_cast<Instance*>(param);
     for (;;) {
         const bool connected = ConnectNamedPipe(instance.pipe, nullptr) || GetLastError() == ERROR_PIPE_CONNECTED;
-        if (connected) ServeClient(*instance.server, instance.pipe, instance.number);
+        if (connected) {
+            PipeChannel channel(instance.pipe);
+            ServeClient(instance.server->handlers, channel, instance.number);
+        }
         FlushFileBuffers(instance.pipe);
         DisconnectNamedPipe(instance.pipe);
     }

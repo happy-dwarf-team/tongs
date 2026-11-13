@@ -24,6 +24,9 @@ Only the latest release receives security fixes.
 
 - Access to the pipe: connections from another Windows user or another
   machine, and a pipe that opens without `enabled = true`.
+- Access to the socket (`bridge = true`, Wine and Proton only): a connection without the token, a client of another Linux
+  user that is let in, a listener on an address other than `127.0.0.1`, or a socket that opens without `bridge = true` or on
+  Windows.
 - Input without permission: keyboard or mouse commands that work without
   `input = true`, or game code patched without it.
 - Game calls without permission: a console command that runs without
@@ -39,6 +42,8 @@ Only the latest release receives security fixes.
 
 ## Out of scope
 
+- What a program of the same Linux user can do through the socket: it can read the token, as it could read the
+  game's memory.
 - What a program of the same Windows user can do through the pipe once you
   enable it. That is the purpose of the plugin; enable `input = true` and
   `game_calls = true` only for scripts you trust.

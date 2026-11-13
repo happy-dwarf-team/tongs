@@ -145,8 +145,9 @@ discover a capital is refused. Header:
   province views) also need `input = true`, and console commands need
   `game_calls = true` (see [Settings](#settings)).
 - Local clients of the Windows user running the game only (pipe DACL, remote
-  clients rejected). No network listener. The Python client and the MCP server
-  also refuse a pipe that another Windows user created under this name.
+  clients rejected). No network listener, except under Wine with `bridge = true`: then also a socket on `127.0.0.1`
+  that needs a token and a client of the same Linux user (see [the design](docs/design.md#the-socket-under-wine)). The Python client
+  and the MCP server also refuse a pipe that another Windows user created under this name.
 - Text from the game and its mods reaches a client as it is. An agent should
   treat it as data, not instructions: the MCP server says so in its
   instructions.
@@ -218,6 +219,7 @@ console_allow = "leak"          # danger commands game calls may run, separated 
 game_calls_ironman = false      # game calls in ironman (Anvil must also allow Tongs there)
 game_calls_multiplayer = false  # game calls in multiplayer (likewise)
 journal = true      # the command journal in anvil/data/tongs/journal/ (on by default)
+bridge = true       # under Wine and Proton: also serve a loopback socket for native Linux clients
 ```
 
 Tongs reads them when the game starts. `ANVIL_TONGS_<NAME>` environment
