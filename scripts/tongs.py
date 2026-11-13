@@ -177,12 +177,18 @@ def game_days(date):
 # --- request lines -----------------------------------------------------------
 
 _TIMEOUT_OPTION = re.compile(r"(?:^|\s)timeout=(\d+)(?:\s|$)")
+_WAIT_OPTION = re.compile(r"(?:^|\s)wait=(\d+)(?:\s|$)")
+DISPATCH_TIMEOUT_S = 10  # the plugin's default timeout= of a main-thread job
 
 
 def read_timeout(command):
-    """How long the client waits for the answer to `command`: its own timeout= and a margin,
-    the plugin's default wait for wait_until / run_until, else READ_TIMEOUT_S."""
+    """How long the client waits for the answer to `command`: its own timeout= and a margin
+    (with `ui click ... wait=S` also S, and one more read after it), the plugin's default wait
+    for wait_until / run_until, else READ_TIMEOUT_S."""
     own = _TIMEOUT_OPTION.search(command)
+    wait = _WAIT_OPTION.search(command)
+    if wait:
+        return int(wait.group(1)) + (int(own.group(1)) if own else DISPATCH_TIMEOUT_S) + TIMEOUT_MARGIN_S
     if own:
         return int(own.group(1)) + TIMEOUT_MARGIN_S
     if command.split()[:1] and command.split()[0] in WAITS:

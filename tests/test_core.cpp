@@ -1831,6 +1831,32 @@ static void TestUiClickCommand() {
     Handlers no_hook = h;
     no_hook.set_cursor = nullptr;
     assert(Contains(HandleRequest("ui click speed_controls/button_speedup", no_hook), "cursor hook"));
+
+    // wait=S: a notice that shows later (Anbennar's achievements notice) is clicked once it is there.
+    int polls = 0;
+    screen.game.on_sleep = [&] {
+        if (++polls == 3) AddWidget(screen.tree, "DefaultConfirm", UiType::Button, true, {100, 100, 80, 30});
+    };
+    screen.game.events.clear();
+    out = HandleRequest("ui click DefaultConfirm wait=30", h);
+    assert(Contains(out, "\"ok\":true") && Contains(out, "\"clicked\":\"DefaultConfirm\"") && Contains(out, "\"waited_ms\":"));
+    assert(screen.game.events.size() == 3 && screen.game.events[1].type == InputEvent::Type::MouseDown);
+    screen.game.on_sleep = nullptr;
+    // One that never comes ends as without wait, after it; a disabled one at once.
+    const std::uint64_t before = screen.game.clock;
+    out = HandleRequest("ui click //nothing wait=2", h);
+    assert(Contains(out, "\"error\":\"not_found\"") && Contains(out, "\"waited_ms\":") && screen.game.clock - before >= 2000);
+    const std::uint64_t at = screen.game.clock;
+    assert(Contains(HandleRequest("ui click speed_controls/button_speeddown wait=30", h), "\"error\":\"disabled\"") &&
+           screen.game.clock == at);
+    // A cancel ends the wait.
+    screen.game.on_sleep = [&] { HandleRequest("cancel", h); };
+    out = HandleRequest("ui click //nothing wait=30", h);
+    assert(Contains(out, "{\"ok\":false,\"error\":\"cancelled\",\"command\":\"ui click\"") && screen.game.events.size() == 3);
+    screen.game.on_sleep = nullptr;
+    for (const char* bad : {"ui click a wait=0", "ui click a wait=601", "ui click a wait=x", "ui find a wait=3"}) {
+        assert(Contains(HandleRequest(bad, h), "\"error\":\"bad_command\""));
+    }
 }
 
 static void TestUiClickChoice() {

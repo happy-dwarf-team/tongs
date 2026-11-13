@@ -683,14 +683,27 @@ def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
         return await call(_line("ui tree", selector, "all" if all else None, depth=depth, limit=limit))
 
     @tool(PLAYER, INPUT_NOTE)
-    async def tongs_ui_click(selector: Selector, timeout: Timeout = None) -> CallToolResult:
+    async def tongs_ui_click(
+        selector: Selector,
+        timeout: Timeout = None,
+        wait: Annotated[
+            int | None,
+            Field(
+                ge=1,
+                le=600,
+                description="Seconds to look again while the widget is missing or hidden, or a save is "
+                "loading, then click it; for a dialog that shows later (waited_ms says how long).",
+            ),
+        ] = None,
+    ) -> CallToolResult:
         """Clicks the centre of the one widget the selector matches, after checking that the click
         reaches it: the game hands a click down past labels, backgrounds and other widgets without a
         click action (named in `through`). Refuses without clicking: not_found, ambiguous (with
         matches), not_visible, stale (only stale widgets match), disabled, covered (with covered_by,
-        the widget that would take the click)."""
+        the widget that would take the click). With `wait`, not_found and not_visible come only
+        after that time, so a later dialog needs no loop of sleeps and finds."""
         _check(selector)
-        return await call(_line("ui click", selector, timeout=timeout))
+        return await call(_line("ui click", selector, timeout=timeout, wait=wait))
 
     # --- world reads ---
 

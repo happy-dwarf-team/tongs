@@ -187,6 +187,7 @@ struct UiRequest {
     int depth = -1;  // -1: no limit
     int limit = 0;
     int timeout_ms = 0;  // 0: the dispatcher's default
+    int wait_ms = 0;     // ui click wait=S: look again for a missing or hidden widget until S passes
 };
 
 constexpr int kUiFindLimit = 50;
