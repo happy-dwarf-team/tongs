@@ -15,7 +15,8 @@ namespace tongs {
 // True when the table has the calls each list needs (anvil-game 1.20 and newer).
 bool HasFlags(const GameWorldService* world);
 bool HasVariables(const GameWorldService* world);
-bool HasPending(const GameWorldService* world);  // anvil-game 1.21
+bool HasPending(const GameWorldService* world);    // anvil-game 1.21
+bool HasDiplomacy(const GameWorldService* world);  // anvil-game 1.22
 
 // Fill `out` for a country (by tag, as the game stores it) or a province. A list
 // the service cannot give keeps `*_read` false with the reason in `*_missing`;

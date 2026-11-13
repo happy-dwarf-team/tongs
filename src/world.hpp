@@ -51,6 +51,38 @@ struct PendingRaw {
     std::uint32_t day = 0;
 };
 
+// A relation of a country, as the game's save writes it (anvil-game.world, Anvil 1.22).
+struct RelationRaw {
+    std::string first;
+    std::string second;
+    bool has_start = false, has_end = false;
+    std::int32_t start_year = 0, end_year = 0;
+    std::uint32_t start_month = 0, start_day = 0, end_month = 0, end_day = 0;
+    std::string subject_type;  // a dependency the country is first in: "vassal"
+};
+
+// What one country keeps about another, with the opinion from the game's cache.
+struct StatusRaw {
+    bool read = false;  // false: the service answered no (a country without provinces, no cache entry yet)
+    std::int32_t opinion = 0;
+    std::int32_t timed_sum = 0;
+    std::uint32_t trust = 0;
+    std::int32_t favors = 0;  // x 1000
+    bool truce = false;
+};
+
+// A country's diplomacy (Anvil 1.22): its relations by kind, rivals, overlord,
+// subjects and the status toward the player and back.
+struct DiplomacyRaw {
+    std::vector<RelationRaw> relations[8];  // by ANVIL_GAME_RELATION_*
+    std::vector<std::string> rivals;
+    std::string overlord;  // empty: none
+    std::vector<std::string> subjects;
+    std::string player;    // empty: no player, or the country is the player's
+    StatusRaw toward_player;
+    StatusRaw player_toward;
+};
+
 // Flags and variables of one scope, read through anvil-game.world (world_flags.cpp),
 // and for a country (`country` set) its pending events. When a list could not be
 // read, `*_missing` says why and the answer has `null` for it, never an empty list.
@@ -59,6 +91,9 @@ struct ScopeExtras {
     bool pending_read = false;
     std::vector<PendingRaw> pending;
     std::string pending_missing;
+    bool diplomacy_read = false;
+    DiplomacyRaw diplomacy;
+    std::string diplomacy_missing;
     bool flags_read = false;
     std::vector<FlagRaw> flags;
     std::string flags_missing;
@@ -129,7 +164,7 @@ WorldFailure ParseWorldRequest(std::string_view command, std::string_view argume
 // The bucket the game files a tag in: its three characters, upper-cased, summed, & mask.
 int TagBucket(std::string_view tag, int mask);
 
-// `,"flags":[...],"variables":[...]` (and `,"pending_events":[...]` for a country), with
+// `,"flags":[...],"variables":[...]` (and `pending_events` and `diplomacy` for a country), with
 // `null` for a list that was not read and then `,"missing":{"flags":"why",...}` naming
 // each such list.
 std::string ExtrasMembers(const ScopeExtras& e);

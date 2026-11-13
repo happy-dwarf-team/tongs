@@ -4035,9 +4035,64 @@ int PendingTitle(std::int32_t id, char* utf8, std::uint32_t capacity, std::uint3
     return Text(id == 8 ? "" : "flavor_rus.1.t", utf8, capacity, length);
 }
 
+// Diplomacy (Anvil 1.22): what each call answers for RUS; the player is RUS unless `player_tag` says otherwise.
+int relations_result = 0;
+std::vector<GameRelation> relations[8];
+std::vector<GameTag> rivals, subjects;
+std::string overlord, player_tag = "RUS";
+GameTag Tag(const char* text) {
+    GameTag t{};
+    std::snprintf(t.text, sizeof(t.text), "%s", text);
+    return t;
+}
+int Player(GameTag* out) {
+    *out = Tag(player_tag.c_str());
+    return 0;
+}
+int Relations(const char* tag, std::uint32_t kind, GameRelation* out, std::uint32_t capacity, std::uint32_t* count) {
+    if (relations_result != 0) return relations_result;
+    if (kind > 7) return 1;
+    const auto& list = relations[kind];
+    *count = static_cast<std::uint32_t>(list.size());
+    for (std::uint32_t i = 0; i < capacity && i < list.size(); ++i) out[i] = list[i];
+    return std::string(tag) == "XXX" ? 11 : 0;
+}
+int SubjectType(const char* overlord_tag, const char* subject, char* utf8, std::uint32_t capacity, std::uint32_t* length) {
+    if (std::string(overlord_tag) != "RUS" || std::string(subject) != "KAZ") return 11;
+    return Text("tributary_state", utf8, capacity, length);
+}
+int Status(const char* from, const char* to, GameDiplomacyStatus* out) {
+    if (std::string(from) == "BYZ" || std::string(to) == "BYZ") return 11;  // no provinces
+    out->opinion = std::string(from) == "RUS" ? -108 : -200;
+    out->timed_sum = std::string(from) == "RUS" ? -399 : 0;
+    out->trust = std::string(from) == "RUS" ? 99 : 50;
+    out->favors = std::string(from) == "RUS" ? 37590 : 0;
+    out->flags = 1;
+    return 0;
+}
+int TagList(const std::vector<GameTag>& list, GameTag* out, std::uint32_t capacity, std::uint32_t* count) {
+    *count = static_cast<std::uint32_t>(list.size());
+    for (std::uint32_t i = 0; i < capacity && i < list.size(); ++i) out[i] = list[i];
+    return 0;
+}
+int Rivals(const char*, GameTag* out, std::uint32_t capacity, std::uint32_t* count) { return TagList(rivals, out, capacity, count); }
+int Subjects(const char*, GameTag* out, std::uint32_t capacity, std::uint32_t* count) { return TagList(subjects, out, capacity, count); }
+int Overlord(const char*, GameTag* out) {
+    if (overlord.empty()) return 11;
+    *out = Tag(overlord.c_str());
+    return 0;
+}
+
 GameWorldService Table() {
     GameWorldService w{};
     w.size = sizeof(GameWorldService);
+    w.player = Player;
+    w.country_relations = Relations;
+    w.subject_type = SubjectType;
+    w.diplomacy_status = Status;
+    w.country_rivals = Rivals;
+    w.country_overlord = Overlord;
+    w.country_subjects = Subjects;
     w.pending_events = PendingEvents;
     w.pending_event = PendingEvent;
     w.pending_event_key = PendingKey;
@@ -4052,6 +4107,8 @@ GameWorldService Table() {
     return w;
 }
 }  // namespace fake_world
+
+constexpr const char* kEmptyDiplomacy = "{\"alliance\":[],\"royal_marriage\":[],\"guarantee\":[],\"military_access\":[],\"giving_military_access\":[],\"subsidies\":[],\"dependency\":[],\"warning\":[],\"rivals\":[],\"overlord\":null,\"subjects\":[],\"player\":null,\"toward_player\":null,\"player_toward\":null}";
 
 static void TestWorldFlagsAndVariables() {
     using namespace fake_world;
@@ -4068,7 +4125,7 @@ static void TestWorldFlagsAndVariables() {
     std::string out = ExtrasMembers(e);
     assert(out == ",\"flags\":[{\"name\":\"rus_reform_done\",\"date\":\"1700.1.1\"},{\"name\":\"peter_the_great\","
                   "\"date\":\"1719.3.17\"}],\"variables\":[{\"name\":\"reforms\",\"value\":3},"
-                  "{\"name\":\"debt_ratio\",\"value\":-1.25}],\"pending_events\":[]");
+                  "{\"name\":\"debt_ratio\",\"value\":-1.25}],\"pending_events\":[],\"diplomacy\":" + std::string(kEmptyDiplomacy));
 
     // A country without any: empty lists, not null and no `missing`.
     flags.clear();
@@ -4094,13 +4151,16 @@ static void TestWorldFlagsAndVariables() {
     ReadCountryExtras(&w, "RUS", e);
     out = ExtrasMembers(e);
     assert(!e.flags_read && !e.variables_read);
-    assert(Contains(out, ",\"flags\":null,\"variables\":null,\"pending_events\":[],\"missing\":{\"flags\":\"this game build has no flag symbols (country_flags)\","
-                         "\"variables\":\"this game build has no variable symbols (country_variable_names)\"}"));
+    assert(Contains(out, (",\"flags\":null,\"variables\":null,\"pending_events\":[],\"diplomacy\":" + std::string(kEmptyDiplomacy) +
+                          ",\"missing\":{\"flags\":\"this game build has no flag symbols (country_flags)\","
+                          "\"variables\":\"this game build has no variable symbols (country_variable_names)\"}")
+                             .c_str()));
     flag_result = 10;
     names_result = 0;
     ReadCountryExtras(&w, "RUS", e);
     assert(ExtrasMembers(e) ==
-           ",\"flags\":null,\"variables\":[],\"pending_events\":[],\"missing\":{\"flags\":\"country_flags answered 10\"}");
+           ",\"flags\":null,\"variables\":[],\"pending_events\":[],\"diplomacy\":" + std::string(kEmptyDiplomacy) +
+               ",\"missing\":{\"flags\":\"country_flags answered 10\"}");
     flag_result = 0;
 
     // An older Anvil: the table ends at selected_units (1.15) or there is no service.
@@ -4108,10 +4168,11 @@ static void TestWorldFlagsAndVariables() {
     old.size = static_cast<std::uint32_t>(offsetof(GameWorldService, monarch));
     assert(!HasFlags(&old) && !HasVariables(&old));
     ReadCountryExtras(&old, "RUS", e);
-    assert(Contains(ExtrasMembers(e), "\"flags\":null,\"variables\":null,\"pending_events\":null,\"missing\":{\"flags\":"
+    assert(Contains(ExtrasMembers(e), "\"flags\":null,\"variables\":null,\"pending_events\":null,\"diplomacy\":null,\"missing\":{\"flags\":"
                                       "\"anvil-game.world has no flags: they need Anvil 1.20 or newer\",\"variables\":\"anvil-game."
                                       "world has no variables: they need Anvil 1.20 or newer\",\"pending_events\":\"anvil-game.world "
-                                      "has no pending events: they need Anvil 1.21 or newer\"}"));
+                                      "has no pending events: they need Anvil 1.21 or newer\",\"diplomacy\":\"anvil-game.world has no diplomacy: it "
+                                      "needs Anvil 1.22 or newer\"}"));
     ReadProvinceExtras(nullptr, 295, e);
     assert(Contains(ExtrasMembers(e), "\"missing\":{\"flags\":\"anvil-game.world is not loaded"));
 
@@ -4119,7 +4180,68 @@ static void TestWorldFlagsAndVariables() {
     CountryRaw c;
     c.tag = "RUS";
     ReadCountryExtras(&w, "RUS", c.extras);
-    assert(CountryMembers(c).ends_with(",\"observer\":false,\"flags\":[],\"variables\":[],\"pending_events\":[]"));
+    assert(CountryMembers(c).ends_with(",\"observer\":false,\"flags\":[],\"variables\":[],\"pending_events\":[],\"diplomacy\":" +
+                                       std::string(kEmptyDiplomacy)));
+}
+
+static void TestWorldDiplomacy() {
+    using namespace fake_world;
+    GameWorldService w = Table();
+    assert(HasDiplomacy(&w));
+    GameRelation ally{Tag("RUS"), Tag("TUR"), {sizeof(WorldDate), 1700, 1, 1, 1}, {}};
+    GameRelation vassal{Tag("RUS"), Tag("KAZ"), {sizeof(WorldDate), 1650, 2, 3, 1}, {}};
+    GameRelation warned{Tag("SWE"), Tag("RUS"), {sizeof(WorldDate), 1718, 2, 18, 1}, {sizeof(WorldDate), 1720, 1, 1, 1}};
+    relations[0] = {ally};
+    relations[6] = {vassal};
+    relations[7] = {warned};
+    rivals = {Tag("SWE"), Tag("TUR")};
+    subjects = {Tag("KAZ")};
+    player_tag = "PLC";
+    ScopeExtras e;
+    ReadCountryExtras(&w, "RUS", e);
+    assert(e.diplomacy_read);
+    const std::string out = ExtrasMembers(e);
+    assert(Contains(out, ",\"diplomacy\":{\"alliance\":[{\"first\":\"RUS\",\"second\":\"TUR\",\"start\":\"1700.1.1\","
+                         "\"end\":null}],\"royal_marriage\":[]"));
+    assert(Contains(out, "\"dependency\":[{\"first\":\"RUS\",\"second\":\"KAZ\",\"start\":\"1650.2.3\",\"end\":null,"
+                         "\"subject_type\":\"tributary_state\"}],\"warning\":[{\"first\":\"SWE\",\"second\":\"RUS\","
+                         "\"start\":\"1718.2.18\",\"end\":\"1720.1.1\"}]"));
+    assert(Contains(out, "\"rivals\":[\"SWE\",\"TUR\"],\"overlord\":null,\"subjects\":[\"KAZ\"],\"player\":\"PLC\","
+                         "\"toward_player\":{\"opinion\":-108,\"timed_sum\":-399,\"trust\":99,\"favors\":37.59,\"truce\":true},"
+                         "\"player_toward\":{\"opinion\":-200,\"timed_sum\":0,\"trust\":50,\"favors\":0,\"truce\":true}}"));
+    assert(!Contains(out, "missing"));
+    // The subject's side: its overlord, no subject type (it is not first). A country the service has no status for.
+    overlord = "RUS";
+    player_tag = "BYZ";
+    ReadCountryExtras(&w, "KAZ", e);
+    const std::string kaz = ExtrasMembers(e);
+    assert(Contains(kaz, "\"dependency\":[{\"first\":\"RUS\",\"second\":\"KAZ\",\"start\":\"1650.2.3\",\"end\":null}]"));
+    assert(Contains(kaz, "\"overlord\":\"RUS\"") && Contains(kaz, "\"player\":\"BYZ\",\"toward_player\":null,\"player_toward\":null"));
+    // A long list takes a second call.
+    relations[0].assign(30, ally);
+    ReadCountryExtras(&w, "RUS", e);
+    assert(e.diplomacy.relations[0].size() == 30);
+    // A failed read: null, said in `missing`; the rest of the answer stays.
+    relations_result = 2;
+    ReadCountryExtras(&w, "RUS", e);
+    assert(Contains(ExtrasMembers(e), "\"diplomacy\":null") &&
+           Contains(ExtrasMembers(e), "\"diplomacy\":\"this game build has no diplomacy symbols (country_relations)\""));
+    assert(e.pending_read);
+    relations_result = 0;
+    // A 1.21 table: pending events but no diplomacy. Provinces never have it.
+    GameWorldService old = Table();
+    old.size = static_cast<std::uint32_t>(offsetof(GameWorldService, country_relations));
+    assert(!HasDiplomacy(&old) && HasPending(&old));
+    ReadCountryExtras(&old, "RUS", e);
+    assert(Contains(ExtrasMembers(e), ",\"diplomacy\":null,\"missing\":{\"diplomacy\":\"anvil-game.world has no diplomacy: it "
+                                      "needs Anvil 1.22 or newer\"}"));
+    ReadProvinceExtras(&w, 295, e);
+    assert(!Contains(ExtrasMembers(e), "diplomacy"));
+    for (auto& list : relations) list.clear();
+    rivals.clear();
+    subjects.clear();
+    overlord.clear();
+    player_tag = "RUS";
 }
 
 static void TestWorldPendingEvents() {
@@ -4153,8 +4275,8 @@ static void TestWorldPendingEvents() {
     old.size = static_cast<std::uint32_t>(offsetof(GameWorldService, pending_events));
     assert(!HasPending(&old) && HasFlags(&old));
     ReadCountryExtras(&old, "RUS", e);
-    assert(Contains(ExtrasMembers(e), ",\"pending_events\":null,\"missing\":{\"pending_events\":\"anvil-game.world has no pending "
-                                      "events: they need Anvil 1.21 or newer\"}"));
+    assert(Contains(ExtrasMembers(e), ",\"pending_events\":null,\"diplomacy\":null,\"missing\":{\"pending_events\":\"anvil-game."
+                                      "world has no pending events: they need Anvil 1.21 or newer\""));
     ReadProvinceExtras(&w, 295, e);
     assert(!Contains(ExtrasMembers(e), "pending_events"));
     pending_ids.clear();
@@ -5774,6 +5896,7 @@ int main(int argc, char** argv) {
     TestWorldAnswers();
     TestWorldFlagsAndVariables();
     TestWorldPendingEvents();
+    TestWorldDiplomacy();
     TestWorldCommands();
     TestCursorCommand();
     TestNavigationRules();
