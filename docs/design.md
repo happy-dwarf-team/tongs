@@ -2891,6 +2891,15 @@ BYZ, without provinces, gave `toward_player` and `player_toward` `null`. With
 the Anvil 1.21.0 release `diplomacy` was `null` and `missing` said it needs
 Anvil 1.22. `client_calls_total` stayed 0.
 
+Checked again (13 November 2026) with the Anvil 1.22.0 release on both builds:
+the same counts, with no difference. In the game's diplomacy view, opened from
+the province view's owner shield, the Ottomans showed the opinions -200 and
+-108 and Great Britain -152 and -89, as `toward_player` / `player_toward`
+gave them, and Great Britain's lists showed its 4 allies, 2 rivals, 1 royal
+marriage and 3 subjects, as `diplomacy` did. With the Anvil 1.21.0 release
+`diplomacy` was again `null` with `missing` naming Anvil 1.22, while
+`pending_events` and the flags stayed.
+
 ## Navigation (0.21.0)
 
 Release 0.21 of the [scenario support v1 spec](spec/scenarios-v1.md)
