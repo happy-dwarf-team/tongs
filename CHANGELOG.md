@@ -2,18 +2,16 @@
 
 ## [0.34.0](https://github.com/happy-dwarf-team/tongs/compare/v0.33.0...v0.34.0) (2026-11-13)
 
-
 ### Features
 
-* **input:** text refuses with no_text_field when no text field has the focus ([#197](https://github.com/happy-dwarf-team/tongs/issues/197)) ([cf06797](https://github.com/happy-dwarf-team/tongs/commit/cf06797992c2a2c932433cec7095f363909232a0))
-* **pipe:** pending events in country, through anvil-game.world ([#192](https://github.com/happy-dwarf-team/tongs/issues/192)) ([a1905d8](https://github.com/happy-dwarf-team/tongs/commit/a1905d8930e4cf0b85af76d433be2a86fb7da574))
-* serve the pipe's commands on a loopback socket under Wine and Proton ([#195](https://github.com/happy-dwarf-team/tongs/issues/195)) ([d126c40](https://github.com/happy-dwarf-team/tongs/commit/d126c40daa8c0d5c6f6e36c0f5f4156e5c9683e3))
-* **ui:** ui click wait=, [visible] and [hidden] filters, a hint when busy ([#198](https://github.com/happy-dwarf-team/tongs/issues/198)) ([9d8c3ab](https://github.com/happy-dwarf-team/tongs/commit/9d8c3abfa96e3ccb4358713d216fba8748e3ade6))
-
+* **pipe:** `country` (`tongs_country`) also answers the events waiting for that country's choice, with their options, read through Anvil's `anvil-game.world`. This needs Anvil 1.21; with an older Anvil the list is `null`. ([#192](https://github.com/happy-dwarf-team/tongs/issues/192)) ([a1905d8](https://github.com/happy-dwarf-team/tongs/commit/a1905d8930e4cf0b85af76d433be2a86fb7da574))
+* Under Wine and Proton on Linux, Tongs also serves its commands on a loopback socket, so the MCP server and the pipe clients drive the game there as on Windows. ([#195](https://github.com/happy-dwarf-team/tongs/issues/195)) ([d126c40](https://github.com/happy-dwarf-team/tongs/commit/d126c40daa8c0d5c6f6e36c0f5f4156e5c9683e3))
+* **ui:** `ui click` takes `wait=` and clicks a widget once it shows up, selectors take `[visible]` and `[hidden]`, and a "main thread busy" answer says that `ready` waits until the game takes input again. ([#198](https://github.com/happy-dwarf-team/tongs/issues/198)) ([9d8c3ab](https://github.com/happy-dwarf-team/tongs/commit/9d8c3abfa96e3ccb4358713d216fba8748e3ade6))
+* **input:** `text` refuses with `no_text_field` when no text field has the focus, instead of typing into nothing. ([#197](https://github.com/happy-dwarf-team/tongs/issues/197)) ([cf06797](https://github.com/happy-dwarf-team/tongs/commit/cf06797992c2a2c932433cec7095f363909232a0))
 
 ### Bug Fixes
 
-* **pipe:** end a wait when the client that sent it disconnects ([#196](https://github.com/happy-dwarf-team/tongs/issues/196)) ([6b9b64d](https://github.com/happy-dwarf-team/tongs/commit/6b9b64ddafc4261479c318780a3fcfd214a82645))
+* **pipe:** A wait ends when the client that sent it disconnects, and a `run_until` from that client pauses the game, so a crashed agent no longer leaves the game running. ([#196](https://github.com/happy-dwarf-team/tongs/issues/196)) ([6b9b64d](https://github.com/happy-dwarf-team/tongs/commit/6b9b64ddafc4261479c318780a3fcfd214a82645))
 
 ## [0.33.0](https://github.com/happy-dwarf-team/tongs/compare/v0.32.0...v0.33.0) (2026-11-12)
 
