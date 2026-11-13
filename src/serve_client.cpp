@@ -42,6 +42,8 @@ void ServeClient(const Handlers& handlers, Channel& channel, int number) {
             } else if (IsSubscribe(line)) {
                 reply = Subscribe(line, handlers, subscription);
             } else {
+                // A wait this request starts ends when the client leaves (Available() is -1 once it is gone).
+                const ClientScope scope([&channel] { return channel.Available() < 0; });
                 reply = HandleRequest(line, handlers, number);
             }
             if (handlers.journal != nullptr) {

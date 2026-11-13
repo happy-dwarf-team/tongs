@@ -253,6 +253,22 @@ struct Handlers {
 // `client` is the pipe instance (from 1) that sent the line, for the log.
 std::string HandleRequest(std::string_view line, const Handlers& handlers, int client = 0);
 
+// While a ClientScope lives on a thread, a wait_until / run_until that thread runs ends as soon as
+// `left()` says the client that sent it is gone, as a `cancel` would (run_until pauses the game
+// again). serve_client.cpp opens one around every request; without one (tests, the plugin's own
+// calls) a wait ends only by its target, a cancel, a timeout or the game being left.
+class ClientScope {
+public:
+    explicit ClientScope(std::function<bool()> left);
+    ~ClientScope();
+    ClientScope(const ClientScope&) = delete;
+    ClientScope& operator=(const ClientScope&) = delete;
+
+private:
+    std::function<bool()> left_;
+    const std::function<bool()>* previous_;
+};
+
 // Subscriptions (pipe_server.cpp). A connection that sends `subscribe KINDS
 // [date=day|month|year]` gets the answer, then only notifications, until it
 // sends `unsubscribe` (back to ordinary requests; what is still queued is

@@ -103,7 +103,8 @@ touched run.
 
   Every call has a read timeout: 30 s, or the command's own `timeout=` and a
   margin. A wait that times out or is stopped with Ctrl+C is ended with `cancel`
-  on a second connection, and the error says whether its answer still came
+  on a second connection (closing the connection would end it too, as
+  `client_left`), and the error says whether its answer still came
   (`answered_late`) or not (`unknown`). With `expect_pid` / `expect_start_ms`, an
   answer from another game process raises `ProcessMismatch`. The typed methods
   return the plugin's answer unchanged and raise on `"ok": false`.

@@ -126,7 +126,7 @@ JSON answer unchanged; "ok": false answers come back as errors with an "error" f
   change game state and are counted in "game_calls". A run with inputs, client_calls or game_calls
   above 0 is a marked run, which measurements reject.
 - tongs_wait_until / tongs_run_until can take hours of wall time: the call returns when
-  the date is reached, the timeout passes or tongs_cancel ends it. Progress
+  the date is reached, the timeout passes, tongs_cancel ends it or its connection closes. Progress
   notifications report the game date when the client asks for progress, and a heartbeat
   while the game is paused; max_pause ends a wait the game keeps paused.
 - Cancelling a call does not take it back: the plugin may still carry it out. Later
