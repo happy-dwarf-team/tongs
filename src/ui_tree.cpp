@@ -99,6 +99,11 @@ std::string ParseFilter(std::string_view body, UiSelector::Step& step) {
         step.filters.push_back(filter);
         return {};
     }
+    if (body == "visible" || body == "hidden") {
+        filter.kind = body == "visible" ? Kind::Visible : Kind::Hidden;
+        step.filters.push_back(filter);
+        return {};
+    }
     std::string_view key;
     if (body.starts_with("type")) {
         key = "type";
@@ -297,6 +302,10 @@ bool UiView::Matches(int widget, const UiSelector::Step& step) const {
             case Kind::Checked:
             case Kind::Unchecked:
                 if (!w.has_checked || w.checked != (f.kind == Kind::Checked)) return false;
+                break;
+            case Kind::Visible:
+            case Kind::Hidden:
+                if (Visible(widget) != (f.kind == Kind::Visible)) return false;
                 break;
             default: {
                 if (!w.has_text) return false;

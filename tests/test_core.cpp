@@ -372,6 +372,12 @@ static void TestUiSelectors() {
     assert(Paths(t, "EventWindow") == V{"EventWindow"});
     assert(Paths(t, "EventWindow", true) == V({"EventWindow[1]", "EventWindow[2]"}));
     assert(Paths(t, "EventWindow[2]", true) == V{"EventWindow[2]"});
+    // [visible] and [hidden] use the effective visibility; without `all` every match is visible.
+    assert(Paths(t, "//icon_date_bg[visible]") == V{"speed_controls/icon_date_bg"});
+    assert(Paths(t, "//[hidden]").empty());
+    assert(Paths(t, "//timeline_pause[hidden]", true) == V{"timeline_controls/timeline_pause"});
+    assert(Paths(t, "//timeline_pause[visible]", true).empty());
+    assert(Paths(t, "EventWindow[visible]", true) == V{"EventWindow[1]"});
 
     // The hint of bad_selector answers: every filter parses, every example finds
     // a widget, every mistake fails and its fix parses.
@@ -389,7 +395,7 @@ static void TestUiSelectors() {
            "unknown type \"frame\" (window, button, icon, text, listbox, checkbox, editbox, other)");
     const std::string hint = UiSelectorHint();
     assert(Contains(hint, "[type=button] (window, button, icon, text, listbox, checkbox, editbox, other)") &&
-           Contains(hint, "[text~=Save] (contains)") && Contains(hint, "[unchecked]. Examples:") &&
+           Contains(hint, "[text~=Save] (contains)") && Contains(hint, "[visible] [hidden] (with all). Examples:") &&
            Contains(hint, " speed_controls/button_speedup, EventWindow//") &&
            Contains(hint, "//*[name='text_MIL'] is //text_MIL") && hint.ends_with("**/*[Ss]ave* is //*save*."));
 
@@ -513,7 +519,8 @@ static void TestUiCommand() {
         return std::string();
     };
     out = HandleRequest("ui find //button_speedup timeout=1", h);  // no frame comes
-    assert(Contains(out, "\"error\":\"main thread busy\"") && Contains(out, "\"command\":\"ui find\""));
+    assert(Contains(out, "\"error\":\"main thread busy\"") && Contains(out, "\"command\":\"ui find\"") &&
+           Contains(out, "\"hint\":\"No outer frame ran within the timeout"));
     {
         FakeMainThread main(d);
         out = HandleRequest("ui find //button_speedup", h);
@@ -4326,7 +4333,7 @@ static void TestWorldCommands() {
     h.read_ui = [](UiTree&) { return std::string(); };
     out = HandleRequest("province 295 timeout=1", h);  // no frame comes
     assert(Contains(out, "\"ok\":false,\"error\":\"main thread busy\",\"command\":\"province\",\"queued_ms\":") &&
-           Contains(out, "\"date\":\"1719.3.17\""));
+           Contains(out, "\"hint\":\"No outer frame") && Contains(out, "\"date\":\"1719.3.17\""));
     {
         FakeMainThread main(d);
         out = HandleRequest("province 295", h);

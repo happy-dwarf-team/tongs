@@ -79,7 +79,7 @@ std::string UiScaleMember(const UiTree& tree);
 struct UiSelector {
     enum class Axis { Top, Child, Descendant };
     struct Filter {
-        enum class Kind { Type, TextEquals, TextContains, TextStarts, Enabled, Disabled, Checked, Unchecked };
+        enum class Kind { Type, TextEquals, TextContains, TextStarts, Enabled, Disabled, Checked, Unchecked, Visible, Hidden };
         Kind kind = Kind::Type;
         UiType type = UiType::Other;
         std::string value;  // lower case
@@ -115,6 +115,9 @@ inline constexpr UiSelectorFilterNote kUiSelectorFilters[] = {
     {"[disabled]", ""},
     {"[checked]", ""},
     {"[unchecked]", ""},
+    // Agents wrote [visible] (lab, 11 and 12.11.2026); hidden widgets need `all`.
+    {"[visible]", ""},
+    {"[hidden]", "with all"},
 };
 
 inline constexpr std::string_view kUiSelectorExamples[] = {

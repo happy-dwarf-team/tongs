@@ -824,6 +824,15 @@ std::string InputUnavailable(const Handlers& h) {
 
 constexpr int kMaxDispatchTimeoutS = 600;
 
+// `,"hint":...` after a job no outer frame took: agents sent the same command again at once
+// while a save loaded (lab, 12.11.2026), so the answer says what to wait for.
+std::string BusyHint(std::string_view error) {
+    if (error != "main thread busy") return {};
+    return ",\"hint\":\"No outer frame ran within the timeout, so nothing was done: the game is starting, "
+           "loading a save or in a long tick. The ready command (tongs_ready) waits until frames run again; "
+           "send the command after it.\"";
+}
+
 // Answer of a main-thread job: the job's own members, then when and where it ran.
 std::string MainThreadJson(std::string_view command, const Dispatcher::Outcome& o) {
     std::string out = std::string("{\"ok\":") + Bool(o.ran);
@@ -831,6 +840,7 @@ std::string MainThreadJson(std::string_view command, const Dispatcher::Outcome& 
     out += ",\"command\":\"" + JsonEscape(command) + "\"";
     if (o.ran) out += o.answer;
     out += ",\"queued_ms\":" + std::to_string(o.queued_ms);
+    if (!o.ran) out += BusyHint(o.error);
     if (o.ran) out += ",\"run_ms\":" + std::to_string(o.run_ms) + ",\"frame\":" + std::to_string(o.frame);
     return out + "}";
 }
@@ -1618,7 +1628,7 @@ std::string WorldCommand(const Handlers& h, std::string_view command, std::strin
         request.timeout_ms > 0 ? request.timeout_ms : h.dispatch_timeout_ms);
     if (!outcome.ran) {
         return "{\"ok\":false,\"error\":" + Quote(outcome.error) + ",\"command\":" + Quote(command) +
-               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + state_tail() + "}";
+               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + BusyHint(outcome.error) + state_tail() + "}";
     }
     const std::string tail = "," + StateFields(state) + DispatchTimes(outcome);
     if (failure.failed()) return refuse(failure, tail);
@@ -1656,7 +1666,7 @@ std::string UnitsCommand(const Handlers& h, std::string_view argument) {
         request.timeout_ms > 0 ? request.timeout_ms : h.dispatch_timeout_ms);
     if (!outcome.ran) {
         return "{\"ok\":false,\"error\":" + Quote(outcome.error) + ",\"command\":" + Quote(command) +
-               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + state_tail() + "}";
+               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + BusyHint(outcome.error) + state_tail() + "}";
     }
     const std::string tail = "," + StateFields(state) + DispatchTimes(outcome);
     if (failure.failed()) return refuse(failure, tail);
@@ -1726,7 +1736,7 @@ std::string CursorCommand(const Handlers& h, std::string_view argument) {
         timeout_ms > 0 ? timeout_ms : h.dispatch_timeout_ms);
     if (!outcome.ran) {
         return "{\"ok\":false,\"error\":" + Quote(outcome.error) + ",\"command\":" + Quote(command) +
-               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + state_tail() + "}";
+               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + BusyHint(outcome.error) + state_tail() + "}";
     }
     const std::string tail = "," + StateFields(state) + DispatchTimes(outcome);
     if (failure.failed()) return refuse(failure, tail);
@@ -1774,7 +1784,7 @@ std::string UnitCommand(const Handlers& h, std::string_view argument) {
         request.timeout_ms > 0 ? request.timeout_ms : h.dispatch_timeout_ms);
     if (!outcome.ran) {
         return "{\"ok\":false,\"error\":" + Quote(outcome.error) + ",\"command\":" + Quote(command) +
-               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + state_tail() + "}";
+               ",\"queued_ms\":" + std::to_string(outcome.queued_ms) + BusyHint(outcome.error) + state_tail() + "}";
     }
     const std::string tail = "," + StateFields(state) + DispatchTimes(outcome);
     if (result.failure.failed()) return refuse(result.failure.error, result.failure.detail, tail);

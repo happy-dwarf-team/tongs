@@ -37,7 +37,7 @@
  * Selectors and widget paths are those of Tongs' pipe (docs/design.md,
  * "Widget tree"): `a/b`, `a//b`, `//b`, names ignoring case with * and ?,
  * and the filters [n], [type=...], [text=...], [text~=...], [text^=...],
- * [enabled], [disabled], [checked], [unchecked]. A filter added within
+ * [enabled], [disabled], [checked], [unchecked], [visible], [hidden]. A filter added within
  * version 1 only turns ANVIL_ERROR_INVALID_ARGUMENT into an answer; a changed
  * meaning of a selector, a path or a field comes as version 2, registered
  * next to version 1.

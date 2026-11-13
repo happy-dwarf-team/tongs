@@ -288,7 +288,8 @@ included, carries the fields of `state` read on the same frame, and
 - **Errors** (`error`, with a `detail` for people): `bad_command` (a bad
   option, or a word after `province` other than `open` and `goto`),
   `unknown_province`, `unknown_country`, `not_in_game`, `main thread busy`
-  (no frame within `timeout=`, for example while a save loads),
+  (no frame within `timeout=`, for example while a save loads; every
+  `main thread busy` answer has a `hint` to wait with `ready` first),
   `read_failed` (a read of game memory faulted or a guard failed: an entry's
   own ID, a country's own tag; later reads keep working) and `unavailable`
   (main-thread commands are not available).
@@ -482,8 +483,9 @@ text, list boxes, check boxes and edit boxes, by their names in the game's
   match, from 1; one per step), `[type=button]` (`window`, `button`,
   `icon`, `text`, `listbox`, `checkbox`, `editbox`, `other`),
   `[text=...]` (the whole text), `[text~=...]` (contains), `[text^=...]`
-  (starts with), `[enabled]`, `[disabled]`, `[checked]`, `[unchecked]`.
-  Text filters ignore case; put the value in `"..."` when it has `]` in it
+  (starts with), `[enabled]`, `[disabled]`, `[checked]`, `[unchecked]`,
+  `[visible]`, `[hidden]` (the effective visibility; without `all` every
+  match is visible, so `[hidden]` finds widgets only with `all`). Text filters ignore case; put the value in `"..."` when it has `]` in it
   or spaces at its ends (single quotes are part of the value). A step made
   only of filters means any name: `speed_controls/[type=button]`.
 - It is not XPath or a glob: `//*[name='text_MIL']` is `//text_MIL`,

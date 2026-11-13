@@ -202,7 +202,8 @@ Selector = Annotated[
         description="Widget selector, not XPath: a path of .gui names from a top-level window or from // "
         "(anywhere), such as speed_controls/button_speedup, EventWindow//event_option_button or //DateText; "
         "names ignore case and take * and ?; filters after a name or alone: [2], [type=button], [text=...], "
-        "[text~=...] (contains), [text^=...] (starts with), [enabled], [disabled], [checked], [unchecked]. "
+        "[text~=...] (contains), [text^=...] (starts with), [enabled], [disabled], [checked], [unchecked], "
+        "[visible], [hidden] (hidden widgets only with all). "
         "//*[name='x'] is //x. A bad_selector answer has a hint with the grammar.",
     ),
 ]
