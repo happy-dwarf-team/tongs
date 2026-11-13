@@ -2856,7 +2856,7 @@ with Anvil built from `main` after 1.21.0, the same calls). With Anvil
 1.20.0 (Steam) `pending_events` was `null` and `missing` said it needs Anvil
 1.21. `client_calls_total` stayed 0; the console call is the test's own.
 
-### Diplomacy of a country (0.34.0, Anvil 1.22)
+### Diplomacy of a country (0.35.0, Anvil 1.22)
 
 `country TAG` also answers `diplomacy`, through the six calls Anvil 1.22
 appends to `anvil-game.world` (`country_relations`, `subject_type`,
