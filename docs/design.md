@@ -726,7 +726,11 @@ this section describes what holds.
     that box. The game hands `SDL_TEXTINPUT` only to this target, so `text`
     reads it first (symbol `edit_focus`, the offset checked in the bytes of
     `RemoveFocus`) and answers `no_text_field` when it is 0; before 0.34 the
-    characters went nowhere and the answer was `ok`.
+    characters went nowhere and the answer was `ok`. Lab, 13.11.2026 (Steam):
+    0 with no window open; set with the console open (`text` reached its
+    input line) and in the save dialog's name field; 0 again after the console
+    closed; still set after the save dialog was closed with Esc, so a closed
+    window can leave a hidden field as the target (commands.md says so).
 - **Widget fields** (offsets from the pointer the registry holds):
 
   | Field | Where |

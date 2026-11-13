@@ -147,6 +147,15 @@ so a chord does what the player's does. Shift alone with a letter types the
 capital letter; other chords type nothing (a shifted digit or sign depends on
 the layout: use `text`).
 
+`text` types only into a text field with the keyboard focus. With none (no
+console open, no field clicked) it sends nothing and answers `no_text_field`.
+The check is the game's own text input target, which a field takes when it
+gets the focus. It is not always cleared when a window closes: after the save
+dialog was closed with Esc the target stayed on its hidden name field, and
+`text` was accepted again (and typed into that hidden field). So
+`no_text_field` is certain, but an `ok` does not prove that a visible field
+took the characters; check with `ui find` or a `screenshot`.
+
 In a text field (an edit box with the focus: the find box, the console, the
 year in the lobby) the keys do what the game's own text fields do for a
 player (see [design.md](design.md#key-chords)):
