@@ -1,6 +1,8 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -12,12 +14,48 @@ namespace tongs {
 // only reads the console manager and makes the call, so the tests build the
 // registry by hand.
 
-// The config switches of ADR 0001.
+// What Anvil said about the game_calls module in the session in progress
+// (Anvil ADR 0011 and 0013): whether the player allows it in ironman and
+// multiplayer is Anvil's, and Tongs learns it only from its gameplay policy.
+// The policy hears of a session before any plugin and suspends the module
+// there when the player did not allow it, so a session Tongs heard of with the
+// module not suspended is one the player allowed game calls in.
+struct GameCallSession {
+    bool started = false;      // anvil-game.session started (and the policy has judged it)
+    bool ironman = false;      // that session's mode
+    bool multiplayer = false;
+    bool suspended = false;    // anvil.suspended reached the module's handle
+
+    // The module acts in the session in progress, in a mode Anvil judged.
+    bool Acts() const { return started && !suspended; }
+};
+
+// Keeps GameCallSession from the module's events: anvil.suspended and
+// anvil.resumed through the module's handle, anvil-game.session through the
+// plugin's. Any thread may read it while the main thread updates it.
+class GameCallSessionWatch {
+public:
+    void Suspended(bool suspended);
+    void Session(bool started, bool ironman, bool multiplayer);
+    GameCallSession Read() const;
+
+private:
+    std::atomic<std::uint32_t> bits_{0};
+};
+
+// ADR 0001's rules of game calls. The switch and the opt-ins are the
+// game_calls module's (plugin.toml); console_allow is its setting.
 struct GameCallPolicy {
-    bool enabled = false;      // game_calls = true
-    bool ironman = false;      // game_calls_ironman = true lifts the ironman refusal
-    bool multiplayer = false;  // game_calls_multiplayer = true lifts the multiplayer refusal
+    bool enabled = false;  // the game_calls module is on at this start (Anvil gave its handle)
+    // The module in the session in progress; null: never judged, so game calls
+    // are refused in every ironman and multiplayer game.
+    std::function<GameCallSession()> session;
     std::vector<std::string> allow;  // console_allow: danger commands allowed by name
+
+    GameCallSession Session() const { return session ? session() : GameCallSession{}; }
+    // Anvil lets the module act in the ironman (multiplayer) session in progress.
+    bool ActsInIronman() const;
+    bool ActsInMultiplayer() const;
 };
 
 // One command of the game's console manager: its name and aliases, as the
@@ -75,7 +113,9 @@ struct ConsoleRefusal {
 // Refusals by name: always refused, and danger commands not in console_allow.
 ConsoleRefusal CheckConsoleName(const GameCallPolicy& policy, std::string_view name);
 
-// Refusals by the game's mode, checked before each call on the main thread.
+// Refusals by the game's mode, checked before each call on the main thread:
+// in ironman (multiplayer) unless Anvil lets the game_calls module act in that
+// session, which needs allow_ironman (allow_multiplayer) = ["tongs.game_calls"].
 ConsoleRefusal CheckConsoleMode(const GameCallPolicy& policy, const ConsoleRaw& raw);
 
 // Notes for the log about console_allow entries that cannot take effect.

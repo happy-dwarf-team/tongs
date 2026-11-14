@@ -4,56 +4,43 @@
 # reads them once when it loads; a change applies at the next start.
 # An anvil/data/tongs/config.toml from Tongs 0.12 or older is moved into that
 # file on the first start (docs/design.md, "Settings").
+# No setting changes the result of a game by itself (affects_gameplay = false):
+# what a client does through them does, and that is what Anvil's suspension and
+# opt-ins cover.
 
 [setting.enabled]
 type = "bool"
 default = false
+affects_gameplay = false
 label = "Open the pipe"
 description = "Opens the local pipe \\\\.\\pipe\\tongs for the current Windows user, so that scripts and agents can read the game's state."
 
 [setting.input]
 type = "bool"
 default = false
+affects_gameplay = false
 label = "Keyboard, mouse and navigation commands"
 description = "Also accepts the keyboard and mouse commands (pause, speed, run_until, key, text, click...): input queued in the game's own SDL input, as a player's would be, and a hook so that the interface sees the mouse pointer; and navigation (province open, province goto), which moves the camera and opens a province's view as the game's own links do."
 
 [setting.journal]
 type = "bool"
 default = true
+affects_gameplay = false
 label = "Command journal"
 description = "Writes every command a script or agent sends on the pipe, with its outcome and the game date, to anvil/data/tongs/journal/ (one file per game start, the newest 20 kept), so a test can be followed and repeated. Nothing of it goes into the game, its saves or multiplayer."
-
-[setting.game_calls]
-type = "bool"
-default = false
-label = "Game calls (console commands)"
-description = "Also accepts `console LINE`: console commands run by the game's own code on its main thread. They CHANGE GAME STATE; every call is counted and logged. enable_all_commands and the achievement and social commands are always refused."
-group = "Game calls"
 
 [setting.console_allow]
 type = "string"
 default = ""
+module = "game_calls"
+affects_gameplay = false
 label = "Allowed danger commands"
 description = "Danger commands that game calls may run besides the safe ones, as names separated by commas or spaces, e.g. \"leak\"."
-group = "Game calls"
-
-[setting.game_calls_ironman]
-type = "bool"
-default = false
-label = "Game calls in ironman"
-description = "Game calls in an ironman game. Anvil also has to allow Tongs in ironman (allow_ironman = [\"tongs\"] in anvil/anvil.toml)."
-group = "Game calls"
-
-[setting.game_calls_multiplayer]
-type = "bool"
-default = false
-label = "Game calls in multiplayer"
-description = "Game calls in a multiplayer game. Anvil also has to allow Tongs in multiplayer (allow_multiplayer = [\"tongs\"] in anvil/anvil.toml)."
-group = "Game calls"
 
 [setting.bridge]
 type = "bool"
 default = false
+affects_gameplay = false
 label = "Loopback socket under Wine"
 description = "Under Wine and Proton, also serves the pipe's commands on a socket on 127.0.0.1, so that a native Linux client can reach Tongs without a relay. It needs Open the pipe. The port and a token go to bridge.json in the folder below, which only you should be able to enter. Ignored on Windows."
 group = "Wine and Proton"
@@ -61,6 +48,25 @@ group = "Wine and Proton"
 [setting.bridge_folder]
 type = "string"
 default = ""
+affects_gameplay = false
 label = "Folder of bridge.json"
 description = "Where bridge.json goes, as a Unix path such as /run/user/1000/tongs or a Windows path. Empty means ~/.local/state/tongs. Whoever can read the token can drive the game, so use a folder only you can enter."
 group = "Wine and Proton"
+
+# Settings of Tongs 0.34 and older that the game_calls module replaced (Anvil
+# ADR 0013, point 4). At the first start of 0.35 Anvil moves the player's value
+# into anvil/anvil.toml and removes it from anvil/data/tongs/settings.toml:
+# game_calls = true turns the module on, game_calls_ironman = true and
+# game_calls_multiplayer = true become its opt-ins.
+[retired.game_calls]
+module = "game_calls"
+on = [true]
+off = [false]
+
+[retired.game_calls_ironman]
+module = "game_calls"
+ironman = [true]
+
+[retired.game_calls_multiplayer]
+module = "game_calls"
+multiplayer = [true]

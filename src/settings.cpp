@@ -21,9 +21,6 @@ Config FromAnvil() {
     config.journal = cfg::journal.get();
     config.bridge = cfg::bridge.get();
     config.bridge_folder = cfg::bridge_folder.get();
-    config.game_calls.enabled = cfg::game_calls.get();
-    config.game_calls.ironman = cfg::game_calls_ironman.get();
-    config.game_calls.multiplayer = cfg::game_calls_multiplayer.get();
     ParseConsoleAllow(cfg::console_allow.get(), config.game_calls.allow, config.notes);
     return config;
 }
@@ -42,10 +39,10 @@ Config Merge(const Config& legacy, const Config& current) {
     Config out = legacy;
     if (Overridden(cfg::enabled)) out.enabled = current.enabled;
     if (Overridden(cfg::input)) out.input = current.input;
-    if (Overridden(cfg::game_calls)) out.game_calls.enabled = current.game_calls.enabled;
+    // Game calls are the module's, which Anvil resolved before this file existed: the
+    // retired settings written above turn it on from the next start.
+    out.game_calls.enabled = false;
     if (Overridden(cfg::console_allow)) out.game_calls.allow = current.game_calls.allow;
-    if (Overridden(cfg::game_calls_ironman)) out.game_calls.ironman = current.game_calls.ironman;
-    if (Overridden(cfg::game_calls_multiplayer)) out.game_calls.multiplayer = current.game_calls.multiplayer;
     out.journal = current.journal;  // config.toml had no journal
     out.bridge = current.bridge;    // nor a socket
     out.bridge_folder = current.bridge_folder;

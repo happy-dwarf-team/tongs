@@ -47,7 +47,8 @@ client without being asked.
 Actions in layers 2 and 3 go through the same path as a player's input, never
 by writing game state directly, so the game behaves as it would for a human
 player. Only layer 4 changes game state by running game code. It is off unless
-`game_calls = true`, and every game call is counted, so a measurement can
+the player turns on the `game_calls` module (0.35.0; before it the setting
+`game_calls = true`), and every game call is counted, so a measurement can
 reject a marked run.
 
 Beside the layers, for measurements: `run_until` / `wait_until` time the
@@ -138,8 +139,8 @@ gate applies the rules of the type, in this order:
 1. the command's checks of its arguments, where they come before the switch
    (`save load`; the other commands that parse first, such as `ui click` or
    `province open`, do it before they reach the gate);
-2. the switch: `input = true` for inputs and client calls, `game_calls = true`
-   for game calls;
+2. the switch: `input = true` for inputs and client calls, the `game_calls`
+   module for game calls;
 3. Anvil's suspension;
 4. the command's own checks (a reader that is not set up, a console command
    refused by name);
@@ -2013,8 +2014,8 @@ marked **live**.
 [ADR 0001](adr/0001-game-calls-in-tongs.md):
 
 - **Switches.**
-  - Game calls need `game_calls = true`; main-thread reads need only
-    `enabled`.
+  - Game calls need the `game_calls` module (see "The game_calls module
+    (0.35.0)"); main-thread reads need only `enabled`.
   - `plugin.toml` declares `affects_gameplay = true`; since Anvil 1.0 Anvil
     also suspends Tongs in ironman and multiplayer unless the player allows
     it (see "Anvil 1.0 (plugin API 2)").
@@ -2033,9 +2034,10 @@ marked **live**.
   every refusal here, so they would reopen `enable_all_commands`.
 - **Ironman and multiplayer.**
   - Tongs refuses every game call in either mode, checked before each call.
-  - `game_calls_ironman` and `game_calls_multiplayer` lift that refusal;
+  - Anvil's opt-ins of the `game_calls` module lift that refusal (until 0.34
+    Tongs' settings `game_calls_ironman` and `game_calls_multiplayer` did);
     both are off by default.
-  - With either on, the answer carries `mode`.
+  - In a game that allows them, the answer carries `mode`.
 - **Logging.** Every game call and every refusal is logged with the command,
   the pipe instance, the game date and the result.
 - **Counts.** Game calls are counted in `game_calls` and `game_calls_total`.
@@ -2667,10 +2669,12 @@ game call; the work queue has none of that.
 
 ### Settings
 
-`plugin/settings.toml` declares `enabled`, `input`, `game_calls`,
-`console_allow` (a string: names separated by commas or spaces, since
-settings have no lists), `game_calls_ironman` and `game_calls_multiplayer`,
-all off and `restart = true`: Tongs reads them once while loading. The
+`plugin/settings.toml` declares `enabled`, `input`, `journal`, `bridge`,
+`bridge_folder` and, under the `game_calls` module, `console_allow` (a
+string: names separated by commas or spaces, since settings have no lists),
+all `restart = true`: Tongs reads them once while loading. None changes the
+result of a game by itself (`affects_gameplay = false`, Anvil ADR 0013), so
+none is locked in a multiplayer game or in the multiplayer code. The
 player's values are in `anvil/data/tongs/settings.toml`;
 `ANVIL_TONGS_<NAME>` variables override them for one start.
 
@@ -2679,8 +2683,57 @@ does not, Tongs writes the config's non-default values to `settings.toml`
 (through a temporary file), renames the config to `config.toml.migrated`,
 logs it, and uses the config's values already in that start (Anvil read the
 defaults before the file existed), except where an `ANVIL_TONGS_<NAME>`
-variable is set. With both files present, `config.toml` is ignored with a
-warning.
+variable is set. Game calls are the exception: the config's `game_calls`,
+`game_calls_ironman` and `game_calls_multiplayer` are written as the retired
+settings below, which Anvil moves at the next start. With both files present,
+`config.toml` is ignored with a warning.
+
+### The game_calls module (0.35.0)
+
+Game calls are a module of Tongs (Anvil ADR 0011): `[[modules]] game_calls`
+in `plugin.toml`, `affects_gameplay = true`, both opt-ins offered, `default =
+false`. The module's switch and its ironman and multiplayer opt-ins are
+Anvil's (`enabled_modules`, `allow_ironman`, `allow_multiplayer` with the key
+`tongs.game_calls`), drawn under Tongs in Anvil Manager and the Anvil panel;
+Tongs no longer has settings that repeat them (Anvil ADR 0013, point 5, and
+the UI guidelines, §6).
+
+- **On.** `load` asks for the module's handle (`host.module("game_calls")`);
+  Anvil gives one only when the module is on at this start. With it, Tongs
+  sets up `console` and `save load`; without it they answer
+  `game_calls_disabled` and the discover case of `province open` answers
+  `needs_game_calls`, as `game_calls = false` did.
+- **Ironman and multiplayer.** Tongs makes its game calls by calling the
+  game's code itself, so no service of Anvil's checks them: Tongs refuses
+  them in either mode unless Anvil lets the module act there. It learns that
+  from the module's events (`GameCallSessionWatch`, `console.hpp`):
+  `anvil.suspended` / `anvil.resumed` through the module's handle, and
+  `anvil-game.session` through the plugin's. Anvil's gameplay policy hears of
+  a session before any plugin and suspends the module there unless the player
+  allowed it, so a session Tongs heard of with the module not suspended is
+  one the player allowed game calls in. Before Tongs has heard of the
+  session, a game call in ironman or multiplayer is refused.
+- **Both opt-ins.** The pipe and its other commands stay the plugin's: while
+  Anvil suspends Tongs itself, `console` answers `suspended` before the mode
+  is asked. A game call in ironman therefore needs `allow_ironman =
+  ["tongs", "tongs.game_calls"]`, as it needed both `allow_ironman =
+  ["tongs"]` and `game_calls_ironman = true` until 0.34.
+- **Ironman saves.** `save load` refuses an ironman save unless Tongs is in
+  an ironman session that allows game calls. Outside a session Tongs cannot
+  tell whether the player allows game calls in ironman (the opt-in is in
+  `anvil.toml`, which Anvil does not show plugins), so from the main menu it
+  refuses one; with 0.34's `game_calls_ironman = true` it loaded it.
+- **Retired settings.** `settings.toml` lists `[retired.game_calls]`
+  (`on = [true]`, `off = [false]`), `[retired.game_calls_ironman]`
+  (`ironman = [true]`) and `[retired.game_calls_multiplayer]`
+  (`multiplayer = [true]`). At the first start of 0.35, before it resolves
+  Tongs' modules, Anvil moves a player's value into `anvil.toml` (the module
+  into `enabled_modules`, or into `allow_ironman` / `allow_multiplayer`) and
+  removes it from `anvil/data/tongs/settings.toml`, so game calls stay as the
+  player had them from that same start. `ANVIL_TONGS_GAME_CALLS*` variables no
+  longer do anything: a lab script turns the module on in its copy's
+  `anvil.toml`, or writes `game_calls = true` to the player's file before the
+  start, which Anvil moves.
 
 ### Ironman and multiplayer
 
@@ -2691,9 +2744,10 @@ Tongs' cursor hook and nested-frame counter are out of the game, and Tongs
 gets `anvil.suspended`: until `anvil.resumed` its input commands (except
 `release`) answer an error and `console` answers `suspended`, while reads
 (`state`, `ui`, `event list`, `frames`, notifications) go on; `help` reports
-`suspended`. Tongs' own
-`game_calls_ironman` / `game_calls_multiplayer` stay a second layer: a game
-call in ironman needs both the player's opt-in in Anvil and Tongs' switch.
+`suspended`. Game calls are a second layer, the `game_calls` module with its
+own opt-ins: a game call in ironman needs both `"tongs"` and
+`"tongs.game_calls"` in `allow_ironman` (see "The game_calls module
+(0.35.0)").
 
 ### Build
 

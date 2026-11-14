@@ -9,7 +9,9 @@ namespace tongs {
 namespace {
 
 constexpr char kInputDisabled[] = "input commands are disabled (set input = true in anvil/data/tongs/settings.toml)";
-constexpr char kGameCallsDisabled[] = "game calls are disabled (set game_calls = true in anvil/data/tongs/settings.toml)";
+constexpr char kGameCallsDisabled[] =
+    "game calls are disabled (turn on Tongs' Game calls module: enabled_modules = [\"tongs.game_calls\"] in "
+    "anvil/anvil.toml, or in Anvil Manager)";
 constexpr char kSuspended[] =
     "Anvil suspended Tongs in this ironman or multiplayer game; the player can allow it with allow_ironman or "
     "allow_multiplayer = [\"tongs\"] in anvil/anvil.toml";
@@ -46,9 +48,10 @@ std::string RefusalText(const Refusal& r) { return "refused: " + r.error + " (" 
 std::shared_ptr<ActivityGate> MakeActivityGate() { return std::make_shared<ActivityGate>(); }
 
 std::string ModeMembers(const GameCallPolicy& policy, const ConsoleRaw& raw) {
-    if ((!policy.ironman && !policy.multiplayer) || raw.session == 0) return {};
+    const GameCallSession s = policy.Session();
+    if (!s.Acts() || (!s.ironman && !s.multiplayer) || raw.session == 0) return {};
     return std::string(",\"mode\":{\"ironman\":") + Bool(raw.ironman) + ",\"multiplayer\":" + Bool(raw.multiplayer) +
-           ",\"game_calls_ironman\":" + Bool(policy.ironman) + ",\"game_calls_multiplayer\":" + Bool(policy.multiplayer) + "}";
+           ",\"game_calls_ironman\":" + Bool(s.ironman) + ",\"game_calls_multiplayer\":" + Bool(s.multiplayer) + "}";
 }
 
 Refusal ActivityGate::Switch(const Handlers& h, CommandType type) {
