@@ -18,4 +18,17 @@ void LoadWatch::Observe(StateSnapshot& s) {
     s.load = load_;
 }
 
+void OosView::Apply(StateSnapshot& s, std::uint64_t frame, std::uint32_t flags) {
+    std::lock_guard lock(mutex_);
+    s.out_of_sync = s.paused_oos = false;
+    if (!s.in_game || s.load == 0) return;
+    if (s.load != load_) {
+        load_ = s.load;
+        frame_at_load_ = frame;
+    }
+    if (frame <= frame_at_load_) return;
+    s.out_of_sync = (flags & ANVIL_GAME_OOS_DETECTED) != 0;
+    s.paused_oos = (flags & ANVIL_GAME_OOS_PAUSED) != 0;
+}
+
 }  // namespace tongs

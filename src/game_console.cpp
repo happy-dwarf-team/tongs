@@ -44,7 +44,6 @@ static_assert(sizeof(RawResult) == 0x28);
 
 using DispatchFn = RawResult* (*)(void* manager, RawResult* result, RawVector* tokens);
 using StringFreeFn = void (*)(RawString* text);
-using MultiplayerFn = bool (*)(void* session);
 
 bool ReadCString(std::uintptr_t address, std::string& out) {
     out.clear();
@@ -59,15 +58,6 @@ bool ReadCString(std::uintptr_t address, std::string& out) {
 }
 
 // No C++ objects with destructors here: the bodies run under __try.
-bool IsMultiplayer(MultiplayerFn fn, std::uintptr_t session, bool& out) {
-    __try {
-        out = fn(reinterpret_cast<void*>(session));
-        return true;
-    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
-        return false;
-    }
-}
-
 // Any structured exception that leaves the game's code ends here: nothing may
 // unwind into the frame function. The game's own handlers run first.
 bool Dispatch(DispatchFn fn, std::uintptr_t manager, RawResult* result, RawVector* tokens, std::uint32_t* code) {
@@ -90,7 +80,8 @@ bool FreeText(StringFreeFn fn, RawString* text, std::uint32_t* code) {
 
 }  // namespace
 
-std::string ReadGameConsole(std::uintptr_t base, const ConsoleLayout& layout, ConsoleRaw& out) {
+std::string ReadGameConsole(std::uintptr_t base, const ConsoleLayout& layout, const AnvilGameService* game,
+                            ConsoleRaw& out) {
     out = {};
     std::uintptr_t root = 0;
     if (!Read(base + layout.root_rva, root) || root == 0) return "no game loaded (root object is null)";
@@ -98,12 +89,12 @@ std::string ReadGameConsole(std::uintptr_t base, const ConsoleLayout& layout, Co
     if (!Read(root + layout.session, session) || session == 0) return "no game loaded (session is null)";
     if (!Read(session, vtable) || vtable != base + layout.session_vtable_rva) return "session object has an unexpected vtable";
     out.session = session;
-    std::uint8_t ironman = 0;
-    if (!Read(root + layout.ironman, ironman)) return "cannot read the ironman flag";
-    out.ironman = ironman != 0;
-    if (!IsMultiplayer(reinterpret_cast<MultiplayerFn>(base + layout.multiplayer_rva), session, out.multiplayer)) {
-        return "the multiplayer check faulted";
-    }
+    // The flags the console's registration reads (is_multiplayer(session), the root's ironman
+    // byte), as anvil-game read them after the last outer frame.
+    AnvilGameSession mode{};
+    if (game == nullptr || game->session(&mode) == 0) return "anvil-game reports no session yet";
+    out.ironman = mode.ironman != 0;
+    out.multiplayer = mode.multiplayer != 0;
 
     std::uintptr_t manager = 0;
     if (!Read(base + layout.manager_rva, manager)) return "cannot read the console manager pointer";

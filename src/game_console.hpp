@@ -3,6 +3,8 @@
 #include "console.hpp"
 #include "game_symbols.hpp"
 
+#include <anvil/anvil_game.h>
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -25,8 +27,6 @@ struct ConsoleLayout {
     unsigned root_rva = Value(sym::root_and_date, "root");
     unsigned session = U32(sym::session_of_root.session);  // root: the session
     unsigned session_vtable_rva = 0;                        // SessionVtableRva(), set when loading
-    unsigned ironman = U32(sym::console_registration.ironman);  // root byte: ironman, as the registration reads it
-    unsigned multiplayer_rva = 0;  // RvaOf(sym::is_multiplayer): bool (session*), as the registration calls it
 
     // The members only Anvil knows: call when the plugin is loading.
     static ConsoleLayout Load() {
@@ -34,14 +34,15 @@ struct ConsoleLayout {
         l.dispatch_rva = RvaOf(sym::console_dispatch);
         l.string_free_rva = RvaOf(sym::string_free);
         l.session_vtable_rva = SessionVtableRva();
-        l.multiplayer_rva = RvaOf(sym::is_multiplayer);
         return l;
     }
 };
 
-// Main thread only. Reads the manager, its commands and the game's mode;
-// returns an error text, or empty. Every read is guarded.
-std::string ReadGameConsole(std::uintptr_t image_base, const ConsoleLayout& layout, ConsoleRaw& out);
+// Main thread only, after an outer frame. Reads the manager and its commands, and
+// the game's mode from anvil-game's session() (`game`, may be null); returns an
+// error text, or empty. Every read is guarded.
+std::string ReadGameConsole(std::uintptr_t image_base, const ConsoleLayout& layout, const AnvilGameService* game,
+                            ConsoleRaw& out);
 
 // Main thread only, after ReadGameConsole in the same job. Builds the token vector
 // in Tongs' memory (the game only reads it), calls the dispatcher with a
