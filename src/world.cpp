@@ -98,12 +98,6 @@ WorldFailure ParseWorldRequest(std::string_view command, std::string_view argume
     return {};
 }
 
-int TagBucket(std::string_view tag, int mask) {
-    int sum = 0;
-    for (std::size_t i = 0; i < 3 && i < tag.size(); ++i) sum += static_cast<unsigned char>(Upper(tag[i]));
-    return sum & mask;
-}
-
 std::string Thousandths(std::int64_t raw) {
     const bool negative = raw < 0;
     const std::uint64_t magnitude = negative ? static_cast<std::uint64_t>(-raw) : static_cast<std::uint64_t>(raw);

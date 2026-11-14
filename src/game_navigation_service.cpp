@@ -36,6 +36,8 @@ std::string RegisterNavigationService(std::uintptr_t image_base, std::function<b
     const auto* game = host.service<AnvilGameService>(ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION);
     if (game == nullptr) return "anvil-game is not loaded";
     const NavigationLayout navigation = NavigationLayout::Load();
+    // plugin.toml requires the anvil-game with player_tags; NULL only on a build it has no world for.
+    const auto* world = host.service<AnvilGameWorldService>(ANVIL_GAME_WORLD_SERVICE, ANVIL_GAME_WORLD_SERVICE_VERSION);
     const GameLayout state = GameLayout::Load();
     NavigationServiceHost h;
     h.current_thread = [] { return static_cast<std::uint32_t>(GetCurrentThreadId()); };
@@ -43,8 +45,8 @@ std::string RegisterNavigationService(std::uintptr_t image_base, std::function<b
     h.in_game = [image_base, state] { return ReadState(image_base, state).in_game; };
     h.suspended = std::move(suspended);
     h.read_view = [image_base, navigation](ProvinceViewRaw& out) { return ReadProvinceView(image_base, navigation, out); };
-    h.read_facts = [image_base, navigation](std::int32_t id, NavigationFacts& out) {
-        return ReadNavigationFacts(image_base, navigation, id, out);
+    h.read_facts = [image_base, navigation, world](std::int32_t id, NavigationFacts& out) {
+        return ReadNavigationFacts(image_base, navigation, world, id, out);
     };
     h.call = [image_base, navigation](const NavigationFacts& facts, bool close_views, bool camera,
                                       unsigned long& fault_code) {

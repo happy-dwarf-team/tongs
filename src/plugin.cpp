@@ -22,6 +22,7 @@
 #include "game_ui_service.hpp"
 #include "game_window.hpp"
 #include "game_world.hpp"
+#include "world_reads.hpp"
 #include "load_watch.hpp"
 #include "notify_sources.hpp"
 #include "pipe_server.hpp"
@@ -110,6 +111,11 @@ struct Tongs : anvil::Plugin {
             return;
         }
         const tongs::GameLayout game_layout = tongs::GameLayout::Load();
+        // anvil-game.world (plugin.toml requires the anvil-game with player_tags): the world reads,
+        // units, flags, pending events and diplomacy, and navigation's province checks.
+        const auto* world_service =
+            host.service<AnvilGameWorldService>(ANVIL_GAME_WORLD_SERVICE, ANVIL_GAME_WORLD_SERVICE_VERSION);
+        if (world_service == nullptr) host.warn("{} is missing: world reads answer unavailable", ANVIL_GAME_WORLD_SERVICE);
         const tongs::EventLayout event_layout = tongs::EventLayout::Load();
         tongs::Handlers handlers;
         handlers.gate = gate;
@@ -203,56 +209,52 @@ struct Tongs : anvil::Plugin {
             if (config.input) {
                 // run_until events=first chooses through anvil-game.commands version 2 when Anvil
                 // has it (docs/design.md, "Events"), and clicks otherwise. anvil-game loads first.
-                const auto* commands = host.service<tongs::GameCommandsService>(tongs::kGameCommandsService,
+                const auto* commands = host.service<AnvilGameCommandsService>(ANVIL_GAME_COMMANDS_SERVICE,
                                                                                tongs::kGameCommandsVersion);
-                if (commands != nullptr && commands->size >= offsetof(tongs::GameCommandsService, post) +
+                if (commands != nullptr && commands->size >= offsetof(AnvilGameCommandsService, post) +
                                                                 sizeof(commands->post)) {
                     AnvilPlugin* self = host.self();
                     handlers.choose_option = [commands, self](std::int32_t pending, std::int32_t option) {
                         return tongs::ChooseEventOption(commands, self, pending, option);
                     };
-                    host.info("run_until events=first chooses through {} v{}", tongs::kGameCommandsService,
+                    host.info("run_until events=first chooses through {} v{}", ANVIL_GAME_COMMANDS_SERVICE,
                               tongs::kGameCommandsVersion);
                 }
             }
             // Units (docs/design.md, "Units (0.31.0)"): anvil-game.world's units for `units`, and with
             // input anvil-game.commands version 1 for `unit drill|split|merge`.
-            const auto* world_service =
-                host.service<tongs::GameWorldService>(tongs::kGameWorldService, tongs::kGameWorldVersion);
             if (tongs::HasUnits(world_service)) {
                 handlers.read_units = [world_service](std::string_view tag, tongs::UnitsRaw& out) {
                     return tongs::ReadUnits(world_service, tag, out);
                 };
                 if (config.input) {
-                    const auto* unit_commands = host.service<tongs::GameCommandsService>(
-                        tongs::kGameCommandsService, tongs::kGameCommandsVersionUnits);
+                    const auto* unit_commands = host.service<AnvilGameCommandsService>(
+                        ANVIL_GAME_COMMANDS_SERVICE, tongs::kGameCommandsVersionUnits);
                     if (unit_commands != nullptr &&
-                        unit_commands->size >= offsetof(tongs::GameCommandsService, post) + sizeof(unit_commands->post)) {
+                        unit_commands->size >= offsetof(AnvilGameCommandsService, post) + sizeof(unit_commands->post)) {
                         AnvilPlugin* self = host.self();
                         handlers.post_units = [unit_commands, world_service, self](const tongs::UnitRequest& request) {
                             return tongs::PostUnits(unit_commands, world_service, self, request);
                         };
-                        host.info("unit drill, split and merge post through {} v{}", tongs::kGameCommandsService,
+                        host.info("unit drill, split and merge post through {} v{}", ANVIL_GAME_COMMANDS_SERVICE,
                                   tongs::kGameCommandsVersionUnits);
                     }
                 }
             }
-            // World reads (docs/design.md, "World reads (0.20.0)"): reads like ui, whatever the settings.
+            // World reads (docs/design.md, "World reads (0.20.0)"): reads like ui, whatever the settings, through
+            // anvil-game.world with their flags, variables, pending events and diplomacy; the selection is Tongs' own.
             const tongs::WorldLayout world = tongs::WorldLayout::Load();
-            // Their flags and variables come from anvil-game.world (Anvil 1.20; "Flags and variables").
-            handlers.read_province = [image_base, world, world_service](std::int32_t id, tongs::ProvinceRaw& out) {
-                tongs::WorldFailure f = tongs::ReadProvince(image_base, world, id, out);
+            handlers.read_province = [world_service](std::int32_t id, tongs::ProvinceRaw& out) {
+                tongs::WorldFailure f = tongs::ReadProvince(world_service, id, out);
                 if (!f.failed()) tongs::ReadProvinceExtras(world_service, out.id, out.extras);
                 return f;
             };
-            handlers.read_country = [image_base, world, world_service](std::string_view tag, tongs::CountryRaw& out) {
-                tongs::WorldFailure f = tongs::ReadCountry(image_base, world, tag, out);
+            handlers.read_country = [world_service](std::string_view tag, tongs::CountryRaw& out) {
+                tongs::WorldFailure f = tongs::ReadCountry(world_service, tag, out);
                 if (!f.failed()) tongs::ReadCountryExtras(world_service, out.tag, out.extras);
                 return f;
             };
-            handlers.read_player = [image_base, world](tongs::PlayerRaw& out) {
-                return tongs::ReadPlayer(image_base, world, out);
-            };
+            handlers.read_player = [world_service](tongs::PlayerRaw& out) { return tongs::ReadPlayer(world_service, out); };
             handlers.read_selection = [image_base, world](tongs::SelectionRaw& out) {
                 return tongs::ReadSelection(image_base, world, out);
             };
@@ -300,8 +302,8 @@ struct Tongs : anvil::Plugin {
         if (config.input && handlers.dispatcher) {
             // Navigation (docs/design.md, "Navigation (0.21.0)"): client calls behind input.
             const tongs::NavigationLayout navigation = tongs::NavigationLayout::Load();
-            handlers.read_navigation = [image_base, navigation](std::int32_t id, tongs::NavigationFacts& out) {
-                return tongs::ReadNavigationFacts(image_base, navigation, id, out);
+            handlers.read_navigation = [image_base, navigation, world_service](std::int32_t id, tongs::NavigationFacts& out) {
+                return tongs::ReadNavigationFacts(image_base, navigation, world_service, id, out);
             };
             handlers.call_navigation = [image_base, navigation](bool open, const tongs::NavigationFacts& facts,
                                                                 unsigned long& fault_code) {

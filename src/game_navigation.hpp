@@ -5,6 +5,8 @@
 #include "navigation.hpp"
 #include "navigation_service.hpp"
 
+#include <anvil/anvil_game.h>
+
 #include <cstdint>
 
 namespace tongs {
@@ -13,6 +15,8 @@ namespace tongs {
 // province links (docs/design.md, "Navigation (0.21.0)"), from plugin/symbols.toml.
 struct NavigationLayout {
     WorldLayout world;
+    std::uint32_t province_array = U32(sym::camera_to_province_id.province_array);  // root: the array, indexed by ID
+    std::uint32_t province_size = U32(sym::camera_to_province_id.province_size);
     std::uint32_t camera = Value(sym::camera_to_province, "camera");             // session: the camera
     std::uint32_t lock = U32(sym::camera_set_target.lock);                  // camera: byte, debug_lockcamera
     std::uint32_t current_x = U32(sym::camera_snap.current_x);              // camera: float
@@ -41,10 +45,6 @@ struct NavigationLayout {
     std::uint32_t select_rva = 0;       // RvaOf(sym::select_province): (selection, province)
     std::uint32_t tutorial_blocks_rva = 0;  // RvaOf(sym::tutorial_blocks): bool (tutorial)
 
-    static_assert(sym::camera_to_province_id.provinces == sym::province_count.provinces &&
-                  sym::camera_to_province_id.provinces_end == sym::province_count.provinces_end &&
-                  sym::camera_to_province_id.province_size == sym::province_is_sea.province_size &&
-                  sym::camera_to_province_id.province_array == sym::province_is_sea.province_array);
     static_assert(sym::camera_to_province.current_x == sym::camera_snap.current_x &&
                   sym::camera_snap.target_x == sym::camera_set_target.target_x &&
                   sym::camera_snap.target_z == sym::camera_set_target.target_z);
@@ -53,8 +53,7 @@ struct NavigationLayout {
     // The owner's valid byte, as the view tests it: the tag at +0x468, its byte 7.
     static_assert(sym::province_view_layout.owner_valid ==
                   sym::province_base_tax.owner + (sym::player_country.observed_valid - sym::player_country.observed));
-    static_assert(sym::camera_to_province.province_id == sym::province_base_tax.province_id &&
-                  sym::camera_to_province.map_part == sym::province_is_sea.static_part);
+    static_assert(sym::camera_to_province.province_id == sym::province_base_tax.province_id);
 
     // The members only Anvil knows: call when the plugin is loading.
     static NavigationLayout Load() {
@@ -70,10 +69,12 @@ struct NavigationLayout {
     }
 };
 
-// Main thread only, in game. Reads everything a navigation call checks first;
-// unknown_province outside 1 <= id < count, read_failed when a read faults.
-WorldFailure ReadNavigationFacts(std::uintptr_t image_base, const NavigationLayout& layout, std::int32_t id,
-                                 NavigationFacts& out);
+// Main thread only, in game, after an outer frame. Reads everything a navigation
+// call checks first: the province's land and wasteland through anvil-game.world
+// (unknown_province outside 1 <= id < province_limit), the rest from the game's
+// memory; read_failed when a read faults.
+WorldFailure ReadNavigationFacts(std::uintptr_t image_base, const NavigationLayout& layout,
+                                 const AnvilGameWorldService* world, std::int32_t id, NavigationFacts& out);
 
 // Main thread only, right after ReadNavigationFacts in the same job. `open`:
 // close the open views, move the camera and select the province (the religion

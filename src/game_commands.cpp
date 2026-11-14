@@ -8,27 +8,23 @@
 namespace tongs {
 namespace {
 
-constexpr int kOk = 0;
-constexpr int kNotDeclared = 2;   // ANVIL_ERROR_NOT_DECLARED: this build lacks the type's symbols
-constexpr int kUnsupported = 9;   // ANVIL_ERROR_UNSUPPORTED
-constexpr int kNotFound = 11;     // ANVIL_ERROR_NOT_FOUND
 constexpr std::uint32_t kListLimit = 4096;  // more units than any country has
 
-std::string TagText(const GameTag& tag) {
+std::string TagText(const AnvilGameTag& tag) {
     std::string out;
     for (int i = 0; i < 3 && tag.text[i] != 0; ++i) out += tag.text[i];
     return out;
 }
 
 WorldFailure Failed(const char* call, int result) {
-    if (result == kNotDeclared) return {"unavailable", std::string(call) + ": this game build has no unit symbols"};
+    if (result == ANVIL_ERROR_NOT_DECLARED) return {"unavailable", std::string(call) + ": this game build has no unit symbols"};
     return {"read_failed", std::string(call) + " answered " + std::to_string(result)};
 }
 
-WorldFailure PlayerTag(const GameWorldService* world, std::string& tag) {
-    GameTag player{};
+WorldFailure PlayerTag(const AnvilGameWorldService* world, std::string& tag) {
+    AnvilGameTag player{};
     const int r = world->player(&player);
-    if (r != kOk) return Failed("player", r);
+    if (r != ANVIL_OK) return Failed("player", r);
     tag = TagText(player);
     if (tag.empty()) return {"not_in_game", "no player country"};
     return {};
@@ -36,13 +32,13 @@ WorldFailure PlayerTag(const GameWorldService* world, std::string& tag) {
 
 }  // namespace
 
-bool HasUnits(const GameWorldService* world) {
-    return world != nullptr && world->size >= offsetof(GameWorldService, selected_units) + sizeof(world->selected_units) &&
+bool HasUnits(const AnvilGameWorldService* world) {
+    return world != nullptr && world->size >= offsetof(AnvilGameWorldService, selected_units) + sizeof(world->selected_units) &&
            world->player != nullptr && world->country_units != nullptr && world->unit != nullptr &&
            world->unit_name != nullptr && world->selected_units != nullptr;
 }
 
-WorldFailure ReadUnits(const GameWorldService* world, std::string_view tag, UnitsRaw& out) {
+WorldFailure ReadUnits(const AnvilGameWorldService* world, std::string_view tag, UnitsRaw& out) {
     out = {};
     if (!HasUnits(world)) return {"unavailable", "anvil-game.world has no units: it needs Anvil 1.15 or newer"};
     if (tag.empty()) {
@@ -54,16 +50,16 @@ WorldFailure ReadUnits(const GameWorldService* world, std::string_view tag, Unit
     std::uint32_t count = 0;
     for (int attempt = 0; attempt < 4; ++attempt) {
         const int r = world->country_units(out.tag.c_str(), ids.data(), static_cast<std::uint32_t>(ids.size()), &count);
-        if (r == kNotFound) return {"unknown_country", "the game has no country " + out.tag};
-        if (r != kOk) return Failed("country_units", r);
+        if (r == ANVIL_ERROR_NOT_FOUND) return {"unknown_country", "the game has no country " + out.tag};
+        if (r != ANVIL_OK) return Failed("country_units", r);
         if (count <= ids.size() || count > kListLimit) break;
         ids.resize(count);
     }
     ids.resize(std::min<std::size_t>(count, ids.size()));
     for (const std::uint64_t id : ids) {
-        GameUnit u{};
+        AnvilGameUnit u{};
         u.size = sizeof(u);
-        if (world->unit(out.tag.c_str(), id, &u) != kOk) continue;  // gone between the two calls
+        if (world->unit(out.tag.c_str(), id, &u) != ANVIL_OK) continue;  // gone between the two calls
         UnitInfo info;
         info.id = id;
         info.kind = u.kind;
@@ -74,7 +70,7 @@ WorldFailure ReadUnits(const GameWorldService* world, std::string_view tag, Unit
         info.leader = u.leader;
         char name[256] = {};
         std::uint32_t length = 0;
-        if (world->unit_name(out.tag.c_str(), id, name, sizeof(name), &length) == kOk) {
+        if (world->unit_name(out.tag.c_str(), id, name, sizeof(name), &length) == ANVIL_OK) {
             info.name.assign(name, strnlen(name, sizeof(name)));
         }
         out.units.push_back(std::move(info));
@@ -82,7 +78,7 @@ WorldFailure ReadUnits(const GameWorldService* world, std::string_view tag, Unit
     return {};
 }
 
-UnitPost PostUnits(const GameCommandsService* commands, const GameWorldService* world, AnvilPlugin* self,
+UnitPost PostUnits(const AnvilGameCommandsService* commands, const AnvilGameWorldService* world, AnvilPlugin* self,
                    const UnitRequest& request) {
     UnitPost out;
     if (commands == nullptr || commands->post == nullptr) {
@@ -93,12 +89,12 @@ UnitPost PostUnits(const GameCommandsService* commands, const GameWorldService* 
         out.failure = {"unavailable", "anvil-game.world has no units: it needs Anvil 1.15 or newer"};
         return out;
     }
-    std::vector<GameUnitRef> refs;
+    std::vector<AnvilGameUnitRef> refs;
     if (request.selected) {
         refs.resize(kMaxUnitsPerCommand + 1);
         std::uint32_t count = 0;
         const int r = world->selected_units(refs.data(), static_cast<std::uint32_t>(refs.size()), &count);
-        if (r != kOk) {
+        if (r != ANVIL_OK) {
             out.failure = Failed("selected_units", r);
             return out;
         }
@@ -118,33 +114,33 @@ UnitPost PostUnits(const GameCommandsService* commands, const GameWorldService* 
             return out;
         }
         for (const std::uint64_t id : request.ids) {
-            GameUnit u{};
+            AnvilGameUnit u{};
             u.size = sizeof(u);
             const int r = world->unit(tag.c_str(), id, &u);
-            if (r == kNotFound) {
+            if (r == ANVIL_ERROR_NOT_FOUND) {
                 out.failure = {"unknown_unit", "the player's country " + tag + " has no unit " + std::to_string(id)};
                 return out;
             }
-            if (r != kOk) {
+            if (r != ANVIL_OK) {
                 out.failure = Failed("unit", r);
                 return out;
             }
-            GameUnitRef ref{};
+            AnvilGameUnitRef ref{};
             ref.id = id;
-            std::memcpy(ref.country, tag.c_str(), std::min<std::size_t>(tag.size(), 3));
+            std::memcpy(ref.country.text, tag.c_str(), std::min<std::size_t>(tag.size(), 3));
             ref.kind = u.kind;
             refs.push_back(ref);
         }
     }
-    GameCommand command{};
+    AnvilGameCommand command{};
     command.size = sizeof(command);
-    command.type = request.verb == UnitRequest::Verb::Drill   ? kDrillCommand
-                   : request.verb == UnitRequest::Verb::Merge ? kMergeCommand
-                                                              : kSplitCommand;
-    command.flags = request.verb == UnitRequest::Verb::Drill && request.start ? kCommandStart : 0;
+    command.type = request.verb == UnitRequest::Verb::Drill   ? ANVIL_GAME_COMMAND_DRILL
+                   : request.verb == UnitRequest::Verb::Merge ? ANVIL_GAME_COMMAND_MERGE
+                                                              : ANVIL_GAME_COMMAND_SPLIT;
+    command.flags = request.verb == UnitRequest::Verb::Drill && request.start ? ANVIL_GAME_COMMAND_START : 0;
     command.count = static_cast<std::uint32_t>(refs.size());
     command.units = refs.data();
-    GameCommandResult result{};
+    AnvilGameCommandResult result{};
     result.size = sizeof(result);
     out.units = command.count;
     out.result = commands->post(self, &command, &result);
@@ -154,19 +150,19 @@ UnitPost PostUnits(const GameCommandsService* commands, const GameWorldService* 
     return out;
 }
 
-ServiceChoice ChooseEventOption(const GameCommandsService* service, AnvilPlugin* self, std::int32_t pending,
+ServiceChoice ChooseEventOption(const AnvilGameCommandsService* service, AnvilPlugin* self, std::int32_t pending,
                                 std::int32_t option) {
     ServiceChoice out;
     if (service == nullptr || service->post == nullptr) return out;
-    GameCommand command{};
+    AnvilGameCommand command{};
     command.size = sizeof(command);
-    command.type = kEventOptionCommand;
+    command.type = ANVIL_GAME_COMMAND_EVENT_OPTION;
     command.pending_event_id = pending;
     command.option_index = option;
-    GameCommandResult result{};
+    AnvilGameCommandResult result{};
     result.size = sizeof(result);
     out.result = service->post(self, &command, &result);
-    out.available = out.result != kNotDeclared && out.result != kUnsupported;
+    out.available = out.result != ANVIL_ERROR_NOT_DECLARED && out.result != ANVIL_ERROR_UNSUPPORTED;
     out.posted = result.posted;
     out.skipped = result.skipped;
     out.refused = result.refused;

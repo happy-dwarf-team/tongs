@@ -30,7 +30,7 @@ Status: early. Everything is off until you turn it on (see [Safety](#safety)).
   [For other plugins](#for-other-plugins-tongsui)).
 
 It needs EU4 1.37.5 (Steam, Windows 64-bit) or 1.37.5.2 or 1.37.5.0 (GOG, Windows 64-bit),
-and Anvil 1.7 or newer (Anvil 1.15 on 1.37.5.0) with its standard plugin `anvil-game`. Anvil skips Tongs
+and Anvil 1.23 or newer with its standard plugin `anvil-game`. Anvil skips Tongs
 on other builds. Design and the addresses it relies on:
 [docs/design.md](docs/design.md) and [plugin/symbols.toml](plugin/symbols.toml).
 
@@ -187,7 +187,7 @@ discover a capital is refused. Header:
 
 ## Install / uninstall
 
-[Install Anvil](https://anvil.happydwarf.dev/docs/install/) 1.7.0 or newer
+[Install Anvil](https://anvil.happydwarf.dev/docs/install/) 1.23.0 or newer
 first, with its standard plugin `anvil-game` (part of Anvil's package). Then
 [install the plugin](https://anvil.happydwarf.dev/docs/install-plugins/) one of
 these ways:

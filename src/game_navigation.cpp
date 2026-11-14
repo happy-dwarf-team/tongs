@@ -1,6 +1,7 @@
 #include "game_navigation.hpp"
 
 #include "game_memory.hpp"
+#include "world_reads.hpp"
 
 #include <windows.h>
 
@@ -98,20 +99,26 @@ bool ViewsOpen(std::uintptr_t base, const NavigationLayout& l, std::uintptr_t se
 
 }  // namespace
 
-WorldFailure ReadNavigationFacts(std::uintptr_t base, const NavigationLayout& nl, std::int32_t id, NavigationFacts& out) {
+WorldFailure ReadNavigationFacts(std::uintptr_t base, const NavigationLayout& nl, const AnvilGameWorldService* world,
+                                 std::int32_t id, NavigationFacts& out) {
     out = {};
     out.id = id;
     const WorldLayout& l = nl.world;
-    // The province's own fields first, with the world read's bound and guard.
+    // The province's own fields first, through the world read's service and its bound.
     ProvinceRaw p;
-    if (WorldFailure f = ReadProvince(base, l, id, p); f.failed()) return f;
+    if (WorldFailure f = ReadProvinceFields(world, id, p); f.failed()) return f;
     out.land = p.land;
     out.wasteland = p.wasteland;
+    // The province object the game's calls take, checked by the ID it holds itself.
     std::uintptr_t root = 0, array = 0;
-    if (!Read(base + l.root_rva, root) || root == 0 || !Read(root + l.province_array, array) || array == 0) {
+    if (!Read(base + l.root_rva, root) || root == 0 || !Read(root + nl.province_array, array) || array == 0) {
         return Failed("the province array is not readable");
     }
-    out.province = array + static_cast<std::uintptr_t>(id) * l.province_size;
+    out.province = array + static_cast<std::uintptr_t>(id) * nl.province_size;
+    std::int32_t own_id = 0;
+    if (!Read(out.province + l.province_id, own_id) || own_id != id) {
+        return Failed("the entry of province " + std::to_string(id) + " is not province " + std::to_string(id));
+    }
     Player player;
     if (!ReadPlayerTag(root, l, player)) return Failed("the player's tags are not readable");
     if (!Undiscovered(out.province, nl, player, out.terra_incognita)) {
