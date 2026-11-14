@@ -591,6 +591,31 @@ static void TestLoadWatch() {
     assert(read(true, 0x6000, "1719.3.1") != third);
 }
 
+static void TestOosView() {
+    OosView view;
+    const std::uint32_t both = ANVIL_GAME_OOS_DETECTED | ANVIL_GAME_OOS_PAUSED;
+    const auto apply = [&view](bool in_game, std::uint64_t load, std::uint64_t frame, std::uint32_t flags) {
+        StateSnapshot s;
+        s.in_game = in_game;
+        s.load = load;
+        s.out_of_sync = s.paused_oos = true;  // ReadState leaves them false; the view decides
+        view.Apply(s, frame, flags);
+        return std::pair{s.out_of_sync, s.paused_oos};
+    };
+    assert(apply(false, 0, 10, both) == std::pair(false, false));  // no game
+    // The first read of a load: the flags are as of a frame before it, so neither yet.
+    assert(apply(true, 1, 10, both) == std::pair(false, false));
+    assert(apply(true, 1, 10, both) == std::pair(false, false));
+    assert(apply(true, 1, 11, both) == std::pair(true, true));
+    assert(apply(true, 1, 12, ANVIL_GAME_OOS_PAUSED) == std::pair(false, true));
+    assert(apply(true, 1, 13, ANVIL_GAME_OOS_DETECTED) == std::pair(true, false));
+    // A resync loads a save: the old session's flags until a frame of the new one ran.
+    assert(apply(false, 0, 13, both) == std::pair(false, false));
+    assert(apply(true, 2, 13, both) == std::pair(false, false));
+    assert(apply(true, 2, 14, 0) == std::pair(false, false));
+    assert(apply(true, 2, 15, both) == std::pair(true, true));
+}
+
 // The 0.12 default config.toml, which a player may still have.
 constexpr char kOldDefaultConfig[] =
     "# Tongs\n"
@@ -6095,6 +6120,7 @@ int main(int argc, char** argv) {
     TestRunUntilEventsFirstService();
     TestDate();
     TestLoadWatch();
+    TestOosView();
     TestScreenshot();
     TestThreads();
     TestTextEvents();

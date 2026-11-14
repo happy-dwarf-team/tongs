@@ -17,9 +17,6 @@ struct GameLayout {
     std::uint32_t session_vtable_rva = 0;                          // SessionVtableRva(), set when loading
     std::uint32_t game_speed_offset = Value(sym::speed_object, "game_speed");  // session -> game-speed object
     std::uint32_t pause_flag_offset = U32(sym::is_paused.pause_flag);     // byte: player pause
-    std::uint32_t oos_handler_offset = Value(sym::oos_handler, "handler");  // session -> out-of-sync handler, may be null
-    std::uint32_t oos_flag_offset = U32(sym::oos_flag.flag);       // byte: a checksum mismatch
-    std::uint32_t oos_paused_offset = U32(sym::oos_pause.paused);  // game-speed object: byte, paused because of that
     std::uint32_t map_mode_offset = Value(sym::select_province, "map_mode");  // session: int32, the current map mode
     std::uint32_t is_paused_rva = 0;                               // RvaOf(sym::is_paused), set when loading
 
@@ -34,6 +31,8 @@ struct GameLayout {
 
 // Reads a snapshot from any thread. Reads race with the game's main thread
 // and are guarded by SEH; a fault is reported in `reason`, not raised.
+// `out_of_sync` and `paused_oos` stay false: the plugin fills them from
+// anvil-game (OosView, load_watch.hpp).
 StateSnapshot ReadState(std::uintptr_t image_base, const GameLayout& layout);
 
 }  // namespace tongs

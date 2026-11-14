@@ -138,6 +138,11 @@ struct Tongs : anvil::Plugin {
         // Every state read also tells LoadWatch whether a game was loaded: the `session` number,
         // and a reloaded save starts game_calls_total and client_calls_total again.
         static tongs::LoadWatch load_watch;
+        // anvil-game.game: the out-of-sync flags for state, and the session's ironman and
+        // multiplayer flags for the console's mode (docs/design.md, "Out of sync").
+        const auto* game = host.service<AnvilGameService>(ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION);
+        if (game == nullptr) host.warn("{} is not loaded: out_of_sync stays false and console refuses", ANVIL_GAME_SERVICE);
+        static tongs::OosView oos_view;
         // anvil-map is optional: with it, state names the plugin mode a map mode number belongs to.
         // Its mode_id may be called from any thread, so the pipe thread asks it for the number it
         // just read and the id always matches that number.
@@ -147,10 +152,13 @@ struct Tongs : anvil::Plugin {
                                      map_modes->mode_id == nullptr)) {
             map_modes = nullptr;
         }
-        handlers.read_state = [image_base, game_layout, map_modes, pid = handlers.process_id,
+        handlers.read_state = [image_base, game_layout, map_modes, game, pid = handlers.process_id,
                                start_ms = handlers.process_start_ms] {
             tongs::StateSnapshot s = tongs::ReadState(image_base, game_layout);
             load_watch.Observe(s);
+            if (game != nullptr && ANVIL_GAME_HAS(game, out_of_sync)) {
+                oos_view.Apply(s, game->frame_number(), game->out_of_sync());
+            }
             if (s.in_game && map_modes != nullptr) s.map_mode_id = map_modes->mode_id(s.map_mode);
             s.pid = pid;
             s.process_start_ms = start_ms;
@@ -288,8 +296,8 @@ struct Tongs : anvil::Plugin {
                 };
                 handlers.read_loading = [image_base, save](bool& loading) { return tongs::ReadLoading(image_base, save, loading); };
                 const tongs::ConsoleLayout console_layout = tongs::ConsoleLayout::Load();
-                handlers.read_console = [image_base, console_layout](tongs::ConsoleRaw& raw) {
-                    return tongs::ReadGameConsole(image_base, console_layout, raw);
+                handlers.read_console = [image_base, console_layout, game](tongs::ConsoleRaw& raw) {
+                    return tongs::ReadGameConsole(image_base, console_layout, game, raw);
                 };
                 handlers.call_console = [image_base, console_layout](const std::vector<std::string>& tokens,
                                                                      tongs::ConsoleCallResult& result) {

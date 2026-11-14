@@ -208,6 +208,19 @@ in GOG's `eu4.pdb` looks like the place, but the code only clears it. Both field
 were matched between GOG and Steam and read as `false` in a single-player game;
 `true` has not been seen, because a real desync takes two computers.
 
+Since Anvil 1.23 Tongs no longer reads them itself: `anvil-game` declares the
+same three symbols and its `anvil-game.game` service answers them in
+`out_of_sync()` (`ANVIL_GAME_OOS_DETECTED`, `ANVIL_GAME_OOS_PAUSED`; anvil-game
+1.14), callable from any thread. Its view is as of the last outer frame, while
+the rest of `state` is read live. Between the read in which Tongs first sees a
+new load and the first outer frame of that session no frame runs, so the
+service may still hold the previous session's flags; a resync after a desync
+is exactly such a load. Tongs reports both fields `false` until
+`frame_number()` has moved past the value it had at that read (`OosView`,
+`src/load_watch.cpp`). An out-of-sync flag that comes up in a running game
+shows in `state` one outer frame later than before, also in the `out_of_sync`
+notification. Without `anvil-game.game` both stay `false`.
+
 ### Map mode
 
 `map_mode` is the session's current map mode: an int32 at `session+0x2C`
@@ -2049,8 +2062,13 @@ How it runs (`src/protocol.cpp`, `ConsoleCall`; decisions in
    refuses `game_calls_tripped`.
 2. With the turn held, a `Kind::GameCall` job is queued (limit 10 s). On
    the main thread it reads the state (`not_in_game` without a loaded game),
-   the manager, its entries and both locks, the ironman byte and
-   `0x6EAA10(session)`, and refuses by mode. It resolves the typed name in
+   the manager, its entries and both locks, and the session's ironman and
+   multiplayer flags, and refuses by mode. Since Anvil 1.23 the two flags
+   come from `anvil-game.game`'s `session()`, which reads the same byte and
+   call as of the outer frame the job runs after (`console_registration` and
+   `is_multiplayer` left `plugin/symbols.toml`); when the service has no
+   session yet, the call answers `console_unavailable` ("anvil-game reports
+   no session yet"). It resolves the typed name in
    the manager's entries as the game's lookup does (`unknown_command` when
    none matches, also when the developer gate is open and the game would try
    its console variables) and checks the refusals again by the entry's own

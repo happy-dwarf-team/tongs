@@ -33,8 +33,8 @@ struct ConsoleRaw {
     std::vector<ConsoleEntry> entries;  // in the manager's order; empty before the first registration
     std::uint8_t developer_lock = 0;    // manager+0x18: developer commands locked
     std::uint8_t mode_lock = 0;         // manager+0x19: multiplayer/ironman lock, set at registration
-    bool ironman = false;          // root byte +0x24D0
-    bool multiplayer = false;      // 0x6EAA10(session)
+    bool ironman = false;          // anvil-game's session(): an ironman game
+    bool multiplayer = false;      // anvil-game's session(): a multiplayer game
     std::uintptr_t session = 0;    // root+0x1E00, to tell loaded saves apart
 };
 
