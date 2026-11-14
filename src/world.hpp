@@ -9,11 +9,12 @@
 
 namespace tongs {
 
-// World reads (docs/design.md, "World reads (0.20.0)"): one province, one
-// country, the player and the province selection, read on the main thread
-// after an outer frame (game_world.cpp). Nothing here touches game memory, so
-// the tests fill the raw structs by hand. Tags are decoded by the reader:
-// three characters as the game stores them, or empty for no country (`---`).
+// World reads (docs/design.md, "World reads (0.20.0)"): one province, one country and
+// the player through anvil-game.world (world_reads.cpp), and the province
+// selection from the game's memory (game_world.cpp), read on the main thread
+// after an outer frame. Nothing here touches game memory, so the tests fill
+// the raw structs by hand. Tags are decoded by the reader: three characters as
+// the game stores them, or empty for no country (`---`).
 
 // Why a world read gave no answer: `error` is the code ("unknown_province",
 // "unknown_country", "not_in_game", "read_failed", "unavailable",
@@ -128,8 +129,8 @@ struct CountryRaw {
 
 struct PlayerRaw {
     std::string tag;           // the country the game treats as the player's (observe mode included)
-    std::string player_tag;    // root+0x1E60 as stored
-    std::string observed_tag;  // root+0x1E68; empty: no country
+    std::string player_tag;    // the player's own tag as the game stores it (AnvilGamePlayer.own)
+    std::string observed_tag;  // the observed country (AnvilGamePlayer.observed); empty: none
     bool observer = false;     // the kind byte of player_tag is the observer's
 };
 
@@ -154,15 +155,11 @@ struct WorldRequest {
 };
 
 constexpr int kWorldMaxTimeoutS = 60;
-constexpr int kTagBuckets = 64;  // the game's tag buckets: tag_buckets.bucket_mask + 1
 
 // Parses the words after the command word. A province ID is a decimal number
 // without sign or leading zeros; a tag three characters [A-Za-z0-9]. A word as
 // the second token of `province` is a subcommand: `open` or `goto`.
 WorldFailure ParseWorldRequest(std::string_view command, std::string_view argument, WorldRequest& out);
-
-// The bucket the game files a tag in: its three characters, upper-cased, summed, & mask.
-int TagBucket(std::string_view tag, int mask);
 
 // `,"flags":[...],"variables":[...]` (and `pending_events` and `diplomacy` for a country), with
 // `null` for a list that was not read and then `,"missing":{"flags":"why",...}` naming

@@ -2956,6 +2956,74 @@ marriage and 3 subjects, as `diplomacy` did. With the Anvil 1.21.0 release
 `diplomacy` was again `null` with `missing` naming Anvil 1.22, while
 `pending_events` and the flags stayed.
 
+### Through anvil-game.world (Anvil 1.23)
+
+Anvil's `anvil-game.world` reads the same memory Tongs walked here: its walk
+was copied from this one. Two walks meant two places to fix after a game
+update, so `province`, `country` and `player` now take their values from the
+service (`src/world_reads.cpp`, in `tongs_core`, which touches only the service
+table, so the tests hand it one of their own), and Tongs' own walk for them is
+gone. Tongs needs Anvil 1.23.0, the first with `player_tags` (anvil#364). The
+answers keep their commands, fields and error names.
+
+- **The calls.** `province`: `province` (owner, controller, base values, the
+  land and wasteland flags), `province_name` (256 bytes, then the length the
+  first call gave) and `province_cores` (64 tags, then the count), on one
+  frame. `country`: `country` (the tag the game stores, the observer flag, the
+  province count, the capital) and `country_provinces`. `player`:
+  `player_tags` (`tag`, `own` as `player_tag`, `observed` as `observed_tag`,
+  `ANVIL_GAME_PLAYER_OBSERVER` as `observer`). Flags, variables, pending events
+  and diplomacy follow as before.
+- **Error names.** `ANVIL_ERROR_NOT_FOUND` is `unknown_province` (the detail
+  keeps "valid IDs 1..N", N from `province_limit`) or `unknown_country` (the
+  same sentence as before); `ANVIL_ERROR_WRONG_PHASE` is `not_in_game`; a
+  missing service, or a table without `player_tags`, is `unavailable`; any
+  other result is `read_failed` with the call and its result in the detail
+  (`"province answered 10"`), where Tongs' walk named the part it could not
+  read.
+- **The capital.** The service answers 0 for a capital outside
+  `1 .. province_limit - 1`; Tongs answers it as `null`, as before.
+- **What stays Tongs' own.** `selection` (the selection object and the
+  province view, `ReadSelection`) and what navigation reads before its calls:
+  the province object the game's calls take (from `camera_to_province_id`'s
+  array, checked by the ID it holds), the player's and the owner's country
+  index for the discovered-by bitset, the owner's capital object, the session,
+  the camera and the tutorial. Navigation's bound, land and wasteland come
+  from the service's `province` (`ReadProvinceFields`).
+- **Symbols.** 11 of 199 are gone: `province_count`, `province_is_sea`,
+  `province_is_wasteland`, `province_base_production`,
+  `province_base_manpower`, `province_controller`, `province_cores`,
+  `province_name`, `tag_buckets`, `country_exists`, `country_provinces`.
+  `province_base_tax` (an owner's tag and country index, the province's ID,
+  the country database) and `player_country` (the player's tags, the kind and
+  valid bytes) stay for navigation.
+- **The SDK's declarations.** The copies of `anvil-game.world` and
+  `anvil-game.commands` and of their structs in `src/game_commands.hpp` are
+  gone; Tongs uses `<anvil/anvil_game.h>` of the pinned SDK. The size checks
+  of the earlier subsections (`HasFlags`, `HasPending`, `HasDiplomacy`) stay
+  and now always pass.
+
+**After a load.** The service answers only after an outer frame of a session,
+on the main thread, from an `anvil-game` handler or queued work. Tongs' state
+says `in_game: true` 4 to 5 seconds before the first outer frame of a new
+session (lab `docs/anvil-world-player-game-test-2026-11-14.md`): Tongs reads
+the state off the main thread every 20 ms, while the game draws no outer frame
+until the load is done. World reads were already dispatcher read jobs, which
+run only after an outer frame, so they wait for that frame in the queue
+within the request's timeout (10 s, or `timeout=S`), as Tongs' own walk did,
+and answer `main thread busy` when the timeout passes first; no new error
+name. When the job runs, the frame is the session's and the service answers.
+Should the service still refuse there (Tongs' state in game, Anvil's session
+tracker not yet), the read answers `not_in_game` with a detail naming
+anvil-game.world, the name a client already sees while a load replaces the
+session. A client that waits with `ready` first is past that frame.
+
+**`tongs.navigation`.** Its header asks callers for the main thread after an
+outer frame, from an `anvil-game` handler or `run_on_main_thread`, where the
+service answers. A call on the main thread outside those (inside a game hook,
+say) used to read the world anyway; it now gets `TONGS_NAV_NOT_IN_GAME`
+(`open_province`), because the service refuses it.
+
 ## Navigation (0.21.0)
 
 Release 0.21 of the [scenario support v1 spec](spec/scenarios-v1.md)
