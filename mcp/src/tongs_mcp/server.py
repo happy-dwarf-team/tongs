@@ -986,6 +986,13 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
         timeout: Annotated[
             int | None, Field(ge=1, le=600, description="Seconds for the whole load (plugin default 120).")
         ] = None,
+        dismiss_achievements_notice: Annotated[
+            bool,
+            Field(
+                description="From the main menu: click Ok on Anbennar's notice \"Vanilla achievements can no longer "
+                "be earned\", which holds the load, and wait on (an INPUT: needs input = true)."
+            ),
+        ] = False,
     ) -> CallToolResult:
         """Loads a save in the running game, as the in-game Load dialog does, or from the main menu,
         as its Continue does (via: "menu"): a GAME CALL that CHANGES GAME STATE. The running game is
@@ -994,10 +1001,12 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
         session (the new one; then tongs_ready with it) and covered_by once the next frame shows the
         save's date and player. Refuses before calling: bad_name, no_such_save, unreadable_save,
         ironman_save, not_paused; after calling: no_such_save / rejected (called: true), not_loaded,
-        timeout (started: true)."""
+        timeout (started: true), blocked (blocked_by: "achievements_notice": a menu load held by
+        Anbennar's notice; dismiss_achievements_notice closes it and the answer then has dismissed)."""
         _check(name)
         quoted = f'"{name}"' if " " in name else name
-        return await call(_line("save load", quoted, timeout=timeout))
+        dismiss = "achievements" if dismiss_achievements_notice else None
+        return await call(_line("save load", quoted, timeout=timeout, dismiss=dismiss))
 
     @tool(None, "game_call", "raw")
     async def tongs_raw(

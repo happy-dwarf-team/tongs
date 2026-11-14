@@ -2092,6 +2092,8 @@ std::atomic<std::uint64_t> g_tongs_load{0};
 
 constexpr int kDefaultLoadTimeoutS = 120;
 constexpr int kMaxLoadTimeoutS = 600;
+constexpr int kNoticeLookMs = 500;   // save load from the menu: how often the widget tree is read for the notice
+constexpr int kMaxNoticeClicks = 3;  // dismiss=achievements: clicks on its Ok before the load gives up on it
 
 std::string Refused(std::string_view command, std::string_view error, std::string_view detail);
 
@@ -2201,10 +2203,12 @@ std::string MapModeAct(const Handlers& h, const std::string& mode, int timeout_m
            counts + "," + StateFields(h.read_state()) + "}";
 }
 
-// save load NAME [timeout=S]: a game call (ADR 0001) through the in-game Load
-// dialog's own loader. The metadata is read first, on the pipe thread; one
+// save load NAME [timeout=S] [dismiss=achievements]: a game call (ADR 0001) through the
+// in-game Load dialog's own loader. The metadata is read first, on the pipe thread; one
 // main-thread job checks the game and calls the loader, which returns after the
-// whole load; the next outer frame checks the loaded session.
+// whole load; the next outer frame checks the loaded session. From the main menu the
+// wait looks for Anbennar's achievements notice, which holds the load: a timeout with it
+// open answers `blocked`, and dismiss=achievements clicks its Ok (each click an input).
 std::string SaveLoad(const Request& r, std::string_view argument) {
     const Handlers& h = r.handlers;
     const int client = r.client;
@@ -2220,26 +2224,36 @@ std::string SaveLoad(const Request& r, std::string_view argument) {
         return out + extra + state_tail() + "}";
     };
     int timeout_s = kDefaultLoadTimeoutS;
+    bool dismiss = false;  // dismiss=achievements
     ActivityGate::Plan plan;
     plan.subject = "\"" + JsonEscape(name) + "\"";
     plan.first = [&]() -> Refusal {
         if (!name_error.empty()) return {"bad_name", name_error};
         for (const std::string_view word : SplitWords(rest)) {
+            if (word == "dismiss=achievements") {
+                dismiss = true;
+                continue;
+            }
             int seconds = 0;
             if (!word.starts_with("timeout=") || !ParseInt(word.substr(8), seconds) || seconds < 1 || seconds > kMaxLoadTimeoutS) {
-                return {"bad_command",
-                        "save load takes NAME and an optional timeout=SECONDS (1-" + std::to_string(kMaxLoadTimeoutS) + ")"};
+                return {"bad_command", "save load takes NAME, an optional timeout=SECONDS (1-" + std::to_string(kMaxLoadTimeoutS) +
+                                           ") and an optional dismiss=achievements"};
             }
             timeout_s = seconds;
         }
         return {};
     };
-    plan.check = [&h]() -> Refusal {
-        if (h.dispatcher && h.read_state && h.now_ms && h.locate_save && h.read_save && h.call_load && h.close_windows &&
-            h.read_loading && h.read_player) {
-            return {};
+    plan.check = [&h, &dismiss]() -> Refusal {
+        if (!(h.dispatcher && h.read_state && h.now_ms && h.locate_save && h.read_save && h.call_load && h.close_windows &&
+              h.read_loading && h.read_player)) {
+            return {"unavailable", h.dispatcher ? "loading saves is not set up" : kNoDispatch};
         }
-        return {"unavailable", h.dispatcher ? "loading saves is not set up" : kNoDispatch};
+        if (dismiss) {
+            // Its click is an input: it needs input = true as well as game calls.
+            if (const Refusal off = ActivityGate::Switch(h, CommandType::Input); off.refused()) return off;
+            if (const Refusal click = ClickUnavailable(h); click.refused()) return click;
+        }
+        return {};
     };
     plan.refuse = [&](const Refusal& x) { return answer(false, x.error, x.detail, {}); };
     // The save's file and metadata are read with the turn held, after the breaker.
@@ -2410,26 +2424,71 @@ std::string SaveLoad(const Request& r, std::string_view argument) {
                               "settings is open); nothing was loaded",
                               called + ",\"game_calls_total\":" + std::to_string(total));
             }
-            // The load: wait for the new session in game, past its loading.
+            // The load: wait for the new session in game, past its loading. Until the game is in,
+            // the widget tree is read now and then for Anbennar's achievements notice, which holds
+            // the load until it is closed (lab, 14.11.2026).
             const std::uint64_t t0 = h.now_ms();
+            bool loaded = false;
+            bool noticed = false;  // the notice was open on the last look
+            int clicks = 0;        // dismiss=achievements: clicks on its Ok
+            std::uint64_t next_look = 0;
             for (;;) {
                 StateSnapshot seen;
                 bool loading = true, read = false;
                 const int left = deadline > h.now_ms() ? static_cast<int>(deadline - h.now_ms()) : 0;
                 if (left <= 0) break;
+                const bool look = h.read_ui && h.now_ms() >= next_look;
+                UiTree tree;
+                bool looked = false;
                 const Dispatcher::Outcome frame = h.dispatcher->Run(
                     Dispatcher::Kind::Read,
                     [&] {
                         seen = h.read_state();
-                        if (seen.in_game) read = h.read_loading(loading);
+                        if (seen.in_game) {
+                            read = h.read_loading(loading);
+                        } else if (look) {
+                            looked = h.read_ui(tree).empty();
+                        }
                         return std::string();
                     },
                     left);
-                if (frame.ran && seen.in_game && seen.load > call->before.load && read && !loading) break;
+                if (frame.ran && seen.in_game && seen.load > call->before.load && read && !loading) {
+                    loaded = true;
+                    break;
+                }
+                if (frame.ran && seen.in_game) noticed = false;
+                if (frame.ran && looked) {
+                    next_look = h.now_ms() + kNoticeLookMs;
+                    const UiNotice notice = FindAchievementsNotice(tree);
+                    noticed = notice.window != -1;
+                    if (noticed && dismiss && clicks < kMaxNoticeClicks) {
+                        const UiWidget& ok = tree.widgets[notice.agree];
+                        ++clicks;
+                        // One input of its own, counted when the part ends if the click was sent.
+                        ActivityGate::Part part = a.CountAs("save load");
+                        const ClickOutcome c = ClickWidget(part.handlers(), ok.address, ok.rect, left, false);
+                        a.Log(kLogWarning, c.ok ? std::string("clicked Ok on the achievements notice")
+                                                : "could not click Ok on the achievements notice: " + c.error);
+                        if (h.release_cursor) {
+                            h.release_cursor();
+                            Hold({});
+                        }
+                    }
+                }
                 if (h.sleep_ms) h.sleep_ms(50);
             }
             call->load_ms = h.now_ms() - t0;
-            called = ",\"called\":true,\"load_ms\":" + std::to_string(call->load_ms) + meta_members + ",\"via\":\"menu\"";
+            std::string notice_members;
+            if (clicks > 0) notice_members = ",\"dismissed\":\"achievements_notice\",\"dismiss_clicks\":" + std::to_string(clicks);
+            called = ",\"called\":true,\"load_ms\":" + std::to_string(call->load_ms) + meta_members + ",\"via\":\"menu\"" +
+                     notice_members;
+            if (!loaded && noticed) {
+                const std::uint64_t total = a.Total(call->before);
+                return refuse("blocked",
+                              std::string("the load waits behind Anbennar's notice \"") + std::string(kAchievementsNoticeTitle) +
+                                  "\"" + (dismiss ? ", which stayed open after its Ok was clicked" : "; dismiss=achievements clicks its Ok"),
+                              called + ",\"blocked_by\":\"achievements_notice\",\"game_calls_total\":" + std::to_string(total));
+            }
         } else if (call->load.result != 0) {
             const int r = call->load.result;
             const char* error = r == 1 ? "bad_name" : r == 2 ? "no_such_save" : "rejected";
@@ -2520,7 +2579,7 @@ std::string Refused(std::string_view command, std::string_view error, std::strin
 // save load NAME [timeout=S], and the usage of `save` with another verb.
 std::string SaveCommand(const Request& r) {
     const auto [verb, rest] = SplitCommand(r.argument);
-    if (verb != "load") return Refused("save", "bad_command", "usage: save load NAME [timeout=S]");
+    if (verb != "load") return Refused("save", "bad_command", "usage: save load NAME [timeout=S] [dismiss=achievements]");
     return SaveLoad(r, rest);
 }
 
@@ -2723,7 +2782,7 @@ constexpr Command kCommands[] = {
     {"unit split", Input, true, "unit split UNIT [timeout=S]", &UnitCommand},
     {"unit merge", Input, true, "unit merge UNITS [timeout=S]", &UnitCommand},
     {"console", GameCall, true, "console LINE", &ConsoleHandler},
-    {"save load", GameCall, true, "save load NAME [timeout=S]", &SaveCommand},
+    {"save load", GameCall, true, "save load NAME [timeout=S] [dismiss=achievements]", &SaveCommand},
     {"map_mode", ClientCall, true, "map_mode MODE [timeout=S]", &MapModeCommand},
     {"subscribe", Read, false, "subscribe KINDS [date=day|month|year]", &SubscribeCommand},
     {"unsubscribe", Read, false, "unsubscribe", &UnsubscribeCommand},

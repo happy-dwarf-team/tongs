@@ -266,4 +266,18 @@ std::string WidgetPathOf(const UiTree& tree, std::uintptr_t address);
 
 std::string GameTextToUtf8(std::string_view text, bool colour_codes = false);
 
+// Anbennar's notice "Vanilla achievements can no longer be earned", which opens while a
+// save loads from the main menu and holds the load until it is closed (lab, 14.11.2026):
+// the game's top-level `DefaultConfirm` window, shown, with its `Title` text exactly that
+// and a shown `AgreeButton` ("Ok"). `DefaultConfirm` is the game's generic confirm window,
+// so the title is what makes it this notice; nothing else in it is read as anything but data.
+inline constexpr std::string_view kAchievementsNoticeTitle = "Vanilla achievements can no longer be earned";
+
+struct UiNotice {
+    int window = -1;  // index of the DefaultConfirm window, -1 when the notice is not open
+    int agree = -1;   // its AgreeButton
+};
+
+UiNotice FindAchievementsNotice(const UiTree& tree);
+
 }  // namespace tongs

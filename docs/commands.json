@@ -37,7 +37,7 @@
     {"name": "unit split", "type": "input", "main_thread": true, "usage": "unit split UNIT [timeout=S]"},
     {"name": "unit merge", "type": "input", "main_thread": true, "usage": "unit merge UNITS [timeout=S]"},
     {"name": "console", "type": "game_call", "main_thread": true, "usage": "console LINE"},
-    {"name": "save load", "type": "game_call", "main_thread": true, "usage": "save load NAME [timeout=S]"},
+    {"name": "save load", "type": "game_call", "main_thread": true, "usage": "save load NAME [timeout=S] [dismiss=achievements]"},
     {"name": "map_mode", "type": "client_call", "main_thread": true, "usage": "map_mode MODE [timeout=S]"},
     {"name": "subscribe", "type": "read", "main_thread": false, "usage": "subscribe KINDS [date=day|month|year]"},
     {"name": "unsubscribe", "type": "read", "main_thread": false, "usage": "unsubscribe"}

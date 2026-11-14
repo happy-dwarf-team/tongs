@@ -908,4 +908,24 @@ std::string GameTextToUtf8(std::string_view text, bool colour_codes) {
     return out;
 }
 
+UiNotice FindAchievementsNotice(const UiTree& tree) {
+    const auto valid = [&tree](int i) { return i >= 0 && i < static_cast<int>(tree.widgets.size()); };
+    for (const int root : tree.roots) {
+        if (!valid(root)) continue;
+        const UiWidget& window = tree.widgets[root];
+        if (window.name != "DefaultConfirm" || !window.shown || window.stale) continue;
+        bool titled = false;
+        int agree = -1;
+        for (const int child : window.children) {
+            if (!valid(child)) continue;
+            const UiWidget& w = tree.widgets[child];
+            if (!w.shown || w.stale) continue;
+            if (w.name == "Title" && w.has_text && w.text == kAchievementsNoticeTitle) titled = true;
+            if (w.name == "AgreeButton" && w.type == UiType::Button) agree = child;
+        }
+        if (titled && agree != -1) return {root, agree};
+    }
+    return {};
+}
+
 }  // namespace tongs

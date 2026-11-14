@@ -145,6 +145,12 @@ LINES = [
     ("tongs_map_mode", {"mode": "player-cores.cores", "timeout": 5}, "map_mode player-cores.cores timeout=5"),
     ("tongs_save_load", {"name": "mp_Russia1719_03_17"}, "save load mp_Russia1719_03_17"),
     ("tongs_save_load", {"name": "Russia test.eu4", "timeout": 300}, 'save load "Russia test.eu4" timeout=300'),
+    (
+        "tongs_save_load",
+        {"name": "Arg-Ordstun1582_09_23", "dismiss_achievements_notice": True},
+        "save load Arg-Ordstun1582_09_23 dismiss=achievements",
+    ),
+    ("tongs_save_load", {"name": "x", "dismiss_achievements_notice": False}, "save load x"),
     ("tongs_console", {"line": "echo x"}, "console echo x"),
     ("tongs_raw", {"line": "help"}, "help"),
     ("tongs_raw", {"line": "  ping "}, "ping"),
