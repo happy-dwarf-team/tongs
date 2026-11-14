@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.35.0](https://github.com/happy-dwarf-team/tongs/compare/v0.34.0...v0.35.0) (2026-11-14)
+
+
+### Features
+
+* **pipe:** diplomacy in country, through anvil-game.world ([#193](https://github.com/happy-dwarf-team/tongs/issues/193)) ([a68a6c8](https://github.com/happy-dwarf-team/tongs/commit/a68a6c82cd59c417db86468cd15ee36760b5e60e))
+* **pipe:** one command table and an activity gate; help reports each command's type ([#200](https://github.com/happy-dwarf-team/tongs/issues/200)) ([053912a](https://github.com/happy-dwarf-team/tongs/commit/053912aa5cd0737cba948da7692f3d293229f956))
+* save load names Anbennar's achievements notice and can close it ([#207](https://github.com/happy-dwarf-team/tongs/issues/207)) ([d0f1df3](https://github.com/happy-dwarf-team/tongs/commit/d0f1df31d21cc5d39e11b3182e8edd6f6bf8daa3))
+
+
+### Bug Fixes
+
+* serve the pipe after the game's own restart ([#201](https://github.com/happy-dwarf-team/tongs/issues/201)) ([deb78d4](https://github.com/happy-dwarf-team/tongs/commit/deb78d48cdcb57904ae48aa651d2f247cb733ef9))
+
 ## [0.34.0](https://github.com/happy-dwarf-team/tongs/compare/v0.33.0...v0.34.0) (2026-11-13)
 
 ### Features
