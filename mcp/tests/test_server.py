@@ -181,7 +181,7 @@ async def test_safety_notes_and_hints_follow_the_type():
             assert "input = true" in description and "marked run" in description, name
             assert ('"inputs"' if t.type == "input" else '"client_calls"') in description, name
         if t.type == "game_call" and t.effect != "raw":
-            assert "game_calls = true" in description and '"game_calls"' in description, name
+            assert "tongs.game_calls" in description and '"game_calls"' in description, name
             assert hints.destructive_hint is True, name
         # Read-only exactly for a read without an effect of its own on the MCP side.
         assert hints.read_only_hint is (t.type == "read" and t.effect is None), name

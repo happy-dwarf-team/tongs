@@ -5,8 +5,8 @@ Each tool builds one request line, sends it over its own connection to
 line as text, the parsed object as structured content, and `isError` when the
 answer has `"ok": false`. Later text items can follow: notes on the outcome of
 calls the client cancelled. The adapter adds nothing the pipe does not offer:
-input and game calls still depend on `input` and `game_calls` in the plugin's
-config. Connections, read timeouts, date progress and the ready wait are the
+input and game calls still depend on `input` in the plugin's config and on its
+Game calls module (`tongs.game_calls` in Anvil's anvil.toml). Connections, read timeouts, date progress and the ready wait are the
 pipe client's (tongs.py, a copy of scripts/tongs.py); this module adds the
 async layer and the notes on cancelled calls.
 """
@@ -122,8 +122,10 @@ JSON answer unchanged; "ok": false answers come back as errors with an "error" f
   "inputs" of any wait in progress.
 - Client calls ({client_call}) need input = true too, change only the camera, the
   selection, open views and the map mode shown, and count in "client_calls".
-- Game calls ({game_call}) work only with game_calls = true, change game state and are
-  counted in "game_calls". A run with inputs, client_calls or game_calls above 0 is a marked
+- Game calls ({game_call}) work only with Tongs' Game calls module on (the player turns it
+  on in Anvil Manager or with enabled_modules = ["tongs.game_calls"] in anvil.toml), change
+  game state and are counted in "game_calls". In ironman and multiplayer they also need the
+  module's opt-in there (allow_ironman / allow_multiplayer = ["tongs", "tongs.game_calls"]). A run with inputs, client_calls or game_calls above 0 is a marked
   run, which measurements reject.
 - tongs_wait_until / tongs_run_until can take hours of wall time: the call returns when
   the date is reached, the timeout passes, tongs_cancel ends it or its connection closes. Progress
@@ -182,7 +184,7 @@ NOTES: dict[CommandType, str] = {
         "wait_until / run_until in progress, so the run is a marked run."
     ),
     "game_call": (
-        '\n\nA game call: needs game_calls = true in the plugin config; counts in "game_calls" of every '
+        '\n\nA game call: needs Tongs\' Game calls module (tongs.game_calls); counts in "game_calls" of every '
         "wait_until / run_until in progress and in game_calls_total, so the run is a marked run that "
         "measurements reject."
     ),
@@ -890,7 +892,7 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
         the window that shows it: provinceview, or colonisationpanel without an owner), covered_by (the widget over the view's centre, or null) and camera {settled,
         target}. Refuses before calling: unknown_province, not_selectable (sea, lake, wasteland),
         terra_incognita, selection_blocked, needs_game_calls (opening it would make the player
-        discover the owner's capital: a game call, only with game_calls = true). not_shown when the
+        discover the owner's capital: a game call, only with the Game calls module). not_shown when the
         frame after the call did not show it."""
         return await call(_line("province open", province_id, timeout=timeout))
 
@@ -970,7 +972,8 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
     ) -> CallToolResult:
         """Runs one console command in the game on its main thread and answers with the game's text,
         success_hint and the state afterwards. CHANGES GAME STATE. Needs a loaded game, not
-        ironman or multiplayer unless allowed; dangerous commands are refused by the plugin."""
+        ironman or multiplayer unless the player allows the Game calls module there; dangerous
+        commands are refused by the plugin."""
         _check(line)
         return await call("console " + line)
 
@@ -993,7 +996,7 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
         screens (lobby, settings) refuse not_in_menu or not_taken. Answers save, save_date, player, compatible (from this version), load_ms,
         session (the new one; then tongs_ready with it) and covered_by once the next frame shows the
         save's date and player. Refuses before calling: bad_name, no_such_save, unreadable_save,
-        ironman_save, not_paused; after calling: no_such_save / rejected (called: true), not_loaded,
+        ironman_save (an ironman save is loaded only from an ironman game that allows game calls), not_paused; after calling: no_such_save / rejected (called: true), not_loaded,
         timeout (started: true)."""
         _check(name)
         quoted = f'"{name}"' if " " in name else name
@@ -1005,7 +1008,7 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
     ) -> CallToolResult:
         """Escape hatch: sends one command line to the pipe as it is and returns the answer. Use the
         typed tools when one fits; `help` lists the commands. The same config switches apply
-        (input commands need input = true, `console` needs game_calls = true and changes game
+        (input commands need input = true, `console` needs the Game calls module and changes game
         state). `subscribe` is not available here: every call uses a connection of its own."""
         _check(line)
         if line.split()[:1] in (["subscribe"], ["unsubscribe"]):

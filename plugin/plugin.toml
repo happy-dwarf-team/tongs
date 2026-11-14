@@ -4,17 +4,18 @@ version = "0.34.0"
 authors = ["Happy Dwarf Team"]
 description = "Control EU4 from scripts and agents: a local command pipe that reads the state of a running game and, when allowed, uses its keyboard and mouse and runs console commands."
 api = 2
-anvil = ">=1.7.0"
+# 1.23.0: settings of a module and [retired.*] in settings.toml (Anvil ADR 0013).
+anvil = ">=1.23.0"
 entry = "tongs.dll"
 phase = "main"
 # Every game address and offset Tongs uses; its `builds` limit Tongs to EU4 1.37.5 (Steam, win64) and 1.37.5.2 and 1.37.5.0 (GOG, win64).
 symbols = "symbols.toml"
-# enabled, input, game calls: the player's values live in anvil/data/tongs/settings.toml.
+# enabled, input, journal...: the player's values live in anvil/data/tongs/settings.toml.
 settings = "settings.toml"
-# Input and game calls change the game. In ironman and multiplayer Anvil suspends
-# Tongs unless the player allows it in anvil/anvil.toml (allow_ironman /
-# allow_multiplayer = ["tongs"]); game calls then also need Tongs' own
-# game_calls_ironman / game_calls_multiplayer.
+# Input changes the game. In ironman and multiplayer Anvil suspends Tongs
+# unless the player allows it in anvil/anvil.toml (allow_ironman /
+# allow_multiplayer = ["tongs"]). Game calls are the module below, with
+# opt-ins of their own ("tongs.game_calls"), and need both.
 affects_gameplay = true
 allow_ironman = "opt-in"
 allow_multiplayer = "opt-in"
@@ -31,3 +32,17 @@ version = "^1"
 id = "anvil-map"
 version = "^1"
 optional = true
+
+# Game calls (console, save load; docs/adr/0001-game-calls-in-tongs.md): off
+# until the player turns the module on (enabled_modules = ["tongs.game_calls"]).
+# In ironman and multiplayer they need the module's own opt-in as well as Tongs'.
+# Until 0.34 the settings game_calls, game_calls_ironman and
+# game_calls_multiplayer did this; settings.toml retires them into the module.
+[[modules]]
+id = "game_calls"
+name = "Game calls"
+description = "Lets scripts and agents run console commands and load saves, which change the game."
+affects_gameplay = true
+allow_ironman = "opt-in"
+allow_multiplayer = "opt-in"
+default = false

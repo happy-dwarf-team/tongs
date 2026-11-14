@@ -85,8 +85,8 @@ Config ParseConfig(std::string_view text) {
         bool* flag = key == "enabled"                  ? &config.enabled
                      : key == "input"                  ? &config.input
                      : key == "game_calls"             ? &config.game_calls.enabled
-                     : key == "game_calls_ironman"     ? &config.game_calls.ironman
-                     : key == "game_calls_multiplayer" ? &config.game_calls.multiplayer
+                     : key == "game_calls_ironman"     ? &config.legacy_game_calls_ironman
+                     : key == "game_calls_multiplayer" ? &config.legacy_game_calls_multiplayer
                                                        : nullptr;
         if (flag) {
             bool& target = *flag;
@@ -126,8 +126,8 @@ std::string SettingsFromConfig(const Config& config) {
         for (const std::string& name : config.game_calls.allow) names += (names.empty() ? "" : ", ") + name;
         out += "console_allow = \"" + names + "\"\n";  // names hold no quote or backslash
     }
-    flag("game_calls_ironman", config.game_calls.ironman);
-    flag("game_calls_multiplayer", config.game_calls.multiplayer);
+    flag("game_calls_ironman", config.legacy_game_calls_ironman);
+    flag("game_calls_multiplayer", config.legacy_game_calls_multiplayer);
     return out;
 }
 
