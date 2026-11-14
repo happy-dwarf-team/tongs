@@ -85,45 +85,6 @@ bytes = "48 8B 81 08 04 00 00 C3"
 rva = 0x801850
 bytes = "48 8B 81 08 04 00 00 C3"
 
-# Out of sync: read with the state, never written. Only multiplayer sets them.
-# Bytes matched between GOG and Steam; not seen true in a real desync, which
-# takes two computers.
-
-[symbol.oos_handler]
-memory = "code"
-values.handler = { at = 3, size = 4 }
-note = "the game loop's local check: the session's pointer to its out-of-sync handler, which may be null"
-
-[symbol.oos_handler.build."eu4-1.37.5-steam-win64"]
-rva = 0x815730
-bytes = "49 8B 8D D8 04 00 00 48 85 C9 74 09"
-
-[symbol.oos_handler.build."eu4-1.37.5.2-gog-win64"]
-rva = 0x814A90
-bytes = "49 8B 8D C8 04 00 00 48 85 C9 74 09"
-
-[symbol.oos_handler.build."eu4-1.37.5.0-gog-win64"]
-rva = 0x814A90
-bytes = "49 8B 8D C8 04 00 00 48 85 C9 74 09"
-
-[symbol.oos_flag]
-bytes = "41 80 7C 24 08 00 75 17"
-memory = "code"
-values.flag = { at = 4, size = 1 }
-note = "end of the client's checksum compare: the handler's flag, 1 from the first mismatch; the host never runs this"
-build."eu4-1.37.5-steam-win64" = { rva = 0x742D18 }
-build."eu4-1.37.5.2-gog-win64" = { rva = 0x741F48 }
-build."eu4-1.37.5.0-gog-win64" = { rva = 0x741F48 }
-
-[symbol.oos_pause]
-bytes = "44 88 7F 19 45 84 FF"
-memory = "code"
-values.paused = { at = 3, size = 1 }
-note = "the game-speed object's byte that says a pause is due to going out of sync"
-build."eu4-1.37.5-steam-win64" = { rva = 0x7E04AC }
-build."eu4-1.37.5.2-gog-win64" = { rva = 0x7DF81C }
-build."eu4-1.37.5.0-gog-win64" = { rva = 0x7DF81C }
-
 [symbol.is_paused]
 memory = "code"
 signature = "bool (void* game_speed)"
@@ -1973,23 +1934,6 @@ build."eu4-1.37.5-steam-win64" = { rva = 0x95660 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x95690 }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x95690 }
 
-[symbol.console_registration]
-memory = "code"
-values.ironman = { at = 36, size = 4 }
-note = "console registration: the multiplayer/ironman gate reads is_multiplayer(session) and the root byte +0x24D0 (ironman)"
-
-[symbol.console_registration.build."eu4-1.37.5-steam-win64"]
-rva = 0x6E9128
-bytes = "48 8B 0D 49 6D C5 01 C6 40 18 01 48 8B 89 00 1E 00 00 E8 D1 18 00 00 48 8B 0D 32 6D C5 01 0F B6 D8 0F B6 B9 D0 24 00 00"
-
-[symbol.console_registration.build."eu4-1.37.5.2-gog-win64"]
-rva = 0x6E8B08
-bytes = "48 8B 0D E9 B1 C3 01 C6 40 18 01 48 8B 89 00 1E 00 00 E8 B1 18 00 00 48 8B 0D D2 B1 C3 01 0F B6 D8 0F B6 B9 D0 24 00 00"
-
-[symbol.console_registration.build."eu4-1.37.5.0-gog-win64"]
-rva = 0x6E8B08
-bytes = "48 8B 0D E9 B1 C3 01 C6 40 18 01 48 8B 89 00 1E 00 00 E8 B1 18 00 00 48 8B 0D D2 B1 C3 01 0F B6 D8 0F B6 B9 D0 24 00 00"
-
 [symbol.console_mode_store]
 memory = "code"
 values.mode_lock = { at = 22, size = 1 }
@@ -2006,15 +1950,6 @@ bytes = "E8 1B E4 FF FF 84 DB 75 09 40 84 FF 75 04 33 C9 EB 02 B1 01 88 48 19"
 [symbol.console_mode_store.build."eu4-1.37.5.0-gog-win64"]
 rva = 0x6E8B30
 bytes = "E8 1B E4 FF FF 84 DB 75 09 40 84 FF 75 04 33 C9 EB 02 B1 01 88 48 19"
-
-[symbol.is_multiplayer]
-bytes = "48 89 5C 24 08 57 48 83 EC 20 48 8B 01 48 8B F9 FF 90 18 03 00 00"
-memory = "code"
-signature = "bool (void* session)"
-note = "multiplayer check through session vtable slot 0x318"
-build."eu4-1.37.5-steam-win64" = { rva = 0x6EAA10 }
-build."eu4-1.37.5.2-gog-win64" = { rva = 0x6EA3D0 }
-build."eu4-1.37.5.0-gog-win64" = { rva = 0x6EA3D0 }
 
 # --- World reads (docs/design.md, "World reads (0.20.0)") ---
 # `province`, `country` and `player` read anvil-game.world; what is left here is
