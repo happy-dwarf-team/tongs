@@ -1,5 +1,14 @@
 # Game calls live in Tongs, behind their own switch and hard refusals
 
+Amended in 0.35.0: the switch and its ironman and multiplayer exceptions are
+now Anvil's. Game calls are the `game_calls` module of Tongs (Anvil ADR 0011),
+off by default, with its own opt-ins (`allow_ironman` /
+`allow_multiplayer = ["tongs.game_calls"]`); the settings `game_calls`,
+`game_calls_ironman` and `game_calls_multiplayer` retired into it (Anvil
+ADR 0013, point 4). Below, read "the switch" as the module and
+`game_calls_ironman` / `game_calls_multiplayer` as its opt-ins; the refusals
+are unchanged (docs/design.md, "The game_calls module (0.35.0)").
+
 Tongs used to promise that it never changes game state. Agents testing mods
 need game calls (console commands first), so Tongs now runs them itself, but
 only with `game_calls = true` in the config, separate from `enabled` and

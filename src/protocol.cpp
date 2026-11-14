@@ -1974,7 +1974,7 @@ std::string NavigationAct(const Handlers& h, const WorldRequest& request, Activi
                 // Opening this view posts a command: a game call (ADR 0003, promotion).
                 const Refusal r = a.Promote(
                     "opening this province's view would make the player discover its owner's capital, a change of game "
-                    "state; it needs game_calls = true",
+                    "state; it needs Tongs' Game calls module",
                     "the player discovers the owner's capital");
                 refusal = {r.error, r.detail};
             }
@@ -2258,9 +2258,11 @@ std::string SaveLoad(const Request& r, std::string_view argument) {
         if (std::string error = ReadSaveMeta(bytes, h.save_tokens, meta); !error.empty()) return refuse("unreadable_save", error);
         bytes.clear();
         bytes.shrink_to_fit();
-        if (meta.ironman && !h.game_calls.ironman) {
+        // Whether the player allows game calls in ironman is Anvil's (the module's opt-in), and
+        // Tongs learns it only in an ironman session (GameCallSession): outside one it refuses.
+        if (meta.ironman && !h.game_calls.ActsInIronman()) {
             return refuse("ironman_save", "the save is an ironman save, which the game would write to after the load; "
-                                          "it needs game_calls_ironman = true");
+                                          "Tongs loads one only from an ironman game that allows its Game calls module");
         }
         std::array<int, 4> running{};
         const bool version = h.read_version && h.read_version(running);

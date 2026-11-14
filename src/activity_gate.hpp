@@ -33,8 +33,9 @@ struct Refusal {
     bool refused() const { return !error.empty(); }
 };
 
-// `mode` in a game call's answer (ADR 0001): with game_calls_ironman or game_calls_multiplayer
-// on, once the main thread has read the mode; a refusal before that has none.
+// `mode` in a game call's answer (ADR 0001): when Anvil lets the game_calls module act in the
+// ironman or multiplayer session in progress, once the main thread has read the mode; a
+// refusal before that has none.
 std::string ModeMembers(const GameCallPolicy& policy, const ConsoleRaw& raw);
 
 // Runs the activities of the pipe's commands: the inputs, client calls and game calls
@@ -75,7 +76,7 @@ public:
     std::string Run(const Request& request, const Plan& plan);
 
     // The switch of a command type: input and client calls need `input = true` (and the
-    // input functions), game calls `game_calls = true`; a read needs none.
+    // input functions), game calls the game_calls module; a read needs none.
     static Refusal Switch(const Handlers& handlers, CommandType type);
     // While Anvil suspends Tongs (an ironman or multiplayer game it was not allowed in).
     static Refusal Suspension(const Handlers& handlers);
@@ -171,7 +172,7 @@ public:
 
     // ADR 0003: a client call that would change game state is a game call. On the main
     // thread before the call: refused with needs_game_calls (`detail`) without
-    // `game_calls = true`, when game calls are tripped, and by ADR 0001's ironman and
+    // the game_calls module, when game calls are tripped, and by ADR 0001's ironman and
     // multiplayer refusals; otherwise the activity counts and logs as a game call, `why`
     // in the log. mode() has the answer's `mode` members.
     Refusal Promote(std::string detail, std::string why);

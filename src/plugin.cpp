@@ -40,6 +40,7 @@
 #include <chrono>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -69,6 +70,9 @@ std::uint64_t UnixNowMs() {
 // or multiplayer game the player did not allow it in (docs/design.md, "Gameplay").
 std::atomic<bool> g_suspended{false};
 
+// The game_calls module in the session in progress (console.hpp, GameCallSession).
+tongs::GameCallSessionWatch g_game_calls_session;
+
 struct Tongs : anvil::Plugin {
     // The activity gate of this instance (activity_gate.hpp): the counts, totals and breakers
     // of the pipe's commands and of tongs.navigation's calls.
@@ -77,7 +81,7 @@ struct Tongs : anvil::Plugin {
     void load(anvil::Host& host) override {
         // symbols.toml limits the plugin to the one build whose layout it declares.
         const std::filesystem::path data_dir = host.data_dir();
-        const tongs::Config config = tongs::LoadSettings(data_dir);
+        tongs::Config config = tongs::LoadSettings(data_dir);
         for (const auto& note : config.notes) host.warn("{}", note);
         const std::uintptr_t image_base = host.game().image_base;
         const tongs::UiLayout ui_layout = tongs::UiLayout::Load();
@@ -97,6 +101,26 @@ struct Tongs : anvil::Plugin {
             g_suspended.store(false, std::memory_order_release);
             host.info("resumed by Anvil: input commands, game calls and navigation are back");
         });
+        // Game calls are the game_calls module (plugin.toml): Anvil gives its handle only when the
+        // player turned it on, and suspends it by its own opt-ins (allow_ironman = ["tongs.game_calls"]).
+        try {
+            if (const std::optional<anvil::Host> game_calls = host.module("game_calls")) {
+                config.game_calls.enabled = true;
+                game_calls->subscribe(ANVIL_EVENT_SUSPENDED, [] { g_game_calls_session.Suspended(true); });
+                game_calls->subscribe(ANVIL_EVENT_RESUMED, [] { g_game_calls_session.Suspended(false); });
+                // Anvil's policy hears of a session before any plugin, so the module's
+                // anvil.suspended has come when this runs.
+                host.subscribe(ANVIL_GAME_EVENT_SESSION, [](const void* payload) {
+                    const auto* s = static_cast<const AnvilGameSession*>(payload);
+                    if (s == nullptr || s->size < offsetof(AnvilGameSession, multiplayer) + sizeof(s->multiplayer)) return;
+                    g_game_calls_session.Session(s->change == ANVIL_GAME_SESSION_STARTED, s->ironman != 0,
+                                                 s->multiplayer != 0);
+                });
+                config.game_calls.session = [] { return g_game_calls_session.Read(); };
+            }
+        } catch (const anvil::Error& e) {
+            host.warn("game calls off: {}", e.what());
+        }
         // tongs.navigation makes client calls for other plugins only (docs/adr/0004), whatever the settings.
         if (const std::string error = tongs::RegisterNavigationService(
                 image_base, [] { return g_suspended.load(std::memory_order_acquire); }, gate);
@@ -333,12 +357,11 @@ struct Tongs : anvil::Plugin {
         if (config.game_calls.enabled) {
             std::string allowed;
             for (const auto& name : config.game_calls.allow) allowed += (allowed.empty() ? "" : ", ") + name;
-            host.warn("game calls enabled: console commands can change game state{}{}{}",
-                      allowed.empty() ? "" : "; console_allow: " + allowed,
-                      config.game_calls.ironman ? "; allowed in ironman" : "",
-                      config.game_calls.multiplayer ? "; allowed in multiplayer" : "");
+            host.warn("game calls enabled (module tongs.game_calls): console commands can change game state{}; in "
+                      "ironman and multiplayer only where Anvil lets the module act",
+                      allowed.empty() ? "" : "; console_allow: " + allowed);
         } else {
-            host.info("game calls disabled (game_calls = false)");
+            host.info("game calls disabled (module tongs.game_calls is off)");
         }
         // The moment without a game while a save loads lasts a second or more; reads every 20 ms
         // see it even when no client asks, so `session` and the totals count every load.

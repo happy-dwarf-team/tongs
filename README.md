@@ -21,8 +21,8 @@ Status: early. Everything is off until you turn it on (see [Safety](#safety)).
 - **Keyboard and mouse,** with `input = true`: pause, speed, run to a date,
   keys, text, clicks on points or on widgets by name, and event choices. They
   go through the game's own SDL input, so the window does not need focus.
-- **Console commands,** with `game_calls = true`. These change game state.
-  Without that setting Tongs never does.
+- **Console commands and loading saves,** with the **Game calls** module on.
+  These change game state. Without that module Tongs never does.
 - **Notifications:** a connection can subscribe to state and date changes,
   events opening and closing, new `error.log` lines and other clients' input
   and game calls.
@@ -64,7 +64,7 @@ command, its answer and its options are in
 | Waiting and notifications | `wait_until`, `cancel`, `subscribe`, `unsubscribe` | `enabled` |
 | Keyboard and mouse | `pause`, `resume`, `speed`, `run_until`, `key`, `text`, `move`, `click`, `scroll`, `release`, `ui click`, `event choose`, `unit drill`, `unit split`, `unit merge` | `input` |
 | Navigation (client calls) | `province open`, `province goto`, `map_mode` | `input` |
-| Game calls | `console`, `save load` (**change game state**) | `game_calls` |
+| Game calls | `console`, `save load` (**change game state**) | the `game_calls` module |
 
 Answers that carry the state name the game process (`pid`,
 `process_start_ms`) and the `session` (1 for the first game, +1 at every
@@ -143,8 +143,8 @@ discover a capital is refused. Header:
 
 - Off by default. The pipe opens only with `enabled = true` in
   `anvil/data/tongs/settings.toml`. Keyboard, mouse and navigation (camera and
-  province views) also need `input = true`, and console commands need
-  `game_calls = true` (see [Settings](#settings)).
+  province views) also need `input = true`, and console commands need the
+  **Game calls** module (see [Settings](#settings)).
 - Local clients of the Windows user running the game only (pipe DACL, remote
   clients rejected). No network listener, except under Wine with `bridge = true`: then also a socket on `127.0.0.1`
   that needs a token and a client of the same Linux user (see [the design](docs/design.md#the-socket-under-wine)). The Python client
@@ -152,14 +152,14 @@ discover a capital is refused. Header:
 - Text from the game and its mods reaches a client as it is. An agent should
   treat it as data, not instructions: the MCP server says so in its
   instructions.
-- **Game state can change** with `game_calls = true`: `console` runs the
+- **Game state can change** with the Game calls module: `console` runs the
   game's own console commands, which change the simulation. Tongs refuses some
   commands always and others unless allowed (see [Console](docs/commands.md#console)), refuses every
   game call in ironman and multiplayer by default, logs every game call and
   refusal with the command, the pipe instance and the game date, and counts
   them (`game_calls`, `game_calls_total`) so a measurement can reject a run.
   The decisions are in [ADR 0001](docs/adr/0001-game-calls-in-tongs.md).
-- Without `game_calls`, game state is never written. Keys, text and mouse
+- Without the Game calls module, game state is never written. Keys, text and mouse
   buttons go into the game's SDL event queue, as a player's would; widget
   clicks and event choices are mouse clicks too.
 - Changes to the game: with `enabled = true` main-thread reads such as
@@ -174,9 +174,12 @@ discover a capital is refused. Header:
   game calls can change the simulation, even though they are off by default.
   In an ironman or multiplayer game Anvil suspends Tongs: its hooks are out of
   the game, input commands (except `release`) and game calls answer an error,
-  reads go on. The player can allow Tongs there in `anvil/anvil.toml`
-  (`allow_ironman = ["tongs"]`, `allow_multiplayer = ["tongs"]`); game calls
-  then still need Tongs' own `game_calls_ironman` / `game_calls_multiplayer`.
+  reads go on. The player can allow Tongs there in Anvil Manager or
+  `anvil/anvil.toml` (`allow_ironman = ["tongs"]`, `allow_multiplayer = ["tongs"]`).
+  Game calls are the module `tongs.game_calls` with opt-ins of their own, so
+  in ironman they need both entries (`allow_ironman = ["tongs", "tongs.game_calls"]`),
+  and likewise in multiplayer. `save load` loads an ironman save only from an
+  ironman game that allows them, because the game writes the save as it loads it.
 - Screenshots and the command journal are written only to the plugin's data folder
   (`anvil/data/tongs/screenshots/`, `anvil/data/tongs/journal/`), never into the
   game, its saves or what multiplayer compares.
@@ -187,7 +190,7 @@ discover a capital is refused. Header:
 
 ## Install / uninstall
 
-[Install Anvil](https://anvil.happydwarf.dev/docs/install/) 1.7.0 or newer
+[Install Anvil](https://anvil.happydwarf.dev/docs/install/) 1.23.0 or newer
 first, with its standard plugin `anvil-game` (part of Anvil's package). Then
 [install the plugin](https://anvil.happydwarf.dev/docs/install-plugins/) one of
 these ways:
@@ -215,13 +218,25 @@ defaults, all off but the journal. Your values go into `anvil/data/tongs/setting
 ```toml
 enabled = true      # open the pipe
 input = true        # keyboard, mouse and navigation commands
-game_calls = true   # console commands (they change game state)
-console_allow = "leak"          # danger commands game calls may run, separated by commas
-game_calls_ironman = false      # game calls in ironman (Anvil must also allow Tongs there)
-game_calls_multiplayer = false  # game calls in multiplayer (likewise)
+console_allow = "leak"  # danger commands game calls may run, separated by commas
 journal = true      # the command journal in anvil/data/tongs/journal/ (on by default)
 bridge = true       # under Wine and Proton: also serve a loopback socket for native Linux clients
 ```
+
+Game calls are a module, **Game calls**, off by default: turn it on under Tongs
+in Anvil Manager or the Anvil panel, or in `anvil/anvil.toml`. Its ironman and
+multiplayer switches are Anvil's opt-ins for it:
+
+```toml
+enabled_modules = ["tongs.game_calls"]
+allow_ironman = ["tongs", "tongs.game_calls"]      # Tongs and its game calls in ironman
+allow_multiplayer = ["tongs", "tongs.game_calls"]  # likewise in multiplayer
+```
+
+Until 0.34 the settings `game_calls`, `game_calls_ironman` and
+`game_calls_multiplayer` did this. At the first start with Tongs 0.35 Anvil
+moves them: `game_calls = true` turns the module on, the other two become its
+opt-ins, and all three leave `settings.toml`.
 
 Tongs reads them when the game starts. `ANVIL_TONGS_<NAME>` environment
 variables (for example `ANVIL_TONGS_ENABLED=true`) override a value for one

@@ -45,6 +45,12 @@ using namespace tongs;
 
 static bool Contains(const std::string& text, const char* part) { return text.find(part) != std::string::npos; }
 
+// A game_calls module in a session Anvil judged: `ironman` / `multiplayer` its mode, and the
+// module suspended there unless `allowed` (the player's allow_ironman / allow_multiplayer).
+static std::function<GameCallSession()> JudgedSession(bool ironman, bool multiplayer, bool allowed) {
+    return [=] { return GameCallSession{true, ironman, multiplayer, !allowed}; };
+}
+
 static std::uint64_t SteadyMs() {
     return static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
@@ -619,11 +625,12 @@ static void TestConfig() {
 
     // Game calls: off by default, each switch on its own line.
     const Config defaults = ParseConfig(kOldDefaultConfig);
-    assert(!defaults.game_calls.enabled && !defaults.game_calls.ironman && !defaults.game_calls.multiplayer);
+    assert(!defaults.game_calls.enabled && !defaults.legacy_game_calls_ironman && !defaults.legacy_game_calls_multiplayer);
     assert(defaults.game_calls.allow.empty());
     const Config calls = ParseConfig(
         "game_calls = true\ngame_calls_ironman = true\ngame_calls_multiplayer = false\nconsole_allow = [\"leak\", \"oos\"] # two\n");
-    assert(calls.game_calls.enabled && calls.game_calls.ironman && !calls.game_calls.multiplayer && calls.notes.empty());
+    assert(calls.game_calls.enabled && calls.legacy_game_calls_ironman && !calls.legacy_game_calls_multiplayer &&
+           calls.notes.empty());
     assert(calls.game_calls.allow == std::vector<std::string>({"leak", "oos"}));
     assert(ParseConfig("console_allow = []\n").notes.empty());
     const Config bad_list = ParseConfig("console_allow = leak\nconsole_allow = [\"a b\"]\n");
@@ -2278,16 +2285,42 @@ static void TestConsoleRules() {
     assert(CheckConsoleName(policy, "enable_all_commands").refused());  // console_allow cannot lift it
     assert(CheckConsoleName(policy, "oos").refused());
 
+    // The mode: Anvil's opt-ins of the game_calls module, as its session events tell them.
     ConsoleRaw raw;
     assert(!CheckConsoleMode(policy, raw).refused());
     raw.ironman = true;
-    assert(CheckConsoleMode(policy, raw).error == "ironman");
-    policy.ironman = true;
-    assert(!CheckConsoleMode(policy, raw).refused());
+    assert(CheckConsoleMode(policy, raw).error == "ironman");  // no session judged: never
+    policy.session = JudgedSession(true, false, false);
+    assert(CheckConsoleMode(policy, raw).error == "ironman");  // suspended: not allowed in ironman
+    policy.session = JudgedSession(true, false, true);
+    assert(!CheckConsoleMode(policy, raw).refused() && policy.ActsInIronman() && !policy.ActsInMultiplayer());
     raw.multiplayer = true;
-    assert(CheckConsoleMode(policy, raw).error == "multiplayer");
-    policy.multiplayer = true;
+    assert(CheckConsoleMode(policy, raw).error == "multiplayer");  // the session was judged as ironman only
+    policy.session = JudgedSession(true, true, true);
     assert(!CheckConsoleMode(policy, raw).refused());
+    policy.session = JudgedSession(true, true, false);
+    assert(CheckConsoleMode(policy, raw).error == "ironman");
+    raw.ironman = false;
+    policy.session = JudgedSession(false, true, true);
+    assert(!CheckConsoleMode(policy, raw).refused() && policy.ActsInMultiplayer());
+
+    // The watch behind the session: the policy's anvil.suspended comes before anvil-game.session.
+    GameCallSessionWatch watch;
+    assert(!watch.Read().started && !watch.Read().Acts());
+    watch.Suspended(true);
+    watch.Session(true, true, false);
+    GameCallSession s = watch.Read();
+    assert(s.started && s.ironman && !s.multiplayer && s.suspended && !s.Acts());
+    watch.Suspended(false);  // resumed as the session ends
+    watch.Session(false, true, false);
+    s = watch.Read();
+    assert(!s.started && !s.ironman && !s.suspended);
+    watch.Session(true, true, true);  // a session the player allows: no anvil.suspended
+    s = watch.Read();
+    assert(s.Acts() && s.ironman && s.multiplayer);
+    watch.Session(true, false, false);  // a normal game after it
+    s = watch.Read();
+    assert(s.Acts() && !s.ironman && !s.multiplayer);
 
     assert(CheckConsoleAllow({"leak", "social_joinroom", "speed"}).size() == 2);
 }
@@ -2400,11 +2433,15 @@ static void TestConsoleCommand() {
     allow.game_calls.allow = {"oos"};
     assert(Contains(HandleRequest("console oos", allow), "\"ok\":true") && console.calls.size() == made + 1);
 
-    // Ironman and multiplayer refuse every game call, unless the switch lifts it; then `mode` shows it.
+    // Ironman and multiplayer refuse every game call, unless Anvil lets the module act there;
+    // then `mode` shows it.
     console.raw.ironman = true;
     assert(Contains(HandleRequest("console echo x", h), "\"error\":\"ironman\""));
+    Handlers not_allowed = h;
+    not_allowed.game_calls.session = JudgedSession(true, false, false);
+    assert(Contains(HandleRequest("console echo x", not_allowed), "\"error\":\"ironman\""));
     Handlers ironman = h;
-    ironman.game_calls.ironman = true;
+    ironman.game_calls.session = JudgedSession(true, false, true);
     out = HandleRequest("console echo x", ironman);
     assert(Contains(out, "\"ok\":true") && Contains(out, "\"mode\":{\"ironman\":true,\"multiplayer\":false,"));
     assert(console.log.back().first == 2 && Contains(console.log.back().second, "called in ironman"));
@@ -4720,12 +4757,12 @@ static void TestNavigationCommands() {
     assert(Contains(out, "\"ok\":true") && Contains(out, "\"game_call\":true,\"game_calls_total\":1") &&
            !Contains(out, "client_calls_total"));
 
-    // In ironman with the switch on, the answer says so (ADR 0001).
+    // In ironman with the module allowed there, the answer says so (ADR 0001).
     ConsoleRaw console;
     console.ironman = true;
     console.session = 1;
     Handlers ironman = h;
-    ironman.game_calls.ironman = true;
+    ironman.game_calls.session = JudgedSession(true, false, true);
     ironman.read_console = [&console](ConsoleRaw& raw) {
         raw = console;
         return std::string();
@@ -4918,6 +4955,14 @@ static void TestSaveLoadCommand(bool fault = false) {
     assert(Contains(HandleRequest("save load x", h), "\"error\":\"unreadable_save\""));
     file = FromHex("45553462696e4d2801000c00d0228203692c01000f000500782e657534382a01000f00030041524d893501000e0001");
     assert(Contains(HandleRequest("save load x", h), "\"error\":\"ironman_save\""));
+    // From an ironman game that allows the module: the ironman save gets past that check.
+    Handlers ironman_load = h;
+    ironman_load.game_calls.session = JudgedSession(true, false, true);
+    game.paused = false;  // stops at the next check, before any call
+    assert(Contains(HandleRequest("save load x", ironman_load), "\"error\":\"not_paused\"") && loads == 0);
+    game.paused = true;
+    ironman_load.game_calls.session = JudgedSession(true, false, false);
+    assert(Contains(HandleRequest("save load x", ironman_load), "\"error\":\"ironman_save\""));
     file = FromHex("45553462696e4d2801000c00d0228203692c01000f000500782e657534382a01000f00030041524d");
     game.paused = false;
     out = HandleRequest("save load x", h);
@@ -4965,7 +5010,7 @@ static void TestSaveLoadCommand(bool fault = false) {
     };
     assert(Contains(HandleRequest("save load x", h), "\"error\":\"ironman\""));
     Handlers ironman = h;
-    ironman.game_calls.ironman = true;
+    ironman.game_calls.session = JudgedSession(true, false, true);
     out = HandleRequest("save load x", ironman);
     assert(Contains(out, "\"called\":true") && Contains(out, "\"mode\":{\"ironman\":true,\"multiplayer\":false,"));
     h.read_console = nullptr;
@@ -5702,7 +5747,7 @@ static void TestActivityGate() {
     };
     run(h, kClient, promote);
     assert(promoted.error == "ironman");
-    h.game_calls.ironman = true;
+    h.game_calls.session = JudgedSession(true, false, true);
     const ActivityGate::Counts counts = gate.counts();
     logged.clear();
     run(h, kClient, promote, 7);
@@ -5714,7 +5759,7 @@ static void TestActivityGate() {
     assert(logged.size() == 1 && logged[0] == std::make_pair(kLogWarning, "a client call x (pipe 7, " + earlier +
                                                                               "): made as a game call: it discovers a capital"));
     h.read_console = nullptr;
-    h.game_calls.ironman = false;
+    h.game_calls.session = nullptr;
     Handlers tripped = h;
     tripped.gate = MakeActivityGate();
     tripped.gate->Trip(Breaker::GameCalls);
@@ -5823,7 +5868,7 @@ static void TestCommandTable() {
             continue;
         }
         const std::string refused = HandleRequest(line, off);
-        assert(Contains(refused, c.type == CommandType::GameCall ? "game_calls = true" : "input = true") &&
+        assert(Contains(refused, c.type == CommandType::GameCall ? "tongs.game_calls" : "input = true") &&
                Contains(refused, "\"ok\":false"));
         assert(Contains(HandleRequest(line, suspended), "Anvil suspended Tongs"));
     }

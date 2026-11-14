@@ -8,7 +8,8 @@ only** (no network listener) and runs on the same Windows machine as the game.
 The server adds no power the pipe does not have. Every tool sends one Tongs
 command and returns the plugin's answer unchanged; the plugin's config still
 decides what is allowed: `enabled = true` for the pipe, `input = true` for
-keyboard and mouse input, `game_calls = true` for `console`. See the
+keyboard and mouse input, and Tongs' **Game calls** module (`tongs.game_calls` in
+Anvil's `anvil.toml`, or its switch in Anvil Manager) for `console` and `save load`. See the
 [Tongs commands](../docs/commands.md) for the commands and their answers.
 
 ## Requirements
@@ -112,8 +113,8 @@ npx @modelcontextprotocol/inspector uv run --frozen --directory C:\path\to\tongs
 | `tongs_province_open`, `tongs_province_goto`, `tongs_map_mode` | `province open ID`, `province goto ID`, `map_mode MODE` (each `[timeout=S]`) | client calls: need `input = true`, count in `client_calls` |
 | `tongs_event_choose` | `event choose N\|text^="..." [event=...] [timeout=S]` | input |
 | `tongs_unit_drill`, `tongs_unit_split`, `tongs_unit_merge` | `unit drill start\|stop UNITS`, `unit split UNIT`, `unit merge UNITS` (UNITS: ids or `selected`; each `[timeout=S]`) | input, through Anvil's `anvil-game.commands` (Anvil 1.17+) |
-| `tongs_console` | `console LINE` | **game call**: changes game state, needs `game_calls = true` |
-| `tongs_save_load` | `save load NAME [timeout=S]` | **game call**: loads a save, discarding the running game without saving; needs `game_calls = true` |
+| `tongs_console` | `console LINE` | **game call**: changes game state, needs the Game calls module |
+| `tongs_save_load` | `save load NAME [timeout=S]` | **game call**: loads a save, discarding the running game without saving; needs the Game calls module |
 | `tongs_raw` | any one line | escape hatch; same config switches apply; no `subscribe` |
 
 - **Answers.** The text content is the plugin's answer line exactly as sent;
@@ -128,7 +129,7 @@ npx @modelcontextprotocol/inspector uv run --frozen --directory C:\path\to\tongs
   does on the MCP side (writes a file, ends other clients' waits, acts as the
   player), its hints. Inputs and client calls work only with `input = true`
   and count in `inputs` or `client_calls` of every `wait_until` / `run_until`
-  in progress; game calls work only with `game_calls = true`, change game
+  in progress; game calls work only with the Game calls module, change game
   state and count in `game_calls` and `game_calls_total`: the run becomes a
   marked run that measurements reject. The server's instructions list the
   tools of each type. `ping` and `help` have no tool of their own

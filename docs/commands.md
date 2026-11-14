@@ -56,7 +56,7 @@ With `input = true` in the settings, also:
 | `unit merge UNITS [timeout=S]` | merges armies, or navies, in one province into the first |
 | `map_mode MODE [timeout=S]` | a client call: shows a map mode as the minimap's button does. `MODE` is a mode of the game's tabs by name (`political`, `religion`, `trade_goods`: the game's enum names in lower case) or number, or a plugin mode by its id (`player-cores.cores`, with `anvil-map`); answers its `number`, `client_calls_total` and the state read after it |
 
-With `game_calls = true` in the settings, also (see [Console](#console)):
+With Tongs' **Game calls** module on (`enabled_modules = ["tongs.game_calls"]` in `anvil/anvil.toml`, or its switch in Anvil Manager), also (see [Console](#console)):
 
 | Command | What it does |
 | --- | --- |
@@ -460,10 +460,10 @@ multiplayer they follow input: Anvil's allow lists apply.
 - **Opening a view can change the game.** The game's province view makes the
   player discover the capital of a foreign owner whose capital the player
   has not discovered. Tongs checks that case before calling: without
-  `game_calls = true` it refuses `needs_game_calls`; with it, the call counts
+  the `game_calls` module it refuses `needs_game_calls`; with it, the call counts
   as one game call only (in `game_calls`, not `client_calls`), takes the
   console's ironman and multiplayer refusals, and the answer carries
-  `"game_call": true` (and `mode`, with one of their switches on).
+  `"game_call": true` (and `mode` in an ironman or multiplayer game that allows game calls).
 - **Refusals before calling** (nothing called, nothing counted; they go to
   the Anvil log):
 
@@ -476,7 +476,7 @@ multiplayer they follow input: Anvil's allow lists apply.
   | `terra_incognita` | `open` | the player has not discovered it (an observer passes) |
   | `selection_blocked` | `open` | the game selects nothing now (a province-picking mode, the tutorial) |
   | `camera_locked` | `goto` | the camera is locked: `debug_lockcamera`, a window that holds it (the in-game menu does), or the game window is minimized (the game holds the camera until it is restored; the detail says so) |
-  | `needs_game_calls` | `open` | the discover case above without `game_calls = true` |
+  | `needs_game_calls` | `open` | the discover case above without the `game_calls` module |
 
   For a province without an owner the game shows its colonisation panel
   instead of the province view: `open` answers `ok` with
@@ -744,7 +744,7 @@ compare the `date` of each answer.
 `save load NAME [timeout=S]` loads a save in the running game, as the in-game
 Load dialog does, or from the main menu, as the menu's Continue does, without
 clicking through either. It is a **game call**
-([ADR 0001](adr/0001-game-calls-in-tongs.md)): it needs `game_calls = true`,
+([ADR 0001](adr/0001-game-calls-in-tongs.md)): it needs the `game_calls` module,
 takes the console's refusals in ironman and multiplayer, is logged to the
 Anvil log and counts once in `game_calls` (with an `activity` notification)
 when Tongs called the game's loader. A run with it is a marked run.
@@ -782,8 +782,11 @@ when Tongs called the game's loader. A run with it is a marked run.
 - **Before calling**, Tongs reads the save's metadata itself (text saves,
   compressed saves with a text or binary `meta`): its date, player, whether it
   is an ironman save and the versions it was saved with. An ironman save is
-  refused (`ironman_save`) unless `game_calls_ironman = true`, because the game
-  writes to it afterwards. A save from another version, or with other DLC or
+  refused (`ironman_save`), because the game writes to it afterwards, unless
+  Tongs loads it from an ironman game in which Anvil lets the `game_calls`
+  module act (`allow_ironman = ["tongs", "tongs.game_calls"]`): whether the
+  player allows game calls in ironman is Anvil's, and Tongs learns it only in
+  an ironman session, so from the main menu it always refuses one. A save from another version, or with other DLC or
   mods, is not refused: `compatible` says whether its versions list this one,
   as the dialog's version warning does.
 - **One answer, after the load and its check.** The game loads the save on
@@ -809,8 +812,8 @@ when Tongs called the game's loader. A run with it is a marked run.
   call): `bad_name`, `no_such_save` or `rejected` for the loader's return codes
   1, 2 and 3 (3: the metadata was rejected, such as an ironman save in a
   modded game), `not_loaded` (with what the frame showed, `seen`), `faulted`.
-  With `game_calls_ironman` or `game_calls_multiplayer` on, these answers and
-  the console's refusals carry `mode`.
+  In an ironman or multiplayer game that allows game calls, these answers
+  carry `mode`.
 - **Afterwards** the client waits for input with the ready wait for the new
   `session` (see [Sessions](#sessions-and-the-ready-wait)); the `state`
   notification `entered_game` says `loaded_by: "tongs"`, and `null` after a
@@ -837,7 +840,7 @@ when Tongs called the game's loader. A run with it is a marked run.
 `console LINE` runs a console command the way the game's console does, but
 without the console window: the line is split on spaces and passed to the
 game's command dispatcher on its main thread, after a frame of the main loop.
-It needs `game_calls = true` and a loaded game (`in_game: true`), and takes
+It needs the `game_calls` module and a loaded game (`in_game: true`), and takes
 turns with the input commands.
 
 ```powershell
@@ -861,11 +864,17 @@ Tongs refuses, without calling the game:
   rules, `run_commands` and `runyear`) unless the settings list them:
   `console_allow = "leak"`;
 - `ironman`, `multiplayer`: every game call in an ironman or multiplayer game,
-  unless `game_calls_ironman = true` or `game_calls_multiplayer = true`; with
-  either switch on, answers carry `mode`;
+  unless Anvil lets the `game_calls` module act in it: the player allows it in
+  `anvil/anvil.toml` (`allow_ironman` / `allow_multiplayer = ["tongs.game_calls"]`,
+  next to `"tongs"`) or with the module's switches in Anvil Manager. Tongs
+  knows that only once Anvil has judged the session (`anvil-game.session`),
+  so a call before that is refused too. In a game that allows them, answers
+  carry `mode`: `ironman` and `multiplayer` as the game reads them, and
+  `game_calls_ironman` / `game_calls_multiplayer`, the session's modes in which
+  Anvil lets the module act;
 - `suspended`: Anvil suspended Tongs in this ironman or multiplayer game (see
   [Safety](../README.md#safety)), before any of Tongs' own switches are asked;
-- `game_calls_disabled`, `not_in_game`, `unknown_command`, `bad_command`
+- `game_calls_disabled` (the module is off), `not_in_game`, `unknown_command`, `bad_command`
   (printable ASCII only), `console_unavailable`;
 - `game_calls_tripped`: a game call that faulted answers `faulted`, and every
   later one is refused until the game exits. Reads keep working.
