@@ -230,7 +230,9 @@ during another connection's `run_until`, in ironman and multiplayer, and
 while Anvil has suspended Tongs. Each takes `timeout=S` (default 10 s, up to
 60) for the wait for a frame and answers one object. Every answer, refusals
 included, carries the fields of `state` read on the same frame, and
-`queued_ms`, `run_ms` and `frame` once the read ran.
+`queued_ms`, `run_ms` and `frame` once the read ran. `province`, `country`
+and `player` take their values from Anvil's `anvil-game.world`; `selection` is
+Tongs' own read of the game's memory.
 
 | Command | Answer |
 | --- | --- |
@@ -312,9 +314,12 @@ included, carries the fields of `state` read on the same frame, and
   `unknown_province`, `unknown_country`, `not_in_game`, `main thread busy`
   (no frame within `timeout=`, for example while a save loads; every
   `main thread busy` answer has a `hint` to wait with `ready` first),
-  `read_failed` (a read of game memory faulted or a guard failed: an entry's
-  own ID, a country's own tag; later reads keep working) and `unavailable`
-  (main-thread commands are not available).
+  `read_failed` (`anvil-game.world` found the game's memory not as it should
+  be, or a read of `selection` faulted or a guard failed; the detail names the
+  call and its result; later reads keep working) and `unavailable`
+  (main-thread commands are not available, or `anvil-game.world` is missing).
+  After a load, `state` says `in_game` a few seconds before the first frame of
+  the new session; a read sent then waits for that frame within `timeout=`.
 
 ```powershell
 .\scripts\tongs.ps1 'province 1754'

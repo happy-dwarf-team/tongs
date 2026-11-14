@@ -6,7 +6,7 @@ Tongs is for mod testers, tool makers and anyone who wants a program or an AI ag
 
 ![](https://anvil.happydwarf.dev/workshop/tongs-steps.png)
 
-Get Anvil Manager from [anvil.happydwarf.dev](https://anvil.happydwarf.dev/). Tongs needs Anvil 1.7 or newer (take the latest), EU4 1.37.5 (Steam; GOG's 1.37.5.2 and 1.37.5.0 too, see the FAQ) and something to talk to it: the [GitHub page](https://github.com/happy-dwarf-team/tongs) has clients for PowerShell and Python and an MCP server. If Windows warns about Anvil Manager, choose **More info**, then **Run anyway**.
+Get Anvil Manager from [anvil.happydwarf.dev](https://anvil.happydwarf.dev/). Tongs needs Anvil 1.23 or newer (take the latest), EU4 1.37.5 (Steam; GOG's 1.37.5.2 and 1.37.5.0 too, see the FAQ) and something to talk to it: the [GitHub page](https://github.com/happy-dwarf-team/tongs) has clients for PowerShell and Python and an MCP server. If Windows warns about Anvil Manager, choose **More info**, then **Run anyway**.
 
 ![](https://anvil.happydwarf.dev/workshop/tongs-tiles-title.png)
 

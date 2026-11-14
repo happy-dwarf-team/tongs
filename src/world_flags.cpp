@@ -10,9 +10,6 @@
 namespace tongs {
 namespace {
 
-constexpr int kOk = 0;
-constexpr int kNotDeclared = 2;  // ANVIL_ERROR_NOT_DECLARED: the port declared the symbols absent
-constexpr int kNotFound = 11;    // ANVIL_ERROR_NOT_FOUND
 constexpr std::uint32_t kMaxFlags = 32768;          // the service's own bound: a flag index is an int16
 constexpr std::uint32_t kMaxNames = 4u * 1024 * 1024;  // bytes of variable names taken as plausible
 
@@ -21,29 +18,29 @@ constexpr const char* kNoFlags = "anvil-game.world has no flags: they need Anvil
 constexpr const char* kNoVariables = "anvil-game.world has no variables: they need Anvil 1.20 or newer";
 
 template <typename Member>
-bool Has(const GameWorldService* world, Member GameWorldService::*member, std::size_t offset) {
+bool Has(const AnvilGameWorldService* world, Member AnvilGameWorldService::*member, std::size_t offset) {
     return world->size >= offset + sizeof(world->*member) && world->*member != nullptr;
 }
 
 std::string Why(const char* call, int result, const char* family) {
-    if (result == kNotDeclared) return std::string("this game build has no ") + family + " symbols (" + call + ")";
+    if (result == ANVIL_ERROR_NOT_DECLARED) return std::string("this game build has no ") + family + " symbols (" + call + ")";
     return std::string(call) + " answered " + std::to_string(result);
 }
 
-using FlagCall = std::function<int(GameFlag*, std::uint32_t, std::uint32_t*)>;
+using FlagCall = std::function<int(AnvilGameFlag*, std::uint32_t, std::uint32_t*)>;
 using NamesCall = std::function<int(char*, std::uint32_t, std::uint32_t*)>;
 using ValueCall = std::function<int(const char*, std::int32_t*)>;
 
-void ReadFlags(const GameWorldService* world, const FlagCall& call, const char* name, ScopeExtras& out) {
-    std::vector<GameFlag> flags(64);
+void ReadFlags(const AnvilGameWorldService* world, const FlagCall& call, const char* name, ScopeExtras& out) {
+    std::vector<AnvilGameFlag> flags(64);
     std::uint32_t count = 0;
     for (int attempt = 0; attempt < 4; ++attempt) {
-        for (GameFlag& f : flags) {
+        for (AnvilGameFlag& f : flags) {
             f = {};
-            f.date.size = sizeof(WorldDate);
+            f.date.size = sizeof(AnvilGameDate);
         }
         const int r = call(flags.data(), static_cast<std::uint32_t>(flags.size()), &count);
-        if (r != kOk) {
+        if (r != ANVIL_OK) {
             out.flags_missing = Why(name, r, "flag");
             return;
         }
@@ -51,12 +48,12 @@ void ReadFlags(const GameWorldService* world, const FlagCall& call, const char* 
         flags.resize(count);
     }
     flags.resize(std::min<std::size_t>(count, flags.size()));
-    for (const GameFlag& f : flags) {
+    for (const AnvilGameFlag& f : flags) {
         FlagRaw raw;
         char text[256] = {};
         std::uint32_t length = 0;
         const int r = world->flag_name(f.id, text, sizeof(text), &length);
-        if (r != kOk) {
+        if (r != ANVIL_OK) {
             out.flags.clear();
             out.flags_missing = Why("flag_name", r, "flag");
             return;
@@ -75,7 +72,7 @@ void ReadVariables(const NamesCall& names_call, const ValueCall& value_call, con
     std::uint32_t length = 0;
     for (int attempt = 0; attempt < 4; ++attempt) {
         const int r = names_call(names.data(), static_cast<std::uint32_t>(names.size()), &length);
-        if (r != kOk) {
+        if (r != ANVIL_OK) {
             out.variables_missing = Why(name, r, "variable");
             return;
         }
@@ -93,8 +90,8 @@ void ReadVariables(const NamesCall& names_call, const ValueCall& value_call, con
         at = end + 1;
         if (v.name.empty()) continue;
         const int r = value_call(v.name.c_str(), &v.value);
-        if (r == kNotFound) continue;  // gone between the two calls
-        if (r != kOk) {
+        if (r == ANVIL_ERROR_NOT_FOUND) continue;  // gone between the two calls
+        if (r != ANVIL_OK) {
             out.variables.clear();
             out.variables_missing = Why(name, r, "variable");
             return;
@@ -108,22 +105,22 @@ constexpr std::uint32_t kMaxPending = 4096;  // pending events of one country ta
 constexpr const char* kNoPending = "anvil-game.world has no pending events: they need Anvil 1.21 or newer";
 constexpr std::uint32_t kPendingHidden = 0x1;  // ANVIL_GAME_PENDING_HIDDEN
 
-using TextCall = int (*)(std::int32_t, char*, std::uint32_t, std::uint32_t*);
+using TextCall = AnvilResult (*)(std::int32_t, char*, std::uint32_t, std::uint32_t*);
 
 // The text a call gives, or an empty one when it fails (the event left meanwhile).
 std::string Text(TextCall call, std::int32_t id) {
     char text[512] = {};
     std::uint32_t length = 0;
-    if (call(id, text, sizeof(text), &length) != kOk) return {};
+    if (call(id, text, sizeof(text), &length) != ANVIL_OK) return {};
     return std::string(text, strnlen(text, sizeof(text)));
 }
 
-void ReadPending(const GameWorldService* world, const std::string& tag, ScopeExtras& out) {
+void ReadPending(const AnvilGameWorldService* world, const std::string& tag, ScopeExtras& out) {
     std::vector<std::int32_t> ids(16);
     std::uint32_t count = 0;
     for (int attempt = 0; attempt < 4; ++attempt) {
         const int r = world->pending_events(tag.c_str(), ids.data(), static_cast<std::uint32_t>(ids.size()), &count);
-        if (r != kOk) {
+        if (r != ANVIL_OK) {
             out.pending_missing = Why("pending_events", r, "pending event");
             return;
         }
@@ -132,9 +129,9 @@ void ReadPending(const GameWorldService* world, const std::string& tag, ScopeExt
     }
     ids.resize(std::min<std::size_t>(count, ids.size()));
     for (const std::int32_t id : ids) {
-        GamePendingEvent e{};
+        AnvilGamePendingEvent e{};
         e.size = sizeof(e);
-        if (world->pending_event(id, &e) != kOk) continue;  // chosen between the two calls
+        if (world->pending_event(id, &e) != ANVIL_OK) continue;  // chosen between the two calls
         PendingRaw p;
         p.id = e.pending_id;
         p.key = Text(world->pending_event_key, id);
@@ -154,28 +151,28 @@ constexpr const char* kNoDiplomacy = "anvil-game.world has no diplomacy: it need
 constexpr std::uint32_t kRelationKinds = 8;
 constexpr std::uint32_t kMaxTags = 4096;  // a list of tags taken as plausible
 
-std::string TagText(const GameTag& t) { return std::string(t.text, strnlen(t.text, sizeof(t.text))); }
+std::string TagText(const AnvilGameTag& t) { return std::string(t.text, strnlen(t.text, sizeof(t.text))); }
 
 // A list of tags from a call, grown once to the count it gave.
-int ReadTags(const std::function<int(GameTag*, std::uint32_t, std::uint32_t*)>& call, std::vector<std::string>& out) {
-    std::vector<GameTag> tags(16);
+int ReadTags(const std::function<int(AnvilGameTag*, std::uint32_t, std::uint32_t*)>& call, std::vector<std::string>& out) {
+    std::vector<AnvilGameTag> tags(16);
     std::uint32_t count = 0;
     for (int attempt = 0; attempt < 4; ++attempt) {
         const int r = call(tags.data(), static_cast<std::uint32_t>(tags.size()), &count);
-        if (r != kOk) return r;
+        if (r != ANVIL_OK) return r;
         if (count <= tags.size() || count > kMaxTags) break;
         tags.resize(count);
     }
     out.clear();
     for (std::size_t i = 0; i < std::min<std::size_t>(count, tags.size()); ++i) out.push_back(TagText(tags[i]));
-    return kOk;
+    return ANVIL_OK;
 }
 
-StatusRaw Status(const GameWorldService* world, const std::string& from, const std::string& to) {
-    GameDiplomacyStatus s{};
+StatusRaw Status(const AnvilGameWorldService* world, const std::string& from, const std::string& to) {
+    AnvilGameDiplomacyStatus s{};
     s.size = sizeof(s);
     StatusRaw out;
-    if (world->diplomacy_status(from.c_str(), to.c_str(), &s) != kOk) return out;
+    if (world->diplomacy_status(from.c_str(), to.c_str(), &s) != ANVIL_OK) return out;
     out.read = true;
     out.opinion = s.opinion;
     out.timed_sum = s.timed_sum;
@@ -185,14 +182,14 @@ StatusRaw Status(const GameWorldService* world, const std::string& from, const s
     return out;
 }
 
-void ReadDiplomacy(const GameWorldService* world, const std::string& tag, ScopeExtras& out) {
+void ReadDiplomacy(const AnvilGameWorldService* world, const std::string& tag, ScopeExtras& out) {
     DiplomacyRaw& d = out.diplomacy;
     for (std::uint32_t kind = 0; kind < kRelationKinds; ++kind) {
-        std::vector<GameRelation> list(16);
+        std::vector<AnvilGameRelation> list(16);
         std::uint32_t count = 0;
         for (int attempt = 0; attempt < 4; ++attempt) {
             const int r = world->country_relations(tag.c_str(), kind, list.data(), static_cast<std::uint32_t>(list.size()), &count);
-            if (r != kOk) {
+            if (r != ANVIL_OK) {
                 out.diplomacy = {};
                 out.diplomacy_missing = Why("country_relations", r, "diplomacy");
                 return;
@@ -201,7 +198,7 @@ void ReadDiplomacy(const GameWorldService* world, const std::string& tag, ScopeE
             list.resize(count);
         }
         for (std::size_t i = 0; i < std::min<std::size_t>(count, list.size()); ++i) {
-            const GameRelation& g = list[i];
+            const AnvilGameRelation& g = list[i];
             RelationRaw rel;
             rel.first = TagText(g.first);
             rel.second = TagText(g.second);
@@ -212,28 +209,28 @@ void ReadDiplomacy(const GameWorldService* world, const std::string& tag, ScopeE
             if (kind == 6 && rel.first == tag) {  // ANVIL_GAME_RELATION_DEPENDENCY: the overlord's subject
                 char text[128] = {};
                 std::uint32_t length = 0;
-                if (world->subject_type(tag.c_str(), rel.second.c_str(), text, sizeof(text), &length) == kOk) {
+                if (world->subject_type(tag.c_str(), rel.second.c_str(), text, sizeof(text), &length) == ANVIL_OK) {
                     rel.subject_type.assign(text, strnlen(text, sizeof(text)));
                 }
             }
             d.relations[kind].push_back(std::move(rel));
         }
     }
-    int r = ReadTags([&](GameTag* o, std::uint32_t c, std::uint32_t* n) { return world->country_rivals(tag.c_str(), o, c, n); },
+    int r = ReadTags([&](AnvilGameTag* o, std::uint32_t c, std::uint32_t* n) { return world->country_rivals(tag.c_str(), o, c, n); },
                      d.rivals);
-    if (r == kOk) {
-        r = ReadTags([&](GameTag* o, std::uint32_t c, std::uint32_t* n) { return world->country_subjects(tag.c_str(), o, c, n); },
+    if (r == ANVIL_OK) {
+        r = ReadTags([&](AnvilGameTag* o, std::uint32_t c, std::uint32_t* n) { return world->country_subjects(tag.c_str(), o, c, n); },
                      d.subjects);
     }
-    if (r != kOk) {
+    if (r != ANVIL_OK) {
         out.diplomacy = {};
         out.diplomacy_missing = Why("country_rivals / country_subjects", r, "diplomacy");
         return;
     }
-    GameTag overlord{};
-    if (world->country_overlord(tag.c_str(), &overlord) == kOk) d.overlord = TagText(overlord);  // NOT_FOUND: none
-    GameTag player{};
-    if (world->player != nullptr && world->player(&player) == kOk && TagText(player) != tag) {
+    AnvilGameTag overlord{};
+    if (world->country_overlord(tag.c_str(), &overlord) == ANVIL_OK) d.overlord = TagText(overlord);  // NOT_FOUND: none
+    AnvilGameTag player{};
+    if (world->player != nullptr && world->player(&player) == ANVIL_OK && TagText(player) != tag) {
         d.player = TagText(player);
         if (!d.player.empty()) {
             d.toward_player = Status(world, tag, d.player);
@@ -245,37 +242,37 @@ void ReadDiplomacy(const GameWorldService* world, const std::string& tag, ScopeE
 
 }  // namespace
 
-bool HasDiplomacy(const GameWorldService* world) {
-    return world != nullptr && Has(world, &GameWorldService::country_relations, offsetof(GameWorldService, country_relations)) &&
-           Has(world, &GameWorldService::subject_type, offsetof(GameWorldService, subject_type)) &&
-           Has(world, &GameWorldService::diplomacy_status, offsetof(GameWorldService, diplomacy_status)) &&
-           Has(world, &GameWorldService::country_rivals, offsetof(GameWorldService, country_rivals)) &&
-           Has(world, &GameWorldService::country_overlord, offsetof(GameWorldService, country_overlord)) &&
-           Has(world, &GameWorldService::country_subjects, offsetof(GameWorldService, country_subjects));
+bool HasDiplomacy(const AnvilGameWorldService* world) {
+    return world != nullptr && Has(world, &AnvilGameWorldService::country_relations, offsetof(AnvilGameWorldService, country_relations)) &&
+           Has(world, &AnvilGameWorldService::subject_type, offsetof(AnvilGameWorldService, subject_type)) &&
+           Has(world, &AnvilGameWorldService::diplomacy_status, offsetof(AnvilGameWorldService, diplomacy_status)) &&
+           Has(world, &AnvilGameWorldService::country_rivals, offsetof(AnvilGameWorldService, country_rivals)) &&
+           Has(world, &AnvilGameWorldService::country_overlord, offsetof(AnvilGameWorldService, country_overlord)) &&
+           Has(world, &AnvilGameWorldService::country_subjects, offsetof(AnvilGameWorldService, country_subjects));
 }
 
-bool HasPending(const GameWorldService* world) {
-    return world != nullptr && Has(world, &GameWorldService::pending_events, offsetof(GameWorldService, pending_events)) &&
-           Has(world, &GameWorldService::pending_event, offsetof(GameWorldService, pending_event)) &&
-           Has(world, &GameWorldService::pending_event_key, offsetof(GameWorldService, pending_event_key)) &&
-           Has(world, &GameWorldService::pending_event_title, offsetof(GameWorldService, pending_event_title));
+bool HasPending(const AnvilGameWorldService* world) {
+    return world != nullptr && Has(world, &AnvilGameWorldService::pending_events, offsetof(AnvilGameWorldService, pending_events)) &&
+           Has(world, &AnvilGameWorldService::pending_event, offsetof(AnvilGameWorldService, pending_event)) &&
+           Has(world, &AnvilGameWorldService::pending_event_key, offsetof(AnvilGameWorldService, pending_event_key)) &&
+           Has(world, &AnvilGameWorldService::pending_event_title, offsetof(AnvilGameWorldService, pending_event_title));
 }
 
-bool HasFlags(const GameWorldService* world) {
-    return world != nullptr && Has(world, &GameWorldService::flag_name, offsetof(GameWorldService, flag_name)) &&
-           Has(world, &GameWorldService::country_flags, offsetof(GameWorldService, country_flags)) &&
-           Has(world, &GameWorldService::province_flags, offsetof(GameWorldService, province_flags));
+bool HasFlags(const AnvilGameWorldService* world) {
+    return world != nullptr && Has(world, &AnvilGameWorldService::flag_name, offsetof(AnvilGameWorldService, flag_name)) &&
+           Has(world, &AnvilGameWorldService::country_flags, offsetof(AnvilGameWorldService, country_flags)) &&
+           Has(world, &AnvilGameWorldService::province_flags, offsetof(AnvilGameWorldService, province_flags));
 }
 
-bool HasVariables(const GameWorldService* world) {
+bool HasVariables(const AnvilGameWorldService* world) {
     return world != nullptr &&
-           Has(world, &GameWorldService::country_variable, offsetof(GameWorldService, country_variable)) &&
-           Has(world, &GameWorldService::province_variable, offsetof(GameWorldService, province_variable)) &&
-           Has(world, &GameWorldService::country_variable_names, offsetof(GameWorldService, country_variable_names)) &&
-           Has(world, &GameWorldService::province_variable_names, offsetof(GameWorldService, province_variable_names));
+           Has(world, &AnvilGameWorldService::country_variable, offsetof(AnvilGameWorldService, country_variable)) &&
+           Has(world, &AnvilGameWorldService::province_variable, offsetof(AnvilGameWorldService, province_variable)) &&
+           Has(world, &AnvilGameWorldService::country_variable_names, offsetof(AnvilGameWorldService, country_variable_names)) &&
+           Has(world, &AnvilGameWorldService::province_variable_names, offsetof(AnvilGameWorldService, province_variable_names));
 }
 
-void ReadCountryExtras(const GameWorldService* world, std::string_view tag, ScopeExtras& out) {
+void ReadCountryExtras(const AnvilGameWorldService* world, std::string_view tag, ScopeExtras& out) {
     out = {};
     out.country = true;
     if (world == nullptr) {
@@ -294,7 +291,7 @@ void ReadCountryExtras(const GameWorldService* world, std::string_view tag, Scop
         out.diplomacy_missing = kNoDiplomacy;
     }
     if (HasFlags(world)) {
-        ReadFlags(world, [&](GameFlag* f, std::uint32_t cap, std::uint32_t* n) { return world->country_flags(t.c_str(), f, cap, n); },
+        ReadFlags(world, [&](AnvilGameFlag* f, std::uint32_t cap, std::uint32_t* n) { return world->country_flags(t.c_str(), f, cap, n); },
                   "country_flags", out);
     } else {
         out.flags_missing = kNoFlags;
@@ -309,14 +306,14 @@ void ReadCountryExtras(const GameWorldService* world, std::string_view tag, Scop
     }
 }
 
-void ReadProvinceExtras(const GameWorldService* world, std::int32_t province, ScopeExtras& out) {
+void ReadProvinceExtras(const AnvilGameWorldService* world, std::int32_t province, ScopeExtras& out) {
     out = {};
     if (world == nullptr) {
         out.flags_missing = out.variables_missing = kNoService;
         return;
     }
     if (HasFlags(world)) {
-        ReadFlags(world, [&](GameFlag* f, std::uint32_t cap, std::uint32_t* n) { return world->province_flags(province, f, cap, n); },
+        ReadFlags(world, [&](AnvilGameFlag* f, std::uint32_t cap, std::uint32_t* n) { return world->province_flags(province, f, cap, n); },
                   "province_flags", out);
     } else {
         out.flags_missing = kNoFlags;

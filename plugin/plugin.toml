@@ -4,7 +4,7 @@ version = "0.34.0"
 authors = ["Happy Dwarf Team"]
 description = "Control EU4 from scripts and agents: a local command pipe that reads the state of a running game and, when allowed, uses its keyboard and mouse and runs console commands."
 api = 2
-anvil = ">=1.7.0"
+anvil = ">=1.23.0"         # the first Anvil with anvil-game.world's player_tags
 entry = "tongs.dll"
 phase = "main"
 # Every game address and offset Tongs uses; its `builds` limit Tongs to EU4 1.37.5 (Steam, win64) and 1.37.5.2 and 1.37.5.0 (GOG, win64).
@@ -21,10 +21,11 @@ allow_multiplayer = "opt-in"
 issues = "https://github.com/happy-dwarf-team/tongs/issues"
 repository = "https://github.com/happy-dwarf-team/tongs"
 
-# Outer frames, main-thread work and the game session (docs/design.md, "Dispatcher").
+# Outer frames, main-thread work and the game session (docs/design.md, "Dispatcher"), and
+# anvil-game.world for the world reads, units, flags, pending events and diplomacy (player_tags: 1.23.0).
 [[dependencies]]
 id = "anvil-game"
-version = "^1"
+version = "^1.23.0"
 
 # Plugin map modes (anvil-map.modes): state's map_mode_id and map_mode by id. Tongs works without it.
 [[dependencies]]
