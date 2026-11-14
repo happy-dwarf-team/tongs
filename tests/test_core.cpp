@@ -5099,6 +5099,171 @@ static void TestSaveLoadFromMenu() {
     assert(Contains(HandleRequest("save load x", h), "\"error\":\"no_such_save\"") && game_loads == 1 && posts == menu_posts);
 }
 
+// Anbennar's notice as read live (3440 x 1440, 14.11.2026).
+static UiTree AchievementsNoticeTree(const char* title = "Vanilla achievements can no longer be earned", bool shown = true) {
+    UiTree t;
+    AddWidget(t, "menu", UiType::Window, true, {0, 0, 3440, 1440});
+    const int window = AddWidget(t, "DefaultConfirm", UiType::Window, shown, {1403, 468, 600, 504});
+    const int decline = AddWidget(t, "DeclineButton", UiType::Button, true, {1496, 912, 179, 37}, window);
+    t.widgets[decline].has_text = true;
+    t.widgets[decline].text = "Cancel";
+    const int agree = AddWidget(t, "AgreeButton", UiType::Button, true, {1732, 912, 179, 37}, window);
+    t.widgets[agree].has_text = true;
+    t.widgets[agree].text = "Ok";
+    t.widgets[agree].clickable = true;
+    t.widgets[agree].click_input = UiClickInput::Button;
+    const int text = AddWidget(t, "Title", UiType::Text, true, {1474, 511, 456, 24}, window);
+    t.widgets[text].has_text = true;
+    t.widgets[text].text = title;
+    t.ui_scale = 1;
+    return t;
+}
+
+static void TestFindAchievementsNotice() {
+    UiTree t = AchievementsNoticeTree();
+    UiNotice n = FindAchievementsNotice(t);
+    assert(n.window == 1 && n.agree == 3);
+    // DefaultConfirm is the game's generic confirm window: another title is not this notice.
+    assert(FindAchievementsNotice(AchievementsNoticeTree("Are you sure you want to quit?")).window == -1);
+    assert(FindAchievementsNotice(AchievementsNoticeTree("Vanilla achievements can no longer be earned!")).window == -1);
+    assert(FindAchievementsNotice(AchievementsNoticeTree(kAchievementsNoticeTitle.data(), false)).window == -1);
+    t.widgets[3].shown = false;  // no Ok to click
+    assert(FindAchievementsNotice(t).window == -1);
+    assert(FindAchievementsNotice(UiTree{}).window == -1);
+}
+
+// From the main menu, the load waits behind Anbennar's notice until its Ok is clicked.
+static void TestSaveLoadAchievementsNotice() {
+    Handlers h;
+    h.now_ms = SteadyMs;
+    h.sleep_ms = SleepMs;
+    h.game_calls.enabled = true;
+    StateSnapshot game;
+    const auto to_menu = [&game] {
+        game = {};
+        game.in_game = false;
+        game.reason = "session object has an unexpected vtable";
+        game.load = 0;
+    };
+    to_menu();
+    h.read_state = [&game] { return game; };
+    Dispatcher d(SteadyMs);
+    h.dispatcher = &d;
+    const std::string file = FromHex("45553462696e4d2801000c00d0228203692c01000f000500782e657534382a01000f00030041524d");  // 1719.3.17, ARM
+    h.locate_save = [](const std::string& name, std::string& path, bool& exists) {
+        path = "C:\\saves\\" + name + ".eu4";
+        exists = true;
+        return std::string();
+    };
+    h.read_save = [&file](const std::string&, std::string& bytes) {
+        bytes = file;
+        return std::string();
+    };
+    h.save_tokens = kTokens;
+    h.call_load = [](const std::string&) { return LoadCall{}; };
+    h.close_windows = [](unsigned long&) { return true; };
+    int loading_frames = 0;
+    h.read_loading = [&loading_frames](bool& out) {
+        out = loading_frames > 0;
+        if (loading_frames > 0) --loading_frames;
+        return true;
+    };
+    h.read_player = [](PlayerRaw& p) {
+        p.tag = p.player_tag = "ARM";
+        return WorldFailure{};
+    };
+    bool flag = false, notice = false;
+    h.call_menu_load = [&flag](const std::string&) {
+        flag = true;
+        return LoadCall{};
+    };
+    h.read_continue_flag = [&](bool& set) {
+        if (flag) {  // taken: the load stops at the notice
+            flag = false;
+            notice = true;
+        }
+        set = flag;
+        return true;
+    };
+    h.clear_continue = [&flag] { flag = false; };
+    const UiTree open = AchievementsNoticeTree();
+    const UiRect ok = open.widgets[3].rect;
+    h.read_ui = [&](UiTree& out) {
+        out = notice ? open : UiTree{};
+        return std::string();
+    };
+    std::pair<int, int> cursor{-1, -1};
+    const auto over_ok = [&] {
+        return notice && cursor.first >= ok.x && cursor.first < ok.x + ok.w && cursor.second >= ok.y && cursor.second < ok.y + ok.h;
+    };
+    h.set_cursor = [&cursor](int x, int y) { cursor = {x, y}; };
+    h.release_cursor = [&cursor] { cursor = {-1, -1}; };
+    h.read_hovered = [&] { return over_ok() ? open.widgets[3].address : std::uintptr_t{0}; };
+    h.read_window = [] {
+        WindowSnapshot w;
+        w.found = true;
+        w.width = 3440;
+        w.height = 1440;
+        return w;
+    };
+    int clicks = 0;
+    h.send_input = [&](const std::vector<InputEvent>& events) {
+        for (const InputEvent& e : events) {
+            if (e.type != InputEvent::Type::MouseUp || !over_ok()) continue;
+            ++clicks;
+            notice = false;  // Ok: the load goes on and enters the save
+            game.in_game = true;
+            game.reason = nullptr;
+            game.load = 1;
+            game.paused = true;
+            game.date_raw = 58'860'240;
+            loading_frames = 2;
+        }
+        return std::string();
+    };
+    FakeMainThread main(d);
+
+    // By default nothing is clicked: the timeout names the notice.
+    std::string out = HandleRequest("save load x timeout=2", h);
+    assert(Contains(out, "\"error\":\"blocked\"") && Contains(out, "\"blocked_by\":\"achievements_notice\""));
+    assert(Contains(out, "\"called\":true") && Contains(out, "\"via\":\"menu\"") && !Contains(out, "\"dismissed\""));
+    assert(clicks == 0 && notice);
+
+    // dismiss=achievements clicks its Ok by name and waits on: one input, and the answer says so.
+    notice = false;
+    to_menu();
+    const std::uint64_t inputs = h.gate->counts().inputs;
+    out = HandleRequest("save load x dismiss=achievements timeout=20", h);
+    assert(Contains(out, "{\"ok\":true,\"command\":\"save load\",\"save\":\"x\"") && Contains(out, "\"via\":\"menu\""));
+    assert(Contains(out, "\"dismissed\":\"achievements_notice\",\"dismiss_clicks\":1") && Contains(out, "\"session\":1,"));
+    assert(clicks == 1 && !notice && h.gate->counts().inputs == inputs + 1);
+
+    // Without the notice the option clicks nothing.
+    to_menu();
+    h.read_continue_flag = [&](bool& set) {
+        if (flag) {
+            flag = false;
+            game.in_game = true;
+            game.reason = nullptr;
+            game.load = 1;
+            game.paused = true;
+            game.date_raw = 58'860'240;
+            loading_frames = 2;
+        }
+        set = flag;
+        return true;
+    };
+    out = HandleRequest("save load x dismiss=achievements", h);
+    assert(Contains(out, "\"ok\":true") && !Contains(out, "\"dismissed\"") && clicks == 1);
+
+    // The click is an input: without input = true the option is refused before anything is called.
+    to_menu();
+    h.send_input = nullptr;
+    out = HandleRequest("save load x dismiss=achievements", h);
+    assert(Contains(out, "\"error\":\"input_disabled\"") && !Contains(out, "\"called\":true"));
+    assert(Contains(HandleRequest("save load x dismiss=all", h), "\"error\":\"bad_command\""));
+}
+
 static void TestNavigationService() {
     NavigationFake fake;
     fake.facts.land = true;
@@ -5971,6 +6136,8 @@ int main(int argc, char** argv) {
     TestSaveLoadCommand();
     TestSaveLoadCommand(true);
     TestSaveLoadFromMenu();
+    TestFindAchievementsNotice();
+    TestSaveLoadAchievementsNotice();
     TestConsoleCommand();
     std::puts("ok");
     return 0;

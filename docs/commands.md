@@ -61,7 +61,7 @@ With `game_calls = true` in the settings, also (see [Console](#console)):
 | Command | What it does |
 | --- | --- |
 | `console LINE` | runs one console command line in the game, on its main thread, and answers with the game's text and the state afterwards. **Changes game state** |
-| `save load NAME [timeout=S]` | loads a save from `save games` in the running game, as the Load dialog does, or from the main menu, as its Continue does (see [Loading a save](#loading-a-save)). **Discards the running game without saving** |
+| `save load NAME [timeout=S] [dismiss=achievements]` | loads a save from `save games` in the running game, as the Load dialog does, or from the main menu, as its Continue does (see [Loading a save](#loading-a-save)). **Discards the running game without saving** |
 
 Input commands answer once the game has reacted (or after 10 s) with
 `command`, `presses`, `waited_ms` and the fields of `state`. A pause (also
@@ -741,7 +741,7 @@ compare the `date` of each answer.
 
 ## Loading a save
 
-`save load NAME [timeout=S]` loads a save in the running game, as the in-game
+`save load NAME [timeout=S] [dismiss=achievements]` loads a save in the running game, as the in-game
 Load dialog does, or from the main menu, as the menu's Continue does, without
 clicking through either. It is a **game call**
 ([ADR 0001](adr/0001-game-calls-in-tongs.md)): it needs `game_calls = true`,
@@ -772,6 +772,20 @@ when Tongs called the game's loader. A run with it is a marked run.
   nothing called), `not_taken` (the main menu did not take the load on its
   next frame because another screen is open; Tongs took it back and nothing
   was loaded, `called: true`).
+- **Anbennar's achievements notice.** With Anbennar the menu load stops at the
+  notice "Vanilla achievements can no longer be earned" (`Cancel` / `Ok`)
+  until it is closed. While it waits, Tongs reads the widget tree about every
+  0.5 s and knows the notice by its top-level `DefaultConfirm` window with
+  exactly that `Title` and a shown `AgreeButton`; any other `DefaultConfirm`
+  is left alone. By default nothing is clicked, and a timeout with the notice
+  open answers `blocked` with `blocked_by: "achievements_notice"` (`called:
+  true`) instead of `not_loaded`. With `dismiss=achievements` Tongs clicks its
+  `AgreeButton` as `ui click` does (up to three times) and waits on; the
+  answer has `dismissed: "achievements_notice"` and `dismiss_clicks`. Each
+  click is one **input**, counted in `inputs` with an `activity`
+  notification, so the option needs `input = true` (`input_disabled`
+  otherwise, before anything is called). Only the menu path looks for the
+  notice: a load in a running game returns from the game's loader in one go.
 - **What it discards.** The running game is discarded **without saving and
   without a warning**, as the Load dialog does; Tongs never saves the game.
   Tongs then hides the in-game windows, as the game does when it resets a
