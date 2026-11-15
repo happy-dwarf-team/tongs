@@ -217,8 +217,12 @@ the rest of `state` is read live. Between the read in which Tongs first sees a
 new load and the first outer frame of that session no frame runs, so the
 service may still hold the previous session's flags; a resync after a desync
 is exactly such a load. Tongs reports both fields `false` until
-`frame_number()` has moved past the value it had at that read (`OosView`,
-`src/load_watch.cpp`). An out-of-sync flag that comes up in a running game
+`frame_number()` is two past the value it had at that read (`OosView`,
+`src/load_watch.cpp`): anvil-game stores a frame's number before it updates
+its views for that frame, so a read in between sees the new number with the
+old flags, and only the number after it proves that a whole frame of the new
+session ran. Tongs reads `frame_number()` before the flags, so the number it
+compares is never newer than what it reports. An out-of-sync flag that comes up in a running game
 shows in `state` one outer frame later than before, also in the `out_of_sync`
 notification. Without `anvil-game.game` both stay `false`.
 
@@ -228,9 +232,9 @@ notification. Without `anvil-game.game` both stay `false`.
 `anvil-game.game`'s `session()`, the same flags Anvil uses to suspend a
 plugin in ironman or multiplayer and Tongs' console reads for its gates.
 Like `out_of_sync()` the view is as of the last outer frame, so Tongs
-leaves both fields out of `state` until an outer frame ran after the read
-that saw a new load (`ModeView`, `src/load_watch.cpp`, which shares
-`OosView`'s gate), and without `anvil-game.game`. `multiplayer` is the
+leaves both fields out of `state` until a whole outer frame ran after the
+read that saw a new load (`ModeView`, `src/load_watch.cpp`, with the same
+gate as `OosView`), and without `anvil-game.game`. `multiplayer` is the
 game's own `is_multiplayer`: a host alone in a multiplayer lobby's game is
 not multiplayer until another player has joined. Reads keep working while
 Anvil suspends Tongs, so a client sees why its inputs are refused.

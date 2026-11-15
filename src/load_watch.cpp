@@ -25,7 +25,7 @@ bool FrameGate::Settled(const StateSnapshot& s, std::uint64_t frame) {
         load_ = s.load;
         frame_at_load_ = frame;
     }
-    return frame > frame_at_load_;
+    return frame >= frame_at_load_ + 2;
 }
 
 void OosView::Apply(StateSnapshot& s, std::uint64_t frame, std::uint32_t flags) {

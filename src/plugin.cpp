@@ -185,12 +185,16 @@ struct Tongs : anvil::Plugin {
                                start_ms = handlers.process_start_ms] {
             tongs::StateSnapshot s = tongs::ReadState(image_base, game_layout);
             load_watch.Observe(s);
+            // frame_number() before the views it gates (FrameGate): a frame number read first is never
+            // newer than the flags and the session read after it.
+            const std::uint64_t frame = game != nullptr ? game->frame_number() : 0;
             if (game != nullptr && ANVIL_GAME_HAS(game, out_of_sync)) {
-                oos_view.Apply(s, game->frame_number(), game->out_of_sync());
+                const std::uint32_t flags = game->out_of_sync();
+                oos_view.Apply(s, frame, flags);
             }
             if (game != nullptr && s.in_game) {
                 AnvilGameSession mode{};
-                if (game->session(&mode) != 0) mode_view.Apply(s, game->frame_number(), mode);
+                if (game->session(&mode) != 0) mode_view.Apply(s, frame, mode);
             }
             if (s.in_game && map_modes != nullptr) s.map_mode_id = map_modes->mode_id(s.map_mode);
             s.pid = pid;

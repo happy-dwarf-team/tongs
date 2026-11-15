@@ -27,11 +27,15 @@ private:
     std::int32_t date_raw_ = 0;
 };
 
-// Whether an outer frame ran after the read that first saw the load `s` belongs to: until then
-// anvil-game's views (as of the last outer frame) can still be the previous session's. Thread-safe.
+// Whether a whole outer frame ran after the read that first saw the load `s` belongs to: until then
+// anvil-game's views (as of the last outer frame) can still be the previous session's. anvil-game
+// stores the frame number F+1 before it updates the views of frame F+1, so a read in that gap sees
+// F+1 with frame F's views; only F+2, stored after frame F+1 finished, proves that views of the new
+// session are out. The caller reads frame_number() before the views. Thread-safe.
 class FrameGate {
 public:
-    // `s` after LoadWatch::Observe; `frame` is frame_number(). False without a game.
+    // `s` after LoadWatch::Observe; `frame` is frame_number(), read before the gated views. False
+    // without a game and until `frame` is two past the one of the read that saw the load.
     bool Settled(const StateSnapshot& s, std::uint64_t frame);
 
 private:

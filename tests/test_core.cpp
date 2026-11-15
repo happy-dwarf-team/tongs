@@ -616,14 +616,18 @@ static void TestOosView() {
     // The first read of a load: the flags are as of a frame before it, so neither yet.
     assert(apply(true, 1, 10, both) == std::pair(false, false));
     assert(apply(true, 1, 10, both) == std::pair(false, false));
-    assert(apply(true, 1, 11, both) == std::pair(true, true));
-    assert(apply(true, 1, 12, ANVIL_GAME_OOS_PAUSED) == std::pair(false, true));
-    assert(apply(true, 1, 13, ANVIL_GAME_OOS_DETECTED) == std::pair(true, false));
-    // A resync loads a save: the old session's flags until a frame of the new one ran.
-    assert(apply(false, 0, 13, both) == std::pair(false, false));
-    assert(apply(true, 2, 13, both) == std::pair(false, false));
-    assert(apply(true, 2, 14, 0) == std::pair(false, false));
-    assert(apply(true, 2, 15, both) == std::pair(true, true));
+    // Frame 11 is stored before anvil-game updates its flags for frame 11 (lab night review K2):
+    // a read in that gap still has frame 10's flags, so 11 does not settle the load yet.
+    assert(apply(true, 1, 11, both) == std::pair(false, false));
+    assert(apply(true, 1, 12, both) == std::pair(true, true));
+    assert(apply(true, 1, 13, ANVIL_GAME_OOS_PAUSED) == std::pair(false, true));
+    assert(apply(true, 1, 14, ANVIL_GAME_OOS_DETECTED) == std::pair(true, false));
+    // A resync loads a save: the old session's flags until a whole frame of the new one ran.
+    assert(apply(false, 0, 14, both) == std::pair(false, false));
+    assert(apply(true, 2, 14, both) == std::pair(false, false));
+    assert(apply(true, 2, 15, both) == std::pair(false, false));
+    assert(apply(true, 2, 16, 0) == std::pair(false, false));
+    assert(apply(true, 2, 17, both) == std::pair(true, true));
 }
 
 static void TestModeView() {
@@ -642,11 +646,13 @@ static void TestModeView() {
     assert(apply(false, 0, 10, true, true) == std::tuple(false, false, false));  // no game
     // The first read of a load: session() is as of a frame before it, so nothing yet.
     assert(apply(true, 1, 10, true, false) == std::tuple(false, false, false));
-    assert(apply(true, 1, 11, true, false) == std::tuple(true, true, false));
-    assert(apply(true, 1, 12, false, false) == std::tuple(true, false, false));
-    // Another save loaded from a running game: the old session's flags until a frame of the new one ran.
-    assert(apply(true, 2, 12, false, false) == std::tuple(false, false, false));
-    assert(apply(true, 2, 13, false, true) == std::tuple(true, false, true));
+    assert(apply(true, 1, 11, true, false) == std::tuple(false, false, false));  // frame 11 may still be running
+    assert(apply(true, 1, 12, true, false) == std::tuple(true, true, false));
+    assert(apply(true, 1, 13, false, false) == std::tuple(true, false, false));
+    // Another save loaded from a running game: the old session's flags until a whole frame of the new one ran.
+    assert(apply(true, 2, 13, false, false) == std::tuple(false, false, false));
+    assert(apply(true, 2, 14, false, true) == std::tuple(false, false, false));
+    assert(apply(true, 2, 15, false, true) == std::tuple(true, false, true));
 }
 
 // The 0.12 default config.toml, which a player may still have.
