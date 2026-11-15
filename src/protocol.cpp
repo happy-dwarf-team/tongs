@@ -2348,6 +2348,11 @@ std::string SaveLoad(const Request& r, std::string_view argument) {
                         return std::string();
                     }
                     if (!before.paused) return refused("not_paused", "the game runs; a player loads from the paused in-game menu");
+                    if (ConsoleRefusal r = CheckModuleSuspended(hh.game_calls); r.refused()) {
+                        call->refusal = r.error;
+                        call->refusal_detail = r.detail;
+                        return std::string();
+                    }
                     if (hh.read_console) {
                         ConsoleRaw raw;
                         if (std::string error = hh.read_console(raw); !error.empty()) return refused("console_unavailable", error);

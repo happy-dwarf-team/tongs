@@ -893,8 +893,11 @@ Tongs refuses, without calling the game:
   `anvil/anvil.toml` (`allow_ironman` / `allow_multiplayer = ["tongs.game_calls"]`,
   next to `"tongs"`) or with the module's switches in Anvil Manager. Tongs
   knows that only once Anvil has judged the session (`anvil-game.session`),
-  so a call before that is refused too. In a game that allows them, answers
-  carry `mode`: `ironman` and `multiplayer` as the game reads them, and
+  so a call before that is refused too. While Anvil holds the module
+  suspended, every game call in a game is refused with the code of the
+  session's mode as Anvil judged it, even when Tongs reads neither mode or
+  cannot read the console, and with `game_calls_suspended` in a session judged
+  as neither. In a game that allows them, answers carry `mode`: `ironman` and `multiplayer` as the game reads them, and
   `game_calls_ironman` / `game_calls_multiplayer`, the session's modes in which
   Anvil lets the module act;
 - `suspended`: Anvil suspended Tongs in this ironman or multiplayer game (see

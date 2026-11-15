@@ -113,9 +113,17 @@ struct ConsoleRefusal {
 // Refusals by name: always refused, and danger commands not in console_allow.
 ConsoleRefusal CheckConsoleName(const GameCallPolicy& policy, std::string_view name);
 
+// Anvil's verdict alone: refused while anvil.suspended holds the game_calls
+// module, whatever Tongs read of the game's mode. The refusal is the session's
+// ironman (multiplayer) one when Anvil judged such a session, else
+// game_calls_suspended. Checked on every game call in a game, also where Tongs
+// cannot read the console.
+ConsoleRefusal CheckModuleSuspended(const GameCallPolicy& policy);
+
 // Refusals by the game's mode, checked before each call on the main thread:
-// in ironman (multiplayer) unless Anvil lets the game_calls module act in that
-// session, which needs allow_ironman (allow_multiplayer) = ["tongs.game_calls"].
+// CheckModuleSuspended, then in ironman (multiplayer) as Tongs reads it unless
+// Anvil lets the game_calls module act in that session, which needs
+// allow_ironman (allow_multiplayer) = ["tongs.game_calls"].
 ConsoleRefusal CheckConsoleMode(const GameCallPolicy& policy, const ConsoleRaw& raw);
 
 // Notes for the log about console_allow entries that cannot take effect.

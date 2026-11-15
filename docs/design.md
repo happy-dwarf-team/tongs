@@ -2782,7 +2782,10 @@ gets `anvil.suspended`: until `anvil.resumed` its input commands (except
 `suspended`. Game calls are a second layer, the `game_calls` module with its
 own opt-ins: a game call in ironman needs both `"tongs"` and
 `"tongs.game_calls"` in `allow_ironman` (see "The game_calls module
-(0.35.0)").
+(0.35.0)"). Tongs refuses game calls on Anvil's verdict as well as on its own
+reading of the mode: while `anvil.suspended` holds the module, `console`,
+in-game `save load` and calls made as game calls are refused
+(`CheckModuleSuspended`), also where Tongs cannot read the console.
 
 ### Build
 

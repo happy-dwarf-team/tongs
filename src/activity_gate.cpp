@@ -240,6 +240,7 @@ Refusal ActivityGate::Activity::Promote(std::string detail, std::string why) {
     const Handlers& h = request_.handlers;
     if (!h.game_calls.enabled) return {"needs_game_calls", std::move(detail)};
     if (gate_.Tripped(Breaker::GameCalls)) return TrippedRefusal(Breaker::GameCalls);
+    if (ConsoleRefusal r = CheckModuleSuspended(h.game_calls); r.refused()) return {r.error, r.detail};
     if (h.read_console) {
         ConsoleRaw raw;
         if (std::string error = h.read_console(raw); !error.empty()) return {"console_unavailable", error};

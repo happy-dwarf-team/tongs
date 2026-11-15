@@ -2373,6 +2373,22 @@ static void TestConsoleRules() {
     policy.session = JudgedSession(false, true, true);
     assert(!CheckConsoleMode(policy, raw).refused() && policy.ActsInMultiplayer());
 
+    // Anvil's verdict alone refuses, whatever Tongs read of the mode (night review K4).
+    raw = ConsoleRaw{};
+    policy.session = nullptr;
+    assert(!CheckModuleSuspended(policy).refused());
+    policy.session = JudgedSession(true, false, false);
+    assert(CheckModuleSuspended(policy).error == "ironman" && CheckConsoleMode(policy, raw).error == "ironman");
+    policy.session = JudgedSession(false, true, false);
+    assert(CheckConsoleMode(policy, raw).error == "multiplayer");
+    policy.session = JudgedSession(false, false, false);  // suspended in a session judged as neither
+    assert(CheckConsoleMode(policy, raw).error == "game_calls_suspended");
+    policy.session = [] { return GameCallSession{false, false, false, true}; };  // suspended before any session
+    assert(CheckModuleSuspended(policy).error == "game_calls_suspended");
+    policy.session = JudgedSession(true, false, true);
+    assert(!CheckModuleSuspended(policy).refused() && !CheckConsoleMode(policy, raw).refused());
+    policy.session = nullptr;
+
     // The watch behind the session: the policy's anvil.suspended comes before anvil-game.session.
     GameCallSessionWatch watch;
     assert(!watch.Read().started && !watch.Read().Acts());
@@ -5238,6 +5254,11 @@ static void TestSaveLoadCommand(bool fault = false) {
     out = HandleRequest("save load x", ironman);
     assert(Contains(out, "\"called\":true") && Contains(out, "\"mode\":{\"ironman\":true,\"multiplayer\":false,"));
     h.read_console = nullptr;
+    // Without a console read, Anvil's suspension of the module still refuses (night review K4).
+    Handlers suspended_mp = h;
+    suspended_mp.game_calls.session = JudgedSession(false, true, false);
+    out = HandleRequest("save load x", suspended_mp);
+    assert(Contains(out, "\"error\":\"multiplayer\"") && !Contains(out, "\"called\":true"));
 
     // A load longer than the timeout: the answer comes at the timeout, the effect unknown; the
     // load is still a game call, and shows as one when it ends.
@@ -6193,6 +6214,10 @@ static void TestActivityGate() {
     assert(logged.size() == 1 && logged[0] == std::make_pair(kLogWarning, "a client call x (pipe 7, " + earlier +
                                                                               "): made as a game call: it discovers a capital"));
     h.read_console = nullptr;
+    // Without a console read, Anvil's suspension of the module still refuses (night review K4).
+    h.game_calls.session = JudgedSession(true, false, false);
+    run(h, kClient, promote);
+    assert(promoted.error == "ironman");
     h.game_calls.session = nullptr;
     Handlers tripped = h;
     tripped.gate = MakeActivityGate();

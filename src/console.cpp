@@ -132,15 +132,30 @@ bool GameCallPolicy::ActsInMultiplayer() const {
     return s.Acts() && s.multiplayer;
 }
 
+namespace {
+ConsoleRefusal IronmanRefusal() {
+    return {"ironman", "game calls are refused in ironman unless the player allows Tongs and its Game calls "
+                       "module there (allow_ironman = [\"tongs\", \"tongs.game_calls\"] in anvil/anvil.toml)"};
+}
+
+ConsoleRefusal MultiplayerRefusal() {
+    return {"multiplayer", "game calls are refused in multiplayer unless the player allows Tongs and its Game calls "
+                           "module there (allow_multiplayer = [\"tongs\", \"tongs.game_calls\"] in anvil/anvil.toml)"};
+}
+}  // namespace
+
+ConsoleRefusal CheckModuleSuspended(const GameCallPolicy& policy) {
+    const GameCallSession s = policy.Session();
+    if (!s.suspended) return {};
+    if (s.started && s.ironman) return IronmanRefusal();
+    if (s.started && s.multiplayer) return MultiplayerRefusal();
+    return {"game_calls_suspended", "Anvil suspended Tongs' Game calls module in the session in progress"};
+}
+
 ConsoleRefusal CheckConsoleMode(const GameCallPolicy& policy, const ConsoleRaw& raw) {
-    if (raw.ironman && !policy.ActsInIronman()) {
-        return {"ironman", "game calls are refused in ironman unless the player allows Tongs and its Game calls "
-                           "module there (allow_ironman = [\"tongs\", \"tongs.game_calls\"] in anvil/anvil.toml)"};
-    }
-    if (raw.multiplayer && !policy.ActsInMultiplayer()) {
-        return {"multiplayer", "game calls are refused in multiplayer unless the player allows Tongs and its Game calls "
-                               "module there (allow_multiplayer = [\"tongs\", \"tongs.game_calls\"] in anvil/anvil.toml)"};
-    }
+    if (ConsoleRefusal r = CheckModuleSuspended(policy); r.refused()) return r;
+    if (raw.ironman && !policy.ActsInIronman()) return IronmanRefusal();
+    if (raw.multiplayer && !policy.ActsInMultiplayer()) return MultiplayerRefusal();
     return {};
 }
 
