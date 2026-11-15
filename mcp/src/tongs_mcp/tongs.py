@@ -59,15 +59,16 @@ INSTANCE_ENV = "TONGS_INSTANCE"  # the game's `instance` setting, when several g
 
 
 def instance_name(instance=None):
-    """The instance to talk to: `instance`, else TONGS_INSTANCE, else "" (the one game without a name). Raises
-    ValueError for a name Tongs refuses (it opens no pipe then): up to 32 letters, digits, _ or -."""
+    """The instance to talk to: `instance`, else TONGS_INSTANCE, else "" (the one game without a name), in lower
+    case as Tongs folds it (Windows pipe names have no case). Raises ValueError for a name Tongs refuses (it opens no
+    pipe then): up to 32 letters, digits, _ or -."""
     import os
 
     if instance is None:
         instance = os.environ.get(INSTANCE_ENV, "")
     if instance and not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", instance):
         raise ValueError(f"instance {instance!r} must be up to 32 letters, digits, _ or -")
-    return instance
+    return instance.lower()
 
 
 def pipe_name(instance=None):
@@ -770,7 +771,13 @@ def main(argv):
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")), flush=True)
         if argv and args.commands == ["state"] and "state" not in argv:
             return 0
-    with Tongs(expect_pid=args.pid, expect_start_ms=args.start_ms, instance=instance) as game:
+    try:
+        game = Tongs(expect_pid=args.pid, expect_start_ms=args.start_ms, instance=instance)
+    except FileNotFoundError:
+        named = f' with instance = "{instance}"' if instance else ""
+        print(f"no pipe {pipe_path(instance)}: is a game{named} running with Tongs enabled?", file=sys.stderr)
+        return 2
+    with game:
         ok = True
         for i, command in enumerate(args.commands):
             text = game.raw(command)

@@ -721,7 +721,8 @@ static void TestConfig() {
     // The pipe's name for the `instance` setting: one name per game on the same machine.
     assert(PipeName("") == "tongs");
     assert(PipeName("host") == "tongs-host");
-    assert(PipeName("Guest_2-b") == "tongs-Guest_2-b");
+    assert(PipeName("Guest_2-b") == "tongs-guest_2-b");  // Windows pipe names have no case: one game
+    assert(PipeName("Host") == PipeName("host"));
     assert(PipeName(std::string(32, 'a')) == "tongs-" + std::string(32, 'a'));
     assert(PipeName(std::string(33, 'a')).empty());
     assert(PipeName("a b").empty());

@@ -127,12 +127,17 @@ replaces `bridge.json`, and native clients reach only that one.
 
 - **The setting.** `instance` (empty by default) names the game. A name is 1 to 32 letters, digits, `_` or `-`
   (`PipeName` in `src/config.cpp`); with any other name Tongs logs a warning and opens no pipe, rather than fall back to
-  the shared one. A named game serves `\\.\pipe\tongs-NAME`, its socket accepts only `RELAY <token> tongs-NAME`, and
+  the shared one. Tongs folds the name to lower case: Windows compares pipe names without case (with
+  `\\.\pipe\tongs-CaseProbe` open, `tongs-caseprobe` reaches it and a second first instance under that name fails with
+  error 5), so `Host` and `host` are one game on Windows, and the folding makes them one game under Wine too (one pipe
+  name, one bridge folder). A named game serves `\\.\pipe\tongs-NAME`, its socket accepts only `RELAY <token> tongs-NAME`, and
   its `bridge.json` defaults to `tongs/NAME/` in the XDG state folder (a configured `bridge_folder` is used as it is).
   The pipe's DACL, its 8 pipe instances and the journal (one file per process, `journal-<start>-<pid>.jsonl`) are the
   same for every game.
 - **Clients.** `scripts/tongs.py` and the MCP server take the name from `--instance NAME`, `TONGS_INSTANCE=NAME` or
-  `Tongs(instance="NAME")`; they refuse a name Tongs would refuse. Every connection a client opens on its own (the
+  `Tongs(instance="NAME")`; they fold it the same way and refuse a name Tongs would refuse. `tongs.py` without a
+  running game of that name says so (`no pipe \\.\pipe\tongs-NAME: is a game with instance = "NAME" running …?`, exit
+  code 2) instead of a traceback. Every connection a client opens on its own (the
   `cancel` after a timeout, the date progress of a wait) goes to the same game. One MCP server talks to one game: run
   one per game (`python -m tongs_mcp --instance NAME`), and its instructions and errors name that game's pipe.
 - **What it does not do.** It does not make two games share anything: each runs as it would alone, and the instance

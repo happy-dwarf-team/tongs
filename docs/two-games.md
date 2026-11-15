@@ -6,7 +6,7 @@ use the same playset and settings, on Linux and on Windows.
 
 What is verified: on Linux (Proton), a GOG copy hosting and a Steam copy joining played one multiplayer game with the
 full out-of-sync check on, each through its own Tongs instance, and stayed in sync for a game year (14 November 2026).
-The Windows steps below follow the same rules but have not been tried on Windows yet.
+On Windows, a GOG copy hosting and a Steam copy joining did the same for 14 months of a new game (15 November 2026).
 
 ## The rules that make it work
 
@@ -25,7 +25,8 @@ The Windows steps below follow the same rules but have not been tried on Windows
   The guest needs no flag, because the host's settings travel with the session.
 - **One Tongs instance per game**: give each game its own `instance` (for example `host` and `guest`), so each serves
   its own pipe (`\\.\pipe\tongs-host`, `\\.\pipe\tongs-guest`) and, under Wine, its own bridge file. Point each client
-  at its game with `--instance <name>` or `TONGS_INSTANCE=<name>`.
+  at its game with `--instance <name>` or `TONGS_INSTANCE=<name>`. Case does not count: Windows compares pipe names
+  without it, so Tongs folds the name to lower case (`Host` and `host` are the same game, on Linux too).
 
 ## The same playset and settings in both games
 
@@ -62,21 +63,29 @@ game restarts itself and the shared wineserver goes down with the first launch. 
 
 ## Windows
 
-Not tried yet. Each game runs as its own Windows process, so the pipes would collide without `instance` too: the
-second game cannot serve `\\.\pipe\tongs`.
+Verified (15 November 2026, EU4 1.37.5, Anvil 1.23.0): a GOG 1.37.5.0 copy hosting with `-hardoos` and a Steam copy
+joining played 14 months of a new game without an out-of-sync, each driven over its own pipe for about 40 minutes,
+also across restarts of both games (Hamweard's Exit to Menu; the restarted game inherits `ANVIL_TONGS_INSTANCE` and
+serves its pipe again). Each game runs as its own Windows process, so the pipes would collide without `instance`: the
+second game cannot serve `\\.\pipe\tongs`, and waits for it with an error in the log.
 
 1. Install the game from GOG and from Steam (two separate installation folders), and install Anvil and Tongs into each.
 2. Make the two profile folders as above.
 3. Start the host from the GOG folder: `set ANVIL_TONGS_INSTANCE=host` and then `eu4.exe -nakamamp -hardoos -userdir=C:\eu4\host`.
-4. Start the guest from the Steam folder, through Steam so it is logged in there: set `ANVIL_TONGS_INSTANCE=guest`
-   for that start (or `instance = "guest"` in that copy's Tongs settings), with the launch options
-   `-nakamamp -userdir=C:\eu4\guest`.
+   At Multiplayer it opens the Paradox login; sign in with the second account. The login is kept in that profile.
+4. Start the guest from the Steam folder, with Steam running: `set ANVIL_TONGS_INSTANCE=guest` and then
+   `eu4.exe -nakamamp -userdir=C:\eu4\guest`. It logs in with the Steam-linked Paradox account. Steam's launch options
+   cannot set an environment variable on Windows (the `NAME=value %command%` form works on Linux only), so for a copy
+   started through Steam put `instance = "guest"` in that copy's `anvil/data/tongs/settings.toml` instead.
 5. Drive each with `tongs.py --instance host …` and `tongs.py --instance guest …`.
+
+Two copies on one Paradox account are not two players on Windows either: the second Steam copy found the hosted game,
+but Join ended in "Connecting... Game not found." after about 90 s.
 
 ## Two Steam copies
 
 Verified on Linux (15 November 2026, Tongs 0.34.0): two Steam copies joined in both directions and stayed in sync with
-`-hardoos` on the host. Not tried on Windows yet.
+`-hardoos` on the host. Not tried on Windows yet (a GOG host and a Steam guest were, above).
 
 Two things make them two players:
 
@@ -103,7 +112,7 @@ Not tried yet; these steps follow the same rules.
 2. Make the two profile folders as above. On Windows both games run as the same Windows user; the separate `-userdir`
    folders keep their profiles, and so their logins, apart.
 3. Start the first copy through Steam, with the launch options `-nakamamp -hardoos -userdir=C:\eu4\host` and
-   `ANVIL_TONGS_INSTANCE=host` set for it (or `instance = "host"` in that copy's Tongs settings).
+   `instance = "host"` in that copy's Tongs settings (Steam's launch options set no environment variable on Windows).
 4. Start the second copy from its own folder, with Steam running: `set ANVIL_TONGS_INSTANCE=guest` and then
    `eu4.exe -nakamamp -userdir=C:\eu4\guest`. Steam may refuse to start the same game twice through its own
    launcher, which is why this copy starts from its folder (not checked).
@@ -122,4 +131,12 @@ Through Tongs, with the widget paths from our run:
 3. **Start**: each player picks a nation in `country_selection_panel/lobby/right`; the guest clicks **Ready**, then the
    host clicks **PLAY**. Close the start screen in both (`startup_screen/close_button`).
 4. **Run**: Tongs' `speed` and `resume` work on the host in multiplayer. Read `state` from both instances and watch
-   `date`, `out_of_sync` and `paused_oos`.
+   `date`, `out_of_sync` and `paused_oos`. With both games on one computer, the game may slow itself down (to speed 3
+   in our Windows run) for the player who lags behind.
+
+Two things we met on Windows that are the game's, not Tongs' (15 November 2026):
+
+- The GOG host's lobby did not list the saves written by the Steam copy (the GOG copy had fewer DLC on), so we
+  started a new game.
+- A campaign continued from a loaded save left the multiplayer session on the host right after the start: the host
+  ran on alone and the guest stopped. Not checked yet without any plugin.

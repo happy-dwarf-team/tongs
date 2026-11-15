@@ -246,6 +246,7 @@ void TestFolder() {
     CHECK(tongs::BridgeFolder("D:\\bridge") == fs::path(L"D:\\bridge"));
     // A named instance gets a folder of its own below the default one; a configured folder is taken as it is.
     CHECK(tongs::BridgeFolder("", "guest") == fs::path(L"Z:\\home\\you\\.local\\state\\tongs\\guest"));
+    CHECK(tongs::BridgeFolder("", "Guest") == tongs::BridgeFolder("", "guest"));  // the same game as its pipe
     CHECK(tongs::BridgeFolder("/tmp/x", "guest") == fs::path(L"Z:\\tmp\\x"));
     ClearFolderEnvironment();
     CHECK(tongs::BridgeFolder("", "guest").empty());

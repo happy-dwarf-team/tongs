@@ -34,7 +34,8 @@ struct Config {
 bool ParseConsoleAllow(std::string_view text, std::vector<std::string>& out, std::vector<std::string>& notes);
 
 // The pipe's name (after \\.\pipe\) for the `instance` setting, so that several games on one
-// machine each serve their own: "tongs" for an empty instance, "tongs-<instance>" otherwise.
+// machine each serve their own: "tongs" for an empty instance, "tongs-<instance>" in lower case
+// otherwise (Windows compares pipe names without case, so "Host" and "host" are one game).
 // Empty when the instance is longer than 32 characters or has one outside letters, digits, _ and -.
 std::string PipeName(std::string_view instance);
 

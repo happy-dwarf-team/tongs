@@ -156,11 +156,22 @@ def test_instance_names(monkeypatch):
     assert tongs.pipe_name() == "tongs" and tongs.pipe_path() == tongs.PIPE
     assert tongs.pipe_name("host") == "tongs-host" and tongs.pipe_path("host") == tongs.PIPE + "-host"
     monkeypatch.setenv("TONGS_INSTANCE", "Guest_2-b")
-    assert tongs.pipe_name() == "tongs-Guest_2-b"
+    assert tongs.pipe_name() == "tongs-guest_2-b"  # folded as Tongs folds it: Windows pipe names have no case
+    assert tongs.pipe_name("Host") == "tongs-host" and tongs.pipe_path("Host") == tongs.PIPE + "-host"
     assert tongs.pipe_name("") == "tongs"  # an explicit empty name is the default game, whatever the environment says
     for bad in ("a b", "a/b", "..", "a.b", "x" * 33, "tongs\n"):
         with pytest.raises(ValueError):
             tongs.pipe_name(bad)
+
+
+def test_the_command_line_says_which_game_is_missing(monkeypatch, capsys):
+    def no_pipe(**kwargs):
+        raise FileNotFoundError(2, "The system cannot find the file specified")
+
+    monkeypatch.setattr(tongs, "Tongs", no_pipe)
+    assert tongs.main(["--instance", "Guest", "state"]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith(f"no pipe {tongs.PIPE}-guest:") and 'instance = "guest"' in err and "Traceback" not in err
 
 
 def test_a_named_instance_has_its_own_state_file(monkeypatch):

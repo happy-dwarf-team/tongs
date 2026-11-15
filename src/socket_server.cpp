@@ -270,7 +270,12 @@ std::filesystem::path BridgeFolder(const std::string& configured, const std::str
         state = home / L".local" / L"state";
     }
     std::filesystem::path folder = state / L"tongs";
-    if (!instance.empty()) folder /= std::wstring(instance.begin(), instance.end());  // PipeName checked it: ASCII
+    if (!instance.empty()) {
+        // The name as PipeName folds it (ASCII, lower case), so one name means one folder on a case-sensitive Unix.
+        std::wstring name;
+        for (const char c : instance) name += static_cast<wchar_t>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+        folder /= name;
+    }
     return folder;
 }
 
