@@ -1,6 +1,9 @@
 """Client for the Tongs pipe (\\\\.\\pipe\\tongs). Standard library only. On Windows it opens the pipe; elsewhere it reaches Tongs through the loopback
 socket Tongs serves under Wine and Proton when its `bridge` setting is on.
 
+Several games on one computer each serve their own pipe when Tongs' `instance` setting names them
+(\\\\.\\pipe\\tongs-NAME); pick one with TONGS_INSTANCE=NAME, --instance NAME or Tongs(instance="NAME").
+
 Command line: one answer line per command, in order, over one connection.
 A `subscribe` command, which must come last, then prints notification lines
 until --seconds or --count is reached (or Ctrl+C), and unsubscribes.
@@ -9,6 +12,7 @@ until --seconds or --count is reached (or Ctrl+C), and unsubscribes.
     python tongs.py pause "speed 5" "run_until 1720.1.1"
     python tongs.py "subscribe state,date,event date=day" --seconds 60
     python tongs.py --ready --session 1 --speed 5
+    python tongs.py --instance guest state
 
 As a module:
 
@@ -51,20 +55,49 @@ WAITS = ("wait_until", "run_until")
 LOAD_TIMEOUT_S = 120  # the plugin's default timeout of save load
 
 BRIDGE_STATE = "tongs/bridge.json"  # below $XDG_STATE_HOME (default ~/.local/state); written by Tongs
+INSTANCE_ENV = "TONGS_INSTANCE"  # the game's `instance` setting, when several games run on one computer
 
 
-def _bridge_state_path():
-    """Tongs' state file: TONGS_BRIDGE, else tongs/bridge.json in $XDG_STATE_HOME (~/.local/state without it)."""
+def instance_name(instance=None):
+    """The instance to talk to: `instance`, else TONGS_INSTANCE, else "" (the one game without a name). Raises
+    ValueError for a name Tongs refuses (it opens no pipe then): up to 32 letters, digits, _ or -."""
+    import os
+
+    if instance is None:
+        instance = os.environ.get(INSTANCE_ENV, "")
+    if instance and not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", instance):
+        raise ValueError(f"instance {instance!r} must be up to 32 letters, digits, _ or -")
+    return instance
+
+
+def pipe_name(instance=None):
+    """The pipe's name after \\\\.\\pipe\\ for an instance: "tongs", or "tongs-NAME" (Tongs' PipeName)."""
+    instance = instance_name(instance)
+    return f"tongs-{instance}" if instance else "tongs"
+
+
+def pipe_path(instance=None):
+    """The pipe's full name: PIPE, or PIPE-NAME for a named instance."""
+    instance = instance_name(instance)
+    return f"{PIPE}-{instance}" if instance else PIPE
+
+
+def _bridge_state_path(instance=None):
+    """Tongs' state file: TONGS_BRIDGE, else tongs/bridge.json in $XDG_STATE_HOME (~/.local/state without it), or
+    tongs/NAME/bridge.json there for a named instance."""
     import os
 
     explicit = os.environ.get("TONGS_BRIDGE")
     if explicit:
         return explicit
     state = os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state")
+    instance = instance_name(instance)
+    if instance:
+        return os.path.join(state, "tongs", instance, "bridge.json")
     return os.path.join(state, BRIDGE_STATE)
 
 
-def _open_bridge(pipe_name, timeout_s):
+def _open_bridge(pipe_name, timeout_s, instance=None):
     """A connected socket to Tongs, which under Wine or Proton serves the pipe's commands on 127.0.0.1 when its
     `bridge` setting is on. The state file Tongs writes names the port and a token; the first line sent is
     `RELAY <token> <pipe>` (the first line of Anvil's pipe relay too), answered `OK` or `ERR <reason>`. Retries for
@@ -76,7 +109,7 @@ def _open_bridge(pipe_name, timeout_s):
     last = None
     while True:
         try:
-            with open(_bridge_state_path(), encoding="utf-8") as state_file:
+            with open(_bridge_state_path(instance), encoding="utf-8") as state_file:
                 state = json.load(state_file)
             sock = socket.create_connection(("127.0.0.1", int(state["port"])), timeout=5.0)
             try:
@@ -220,11 +253,11 @@ def check_process(command, answer, expect_pid=None, expect_start_ms=None):
         })
 
 
-def send_cancel(timeout_s=LATE_ANSWER_S):
+def send_cancel(timeout_s=LATE_ANSWER_S, instance=None):
     """Sends `cancel` on a connection of its own (it ends the waits of every client); returns
     its answer, or None when the pipe did not take it."""
     try:
-        with Tongs(timeout_s=2.0, read_timeout_s=timeout_s) as other:
+        with Tongs(timeout_s=2.0, read_timeout_s=timeout_s, instance=instance) as other:
             return other.call("cancel")
     except (OSError, TongsError):
         return None
@@ -290,18 +323,23 @@ def _pipe_owner_is_ours(handle):
 
 
 class Tongs:
-    def __init__(self, timeout_s=2.0, expect_pid=None, expect_start_ms=None, read_timeout_s=None):
+    def __init__(self, timeout_s=2.0, expect_pid=None, expect_start_ms=None, read_timeout_s=None, instance=None):
         """Opens the pipe, retrying for `timeout_s` (the pipe has 8 instances, and it is not there
-        until the plugin starts). With expect_pid / expect_start_ms it checks `ping` first."""
+        until the plugin starts). With expect_pid / expect_start_ms it checks `ping` first.
+        `instance` names the game when several run (see instance_name); every connection this one
+        opens for itself (cancel, progress) goes to the same game."""
+        self.instance = instance_name(instance)
+        path = pipe_path(self.instance)
         self._sock = None
         self._pipe = None
         if sys.platform != "win32":
-            self._sock = _open_bridge("tongs", timeout_s)  # Tongs serves the same commands there; its token is the user's
+            # Tongs serves the same commands there; its token is the user's
+            self._sock = _open_bridge(pipe_name(self.instance), timeout_s, self.instance)
         else:
             deadline = time.monotonic() + timeout_s
             while True:
                 try:
-                    self._pipe = open(PIPE, "r+b", buffering=0)
+                    self._pipe = open(path, "r+b", buffering=0)
                     break
                 except OSError:
                     if time.monotonic() >= deadline:
@@ -309,7 +347,7 @@ class Tongs:
                     time.sleep(0.05)
             if not _pipe_owner_is_ours(msvcrt.get_osfhandle(self._pipe.fileno())):
                 self._pipe.close()
-                raise PipeOwnerError(f"{PIPE} belongs to another Windows user: it is not the game")
+                raise PipeOwnerError(f"{path} belongs to another Windows user: it is not the game")
         self._buffer = b""
         self._notes = collections.deque()  # notifications read while waiting for an answer
         self.expect_pid = expect_pid
@@ -381,7 +419,7 @@ class Tongs:
         waits LATE_ANSWER_S for the answer. Without one, the connection is closed, since the
         answer may still come."""
         if command.split()[:1] and command.split()[0] in WAITS:
-            send_cancel()
+            send_cancel(instance=self.instance)
         try:
             text = self._answer_line(LATE_ANSWER_S)
         except (OSError, KeyboardInterrupt):
@@ -473,7 +511,7 @@ class Tongs:
         if on_progress is None:
             return self.call(command, check=True)
         stop = threading.Event()
-        feed = threading.Thread(target=_report_progress, args=(on_progress, stop), daemon=True)
+        feed = threading.Thread(target=_report_progress, args=(on_progress, stop, self.instance), daemon=True)
         feed.start()
         try:
             return self.call(command, check=True)
@@ -568,9 +606,9 @@ def follow_dates(conn, heartbeat_s=60.0, poll_s=0.5):
             yield None
 
 
-def _report_progress(on_progress, stop):
+def _report_progress(on_progress, stop, instance=None):
     try:
-        with Tongs() as conn:
+        with Tongs(instance=instance) as conn:
             for p in follow_dates(conn):
                 if stop.is_set():
                     return
@@ -684,13 +722,14 @@ def wait_ready(call, session=None, in_game=True, speed=None, timeout=None, expec
     return result
 
 
-def ready(session=None, in_game=True, speed=None, timeout=None, expect_pid=None, expect_start_ms=None):
+def ready(session=None, in_game=True, speed=None, timeout=None, expect_pid=None, expect_start_ms=None, instance=None):
     """ready() from outside the game's start: waits for the pipe as well, one connection per
     request, and returns as wait_ready. Then open a Tongs with the same expect_pid /
-    expect_start_ms for the next steps."""
+    expect_start_ms (and instance) for the next steps."""
+    instance = instance_name(instance)
 
     def call(command):
-        with Tongs(timeout_s=0, read_timeout_s=read_timeout(command)) as conn:
+        with Tongs(timeout_s=0, read_timeout_s=read_timeout(command), instance=instance) as conn:
             return conn.call(command)
 
     return wait_ready(call, session=session, in_game=in_game, speed=speed, timeout=timeout,
@@ -712,21 +751,26 @@ def main(argv):
     parser.add_argument("--timeout", type=float, help="with --ready: seconds (default by case)")
     parser.add_argument("--pid", type=int, help="expect this game process id")
     parser.add_argument("--start-ms", type=int, help="expect this process creation time (Unix ms)")
+    parser.add_argument("--instance", help=f"the game's `instance` setting, when several games run (default: ${INSTANCE_ENV})")
     args = parser.parse_args(argv)
+    try:
+        instance = instance_name(args.instance)
+    except ValueError as e:
+        parser.error(str(e))
     # Answers are UTF-8 JSON (e.g. "£yes" in console texts); a pipe would otherwise get the
     # ANSI code page and fail on such characters.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     if args.ready:
         try:
-            result = ready(args.session, not args.menu, args.speed, args.timeout, args.pid, args.start_ms)
+            result = ready(args.session, not args.menu, args.speed, args.timeout, args.pid, args.start_ms, instance)
         except TongsError as e:
             print(json.dumps(e.answer, ensure_ascii=False, separators=(",", ":")), flush=True)
             return 1
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")), flush=True)
         if argv and args.commands == ["state"] and "state" not in argv:
             return 0
-    with Tongs(expect_pid=args.pid, expect_start_ms=args.start_ms) as game:
+    with Tongs(expect_pid=args.pid, expect_start_ms=args.start_ms, instance=instance) as game:
         ok = True
         for i, command in enumerate(args.commands):
             text = game.raw(command)

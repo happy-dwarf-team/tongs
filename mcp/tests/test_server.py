@@ -208,6 +208,7 @@ def test_instructions_list_the_tools_of_each_type():
         for kind, line in lines.items():
             assert (name + "," in line or name + ")" in line) is (t.type == kind and t.effect != "raw"), (name, kind)
     assert "tongs_map_mode" in lines["client_call"] and "{" not in text
+    assert "the local pipe \\\\.\\pipe\\tongs. " in server.instructions(TOOLS, "\\\\.\\pipe\\tongs")
 
 
 @pytest.mark.parametrize(("tool", "args", "line"), LINES)
@@ -307,6 +308,29 @@ async def test_missing_pipe_is_reported():
         result = await client.call_tool("tongs_state", {})
     assert result.is_error
     assert "enabled = true" in result.content[0].text
+
+
+async def test_a_named_instance_is_named_in_the_instructions_and_errors(monkeypatch):
+    def connect():
+        raise FileNotFoundError(2, "not found")
+
+    monkeypatch.setenv("TONGS_INSTANCE", "guest")
+    async with Client(build_server(connect)) as client:
+        assert "pipe \\\\.\\pipe\\tongs-guest." in client.instructions
+        result = await client.call_tool("tongs_state", {})
+    assert result.is_error
+    assert "\\\\.\\pipe\\tongs-guest is not there" in result.content[0].text
+    assert 'instance = "guest"' in result.content[0].text
+
+
+def test_main_takes_the_instance_from_its_argument(monkeypatch):
+    ran = []
+    monkeypatch.setattr(server.anyio, "run", lambda fn: ran.append(fn))
+    monkeypatch.delenv("TONGS_INSTANCE", raising=False)
+    server.main(["--instance", "host"])
+    assert ran and server.os.environ["TONGS_INSTANCE"] == "host"
+    with pytest.raises(SystemExit):
+        server.main(["--instance", "../evil"])
 
 
 async def test_pipe_closing_without_answer_is_reported():

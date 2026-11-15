@@ -32,6 +32,7 @@ constexpr int kMaxTurnedAway = 16;  // clients being told `busy` at once; more a
 struct Server {
     Handlers handlers;
     LogFn log;
+    std::string pipe;  // the one name the handshake accepts
     std::string token;
     std::atomic<int> active{0};      // clients being served
     std::atomic<int> turned_away{0};  // clients being told `busy`
@@ -144,7 +145,7 @@ const char* Handshake(Server& server, SOCKET socket) {
         return "ERR bad request\n";
     }
     if (!SameToken(server.token, token)) return "ERR bad token\n";
-    if (std::string_view(pipe) != "tongs") return "ERR pipe not served\n";
+    if (std::string_view(pipe) != server.pipe) return "ERR pipe not served\n";
     return nullptr;
 }
 
@@ -231,7 +232,7 @@ PeerUids ProcNetTcpUids(std::string_view table, int server_port, int client_port
     return uids;
 }
 
-std::filesystem::path BridgeFolder(const std::string& configured) {
+std::filesystem::path BridgeFolder(const std::string& configured, const std::string& instance) {
     // A Unix path (what the player writes in settings, and what XDG_STATE_HOME holds) is reached through Z:.
     const auto windows_path = [](std::wstring unix) {
         for (wchar_t& c : unix) {
@@ -268,17 +269,20 @@ std::filesystem::path BridgeFolder(const std::string& configured) {
         if (home.empty()) return {};
         state = home / L".local" / L"state";
     }
-    return state / L"tongs";
+    std::filesystem::path folder = state / L"tongs";
+    if (!instance.empty()) folder /= std::wstring(instance.begin(), instance.end());  // PipeName checked it: ASCII
+    return folder;
 }
 
-bool StartSocketServer(const Handlers& handlers, LogFn log, const std::filesystem::path& folder) {
+bool StartSocketServer(const Handlers& handlers, LogFn log, const std::filesystem::path& folder,
+                       const std::string& pipe) {
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
         log(ANVIL_LOG_ERROR, "socket: Winsock did not start");
         return false;
     }
     // Lives for the rest of the process, like the threads that use it.
-    auto* server = new Server{handlers, log};
+    auto* server = new Server{handlers, log, pipe};
     if (!RandomToken(server->token)) {
         log(ANVIL_LOG_ERROR, "socket: no random token (BCryptGenRandom failed)");
         delete server;

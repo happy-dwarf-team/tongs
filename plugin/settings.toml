@@ -37,6 +37,12 @@ affects_gameplay = false
 label = "Allowed danger commands"
 description = "Danger commands that game calls may run besides the safe ones, as names separated by commas or spaces, e.g. \"leak\"."
 
+[setting.instance]
+type = "string"
+default = ""
+label = "Instance name"
+description = "Leave empty for one game. To run several games on one computer, give each a different name of up to 32 letters, digits, _ or -: its pipe becomes \\\\.\\pipe\\tongs-NAME, and under Wine its bridge.json goes to a folder NAME below the default one. Clients choose the game with TONGS_INSTANCE=NAME or --instance NAME."
+
 [setting.bridge]
 type = "bool"
 default = false

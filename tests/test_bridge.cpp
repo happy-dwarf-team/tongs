@@ -54,8 +54,8 @@ State g_state;
 fs::path g_folder;
 tongs::NotificationHub* g_hub = nullptr;
 
-bool ReadState(State& state) {
-    std::ifstream in(g_folder / L"bridge.json", std::ios::binary);
+bool ReadState(State& state, const fs::path& folder = g_folder) {
+    std::ifstream in(folder / L"bridge.json", std::ios::binary);
     std::stringstream text;
     text << in.rdbuf();
     const std::string json = text.str();
@@ -74,11 +74,11 @@ bool ReadState(State& state) {
     return state.port > 0;
 }
 
-SOCKET Connect() {
+SOCKET Connect(int port = g_state.port) {
     SOCKET s = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in address{};
     address.sin_family = AF_INET;
-    address.sin_port = htons(static_cast<u_short>(g_state.port));
+    address.sin_port = htons(static_cast<u_short>(port));
     inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
     if (connect(s, reinterpret_cast<sockaddr*>(&address), sizeof address) != 0) {
         closesocket(s);
@@ -100,8 +100,8 @@ std::string ReadLine(SOCKET s) {
 
 void SendText(SOCKET s, const std::string& text) { send(s, text.data(), static_cast<int>(text.size()), 0); }
 
-std::string Ask(const std::string& request) {
-    const SOCKET s = Connect();
+std::string Ask(const std::string& request, int port = g_state.port) {
+    const SOCKET s = Connect(port);
     if (s == INVALID_SOCKET) return "(cannot connect)";
     SendText(s, request);
     std::string answer = ReadLine(s);
@@ -244,7 +244,37 @@ void TestFolder() {
     CHECK(tongs::BridgeFolder("") == fs::path(L"Z:\\home\\you\\.local\\state\\tongs"));
     CHECK(tongs::BridgeFolder("/tmp/x") == fs::path(L"Z:\\tmp\\x"));  // a configured Unix path is reached through Z:
     CHECK(tongs::BridgeFolder("D:\\bridge") == fs::path(L"D:\\bridge"));
+    // A named instance gets a folder of its own below the default one; a configured folder is taken as it is.
+    CHECK(tongs::BridgeFolder("", "guest") == fs::path(L"Z:\\home\\you\\.local\\state\\tongs\\guest"));
+    CHECK(tongs::BridgeFolder("/tmp/x", "guest") == fs::path(L"Z:\\tmp\\x"));
     ClearFolderEnvironment();
+    CHECK(tongs::BridgeFolder("", "guest").empty());
+}
+
+// A second server in the same process, as a second game with `instance = "guest"` would run it: its own state file,
+// its own token, and only its own pipe name in the handshake.
+void TestSecondInstance() {
+    const fs::path folder = g_folder / L"guest";
+    tongs::Handlers handlers;
+    handlers.process_id = 4343;
+    handlers.process_start_ms = 8;
+    handlers.notifications = g_hub;
+    State guest;
+    CHECK(tongs::StartSocketServer(handlers, LogToConsole, folder, "tongs-guest") && ReadState(guest, folder));
+    if (guest.port <= 0) return;
+    CHECK(guest.port != g_state.port);
+    CHECK(guest.token != g_state.token);
+    CHECK(Ask("RELAY " + guest.token + " tongs\n", guest.port) == "ERR pipe not served");
+    CHECK(Ask("RELAY " + g_state.token + " tongs-guest\n", guest.port) == "ERR bad token");
+    CHECK(Ask("RELAY " + g_state.token + " tongs-guest\n") == "ERR pipe not served");  // the first server's own
+    const SOCKET s = Connect(guest.port);
+    CHECK(s != INVALID_SOCKET);
+    if (s == INVALID_SOCKET) return;
+    SendText(s, "RELAY " + guest.token + " tongs-guest\n");
+    CHECK(ReadLine(s) == "OK");
+    SendText(s, "ping\n");
+    CHECK(Contains(ReadLine(s), "\"pid\":4343"));
+    closesocket(s);
 }
 
 void TestProcNetTcp() {
@@ -311,6 +341,7 @@ int main(int argc, char** argv) {
     Run("a client that sends nothing is cut off", TestSilentClientIsCutOff);
     Run("eight clients at once, a ninth is turned away", TestEightClientsAtOnce);
     Run("the folder of bridge.json", TestFolder);
+    Run("a second instance with its own pipe name", TestSecondInstance);
     Run("the owners of a connection in /proc/net/tcp", TestProcNetTcp);
     Run("the real /proc/net/tcp lists our own connection", TestTheRealProcNetTcp);
 

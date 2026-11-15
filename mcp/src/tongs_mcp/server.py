@@ -9,8 +9,13 @@ input and game calls still depend on `input` in the plugin's config and on its
 Game calls module (`tongs.game_calls` in Anvil's anvil.toml). Connections, read timeouts, date progress and the ready wait are the
 pipe client's (tongs.py, a copy of scripts/tongs.py); this module adds the
 async layer and the notes on cancelled calls.
+
+With several games on one computer, each Tongs with its own `instance` setting, run one server
+per game: `python -m tongs_mcp --instance NAME` (or TONGS_INSTANCE=NAME) talks to
+\\\\.\\pipe\\tongs-NAME only.
 """
 
+import argparse
 import base64
 import inspect
 import json
@@ -28,7 +33,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import CallToolResult, ImageContent, TextContent, ToolAnnotations
 from pydantic import Field
 
-from .tongs import PIPE, CallTimeout, TongsError, follow_dates, game_days, wait_ready
+from .tongs import INSTANCE_ENV, CallTimeout, TongsError, follow_dates, game_days, instance_name, pipe_path, wait_ready
 
 __all__ = ["build_server", "game_days", "main", "tool_commands"]
 
@@ -105,7 +110,7 @@ class Abandoned:
 
 INSTRUCTIONS = """\
 Tongs controls a running Europa Universalis IV 1.37.5 (with the Anvil loader) through
-the local pipe \\\\.\\pipe\\tongs. Every tool sends one command and returns the plugin's
+the local pipe {pipe}. Every tool sends one command and returns the plugin's
 JSON answer unchanged; "ok": false answers come back as errors with an "error" field.
 
 - Start with tongs_state (in_game, date, speed, paused, session, pid). After starting the
@@ -206,13 +211,14 @@ class ToolCommands:
     effect: Effect | None
 
 
-def instructions(tools: dict[str, ToolCommands]) -> str:
-    """The server's instructions, with the tools of each type but read listed from their types."""
+def instructions(tools: dict[str, ToolCommands], pipe: str | None = None) -> str:
+    """The server's instructions, with the tools of each type but read listed from their types,
+    and the pipe of the game this server talks to (default: pipe_path(), from TONGS_INSTANCE)."""
     listed = {
         kind: ", ".join(name for name, t in tools.items() if t.type == kind and t.effect != "raw")
         for kind in ("input", "client_call", "game_call")
     }
-    return INSTRUCTIONS.format(**listed)
+    return INSTRUCTIONS.format(pipe=pipe or pipe_path(), **listed)
 
 
 Timeout = Annotated[
@@ -298,6 +304,8 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
         server_version = version("tongs-mcp")
     except PackageNotFoundError:  # pragma: no cover - running from a source tree
         server_version = "0"
+    instance = instance_name()  # TONGS_INSTANCE, which main() sets from --instance
+    pipe = pipe_path(instance)
     tools: dict[str, ToolCommands] = {}
     pending: list[tuple[Any, str, ToolAnnotations]] = []
 
@@ -321,13 +329,13 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
             conn = connect()
         except FileNotFoundError:
             raise ToolError(
-                f"the pipe {PIPE} is not there: start EU4 with Anvil and Tongs, enabled = true in "
-                "anvil/data/tongs/settings.toml"
+                f"the pipe {pipe} is not there: start EU4 with Anvil and Tongs, enabled = true in "
+                "anvil/data/tongs/settings.toml" + (f' and instance = "{instance}"' if instance else "")
             ) from None
         except ModuleNotFoundError:
             raise ToolError("the Tongs pipe client runs on Windows only") from None
         except OSError as e:
-            raise ToolError(f"cannot open {PIPE} ({e}); all 8 pipe instances may be busy") from None
+            raise ToolError(f"cannot open {pipe} ({e}); all 8 pipe instances may be busy") from None
         try:
             return conn.raw(line)
         except CallTimeout as e:
@@ -1026,14 +1034,25 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
             raise ToolError("subscribe needs a connection of its own; the MCP tools report progress instead")
         return await call(line.strip())
 
-    mcp = MCPServer("tongs", version=server_version, instructions=instructions(tools))
+    mcp = MCPServer("tongs", version=server_version, instructions=instructions(tools, pipe))
     for fn, description, hints in pending:
         mcp.add_tool(fn, description=description, annotations=hints, structured_output=False)
     return mcp, tools
 
 
-def main() -> None:
-    """Runs the server on stdio (no network transport)."""
+def main(argv: list[str] | None = None) -> None:
+    """Runs the server on stdio (no network transport). `--instance NAME` picks the game whose
+    Tongs has `instance = "NAME"`; it sets TONGS_INSTANCE, which the client reads."""
+    parser = argparse.ArgumentParser(prog="tongs_mcp", description="MCP server (stdio) for the Tongs pipe.")
+    parser.add_argument(
+        "--instance", help=f"the game's `instance` setting, when several games run (default: ${INSTANCE_ENV})"
+    )
+    args = parser.parse_args(argv)
+    try:
+        instance = instance_name(args.instance)
+    except ValueError as e:
+        parser.error(str(e))
+    os.environ[INSTANCE_ENV] = instance
     anyio.run(build_server().run_stdio_async)
 
 

@@ -17,7 +17,8 @@ struct Config {
     bool input = false;
     bool journal = true;
     bool bridge = false;        // also serve the pipe's commands on a loopback socket, under Wine only
-    std::string bridge_folder;  // where its bridge.json goes; empty: ~/.local/state/tongs
+    std::string bridge_folder;  // where its bridge.json goes; empty: ~/.local/state/tongs[/<instance>]
+    std::string instance;       // empty: the pipe `tongs`; otherwise `tongs-<instance>` (PipeName)
     GameCallPolicy game_calls;  // the game_calls module and its console_allow
     // config.toml of 0.12 and older only: written to settings.toml as the retired settings
     // game_calls_ironman / game_calls_multiplayer, which Anvil moves into the module's opt-ins.
@@ -31,6 +32,11 @@ struct Config {
 // config. Returns false (and an empty list) when a name has a character
 // outside letters, digits, _ and .
 bool ParseConsoleAllow(std::string_view text, std::vector<std::string>& out, std::vector<std::string>& notes);
+
+// The pipe's name (after \\.\pipe\) for the `instance` setting, so that several games on one
+// machine each serve their own: "tongs" for an empty instance, "tongs-<instance>" otherwise.
+// Empty when the instance is longer than 32 characters or has one outside letters, digits, _ and -.
+std::string PipeName(std::string_view instance);
 
 // --- anvil/data/tongs/config.toml of Tongs 0.12 and older -------------------
 // Only flat `key = value` lines; read once, to move it into the player's

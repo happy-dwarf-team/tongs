@@ -117,8 +117,65 @@ def test_the_client_waits_for_the_socket_to_start(relay, tmp_path, monkeypatch):
         assert t.call("ping")["ok"]
 
 
+@posix
+def test_a_named_instance_asks_for_its_own_pipe(tmp_path, monkeypatch):
+    relay = FakeRelay(serve_pipe="tongs-guest")
+    try:
+        monkeypatch.setenv("TONGS_BRIDGE", str(relay.state_file(tmp_path)))
+        with Tongs(timeout_s=2, instance="guest") as t:
+            assert t.call("ping")["pid"] == 42
+        monkeypatch.setenv("TONGS_INSTANCE", "guest")
+        with Tongs(timeout_s=2) as t:  # the same from the environment
+            assert t.instance == "guest"
+        assert relay.requests == ["RELAY secret tongs-guest"] * 2
+        monkeypatch.delenv("TONGS_INSTANCE")
+        with pytest.raises(OSError, match="pipe not served"):
+            Tongs(timeout_s=0.2)  # the default instance is another game
+    finally:
+        relay.close()
+
+
+@posix
+def test_cancel_goes_to_the_same_instance(tmp_path, monkeypatch):
+    relay = FakeRelay(serve_pipe="tongs-guest")
+    try:
+        monkeypatch.setenv("TONGS_BRIDGE", str(relay.state_file(tmp_path)))
+        assert tongs.send_cancel(timeout_s=2, instance="guest") == {"ok": True, "echo": "cancel"}
+        sent = []
+        monkeypatch.setattr(tongs, "send_cancel", lambda timeout_s=None, instance=None: sent.append(instance))
+        monkeypatch.setattr(tongs, "LATE_ANSWER_S", 0.1)
+        with Tongs(timeout_s=2, instance="guest") as t:
+            t._late("run_until 1720.1.1")
+        assert sent == ["guest"]
+    finally:
+        relay.close()
+
+
+def test_instance_names(monkeypatch):
+    monkeypatch.delenv("TONGS_INSTANCE", raising=False)
+    assert tongs.pipe_name() == "tongs" and tongs.pipe_path() == tongs.PIPE
+    assert tongs.pipe_name("host") == "tongs-host" and tongs.pipe_path("host") == tongs.PIPE + "-host"
+    monkeypatch.setenv("TONGS_INSTANCE", "Guest_2-b")
+    assert tongs.pipe_name() == "tongs-Guest_2-b"
+    assert tongs.pipe_name("") == "tongs"  # an explicit empty name is the default game, whatever the environment says
+    for bad in ("a b", "a/b", "..", "a.b", "x" * 33, "tongs\n"):
+        with pytest.raises(ValueError):
+            tongs.pipe_name(bad)
+
+
+def test_a_named_instance_has_its_own_state_file(monkeypatch):
+    monkeypatch.delenv("TONGS_BRIDGE", raising=False)
+    monkeypatch.setenv("XDG_STATE_HOME", "/data/state")
+    assert tongs._bridge_state_path("guest").replace("\\", "/") == "/data/state/tongs/guest/bridge.json"
+    monkeypatch.setenv("TONGS_INSTANCE", "host")
+    assert tongs._bridge_state_path().replace("\\", "/") == "/data/state/tongs/host/bridge.json"
+    monkeypatch.setenv("TONGS_BRIDGE", "/elsewhere/bridge.json")  # an explicit file wins
+    assert tongs._bridge_state_path("guest") == "/elsewhere/bridge.json"
+
+
 def test_the_state_file_defaults_to_the_state_directory(monkeypatch):
     monkeypatch.delenv("TONGS_BRIDGE", raising=False)
+    monkeypatch.delenv("TONGS_INSTANCE", raising=False)
     monkeypatch.setenv("XDG_STATE_HOME", "/data/state")
     assert tongs._bridge_state_path().replace("\\", "/") == "/data/state/tongs/bridge.json"
     monkeypatch.delenv("XDG_STATE_HOME")

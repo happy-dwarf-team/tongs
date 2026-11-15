@@ -117,6 +117,31 @@ no second program.
   round trip, a subscription that ends with its client, the handshake timeout and the limit of 8. The Python client is
   tested against a fake in `mcp/tests/test_bridge.py`.
 
+### Several games on one computer
+
+One pipe name serves one game. On Windows, and between games in one Wine prefix (one wineserver), a second game cannot
+serve `\\.\pipe\tongs`: the first instance is created with `FILE_FLAG_FIRST_PIPE_INSTANCE`, so the second waits 60 s
+for the name (see "Transport") and then logs an error. Games in two Wine prefixes each have their own wineserver and
+both serve `tongs`, but with `bridge = true` they share the default state file on the host: the game that starts last
+replaces `bridge.json`, and native clients reach only that one.
+
+- **The setting.** `instance` (empty by default) names the game. A name is 1 to 32 letters, digits, `_` or `-`
+  (`PipeName` in `src/config.cpp`); with any other name Tongs logs a warning and opens no pipe, rather than fall back to
+  the shared one. A named game serves `\\.\pipe\tongs-NAME`, its socket accepts only `RELAY <token> tongs-NAME`, and
+  its `bridge.json` defaults to `tongs/NAME/` in the XDG state folder (a configured `bridge_folder` is used as it is).
+  The pipe's DACL, its 8 pipe instances and the journal (one file per process, `journal-<start>-<pid>.jsonl`) are the
+  same for every game.
+- **Clients.** `scripts/tongs.py` and the MCP server take the name from `--instance NAME`, `TONGS_INSTANCE=NAME` or
+  `Tongs(instance="NAME")`; they refuse a name Tongs would refuse. Every connection a client opens on its own (the
+  `cancel` after a timeout, the date progress of a wait) goes to the same game. One MCP server talks to one game: run
+  one per game (`python -m tongs_mcp --instance NAME`), and its instructions and errors name that game's pipe.
+- **What it does not do.** It does not make two games share anything: each runs as it would alone, and the instance
+  name is not in the answers. A client tells two games apart by the name it connects to, then by `pid` and
+  `process_start_ms`.
+- **Tests.** `tests/test_core.cpp` checks the names, `tests/test_bridge.cpp` runs a second socket server as a game
+  named `guest` would (its own state file and token, only its own pipe name), and `mcp/tests/` checks the client's names
+  and state file, that `cancel` follows the instance, and the server's `--instance`.
+
 ## Command table and activity gate
 
 Every command has one entry in the command table (`kCommands` in

@@ -717,6 +717,17 @@ static void TestConfig() {
     // What SettingsFromConfig writes reads back as the same list.
     notes.clear();
     assert(ParseConsoleAllow("leak, oos", names, notes) && names == calls.game_calls.allow);
+
+    // The pipe's name for the `instance` setting: one name per game on the same machine.
+    assert(PipeName("") == "tongs");
+    assert(PipeName("host") == "tongs-host");
+    assert(PipeName("Guest_2-b") == "tongs-Guest_2-b");
+    assert(PipeName(std::string(32, 'a')) == "tongs-" + std::string(32, 'a'));
+    assert(PipeName(std::string(33, 'a')).empty());
+    assert(PipeName("a b").empty());
+    assert(PipeName("..\\tongs").empty());
+    assert(PipeName("a/b").empty());
+    assert(PipeName("a.b").empty());
 }
 
 static void TestProtocol() {

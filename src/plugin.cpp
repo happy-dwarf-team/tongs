@@ -134,6 +134,12 @@ struct Tongs : anvil::Plugin {
             host.info("pipe disabled (set enabled = true in anvil/data/tongs/settings.toml)");
             return;
         }
+        // Several games on one machine each need a pipe of their own (docs/design.md, "Several games on one computer").
+        const std::string pipe_name = tongs::PipeName(config.instance);
+        if (pipe_name.empty()) {
+            host.warn("pipe not opened: instance \"{}\" must be up to 32 letters, digits, _ or -", config.instance);
+            return;
+        }
         const tongs::GameLayout game_layout = tongs::GameLayout::Load();
         // anvil-game.world (plugin.toml requires the anvil-game with player_tags): the world reads,
         // units, flags, pending events and diplomacy, and navigation's province checks.
@@ -412,13 +418,13 @@ struct Tongs : anvil::Plugin {
             }
         });
         // A pipe that failed to start only turns the plugin into a no-op (and there is no socket without it).
-        if (tongs::StartPipeServer(handlers, Log) && config.bridge) {
+        if (tongs::StartPipeServer(handlers, Log, pipe_name) && config.bridge) {
             if (!tongs::RunningUnderWine()) {
                 host.warn("bridge = true is ignored: the socket is only for Wine and Proton; Windows clients use the pipe");
-            } else if (const auto folder = tongs::BridgeFolder(config.bridge_folder); folder.empty()) {
+            } else if (const auto folder = tongs::BridgeFolder(config.bridge_folder, config.instance); folder.empty()) {
                 host.warn("bridge: no folder for bridge.json (the host's home is unknown; set bridge_folder)");
             } else {
-                tongs::StartSocketServer(handlers, Log, folder);
+                tongs::StartSocketServer(handlers, Log, folder, pipe_name);
             }
         }
     }

@@ -17,6 +17,8 @@ constexpr DWORD kBufferSize = 4096;
 struct Server {
     Handlers handlers;
     LogFn log;
+    std::wstring path;  // \\.\pipe\<name>
+    std::string name;   // for the log
     SECURITY_ATTRIBUTES security{};
     PSECURITY_DESCRIPTOR descriptor = nullptr;
 };
@@ -46,7 +48,7 @@ bool BuildSecurity(Server& server) {
 }
 
 HANDLE CreatePipeInstance(Server& server, bool first) {
-    return CreateNamedPipeW(kPipeName, PIPE_ACCESS_DUPLEX | (first ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0),
+    return CreateNamedPipeW(server.path.c_str(), PIPE_ACCESS_DUPLEX | (first ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0),
                             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
                             kMaxClients, kBufferSize, kBufferSize, 0, &server.security);
 }
@@ -130,7 +132,8 @@ bool Serve(Server& server, HANDLE first) {
         }
         ++instances;
     }
-    server.log(ANVIL_LOG_INFO, "serving \\\\.\\pipe\\tongs, " + std::to_string(instances) + " clients at a time");
+    server.log(ANVIL_LOG_INFO, "serving \\\\.\\pipe\\" + server.name + ", " + std::to_string(instances) +
+                                   " clients at a time");
     return true;
 }
 
@@ -153,7 +156,8 @@ DWORD WINAPI WaitForNameThread(void* param) {
         if (GetTickCount64() - start >= kNameWaitMs) {
             server.log(ANVIL_LOG_ERROR, "cannot create the pipe (error " + std::to_string(GetLastError()) +
                                             "): another game instance still serves it after " +
-                                            std::to_string(kNameWaitMs / 1000) + " s");
+                                            std::to_string(kNameWaitMs / 1000) +
+                                            " s; give each game its own `instance` setting");
             return 0;
         }
     }
@@ -161,9 +165,9 @@ DWORD WINAPI WaitForNameThread(void* param) {
 
 }  // namespace
 
-bool StartPipeServer(const Handlers& handlers, LogFn log) {
+bool StartPipeServer(const Handlers& handlers, LogFn log, const std::string& name) {
     // Lives for the rest of the process, like the thread that uses it.
-    auto* server = new Server{handlers, log};
+    auto* server = new Server{handlers, log, L"\\\\.\\pipe\\" + std::wstring(name.begin(), name.end()), name};
     if (!BuildSecurity(*server)) {
         log(ANVIL_LOG_ERROR, "cannot build the pipe security descriptor (error " + std::to_string(GetLastError()) + ")");
         delete server;
@@ -187,7 +191,7 @@ bool StartPipeServer(const Handlers& handlers, LogFn log) {
         }
     }
     log(ANVIL_LOG_ERROR, "cannot create the pipe (error " + std::to_string(error) +
-                             "); is another game instance serving it?");
+                             "); is another game instance serving it? Give each game its own `instance` setting");
     LocalFree(server->descriptor);
     delete server;
     return false;

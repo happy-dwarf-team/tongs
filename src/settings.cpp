@@ -21,6 +21,7 @@ Config FromAnvil() {
     config.journal = cfg::journal.get();
     config.bridge = cfg::bridge.get();
     config.bridge_folder = cfg::bridge_folder.get();
+    config.instance = cfg::instance.get();
     ParseConsoleAllow(cfg::console_allow.get(), config.game_calls.allow, config.notes);
     return config;
 }
@@ -46,6 +47,7 @@ Config Merge(const Config& legacy, const Config& current) {
     out.journal = current.journal;  // config.toml had no journal
     out.bridge = current.bridge;    // nor a socket
     out.bridge_folder = current.bridge_folder;
+    out.instance = current.instance;  // nor an instance
     out.notes = current.notes;
     for (const std::string& note : legacy.notes) out.notes.push_back("config.toml: " + note);
     return out;

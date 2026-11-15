@@ -18,8 +18,9 @@ bool RunningUnderWine();
 // The folder bridge.json is written to: `configured` when it is not empty (a Unix path such as /home/me/tongs is
 // reached through Wine's Z: drive), else tongs/ in the user's XDG state folder ($XDG_STATE_HOME, else ~/.local/state).
 // The host's home comes from WINEHOMEDIR, which Wine and Proton set; the runtime directory ($XDG_RUNTIME_DIR) is no
-// choice, because Steam's container gives a game its own private one. Empty when the home cannot be found.
-std::filesystem::path BridgeFolder(const std::string& configured);
+// choice, because Steam's container gives a game its own private one. A named `instance` gets tongs/<instance>/ there,
+// so that several games each write their own file. Empty when the home cannot be found.
+std::filesystem::path BridgeFolder(const std::string& configured, const std::string& instance = {});
 
 // The owner of the TCP connection between `server_port` and `client_port` on 127.0.0.1, read from the text of
 // /proc/net/tcp: the uid of the client's own socket and the uid of the server's end. Both are in the table while the
@@ -31,9 +32,11 @@ struct PeerUids {
 PeerUids ProcNetTcpUids(std::string_view table, int server_port, int client_port);
 
 // Listens on 127.0.0.1 on a free port and writes {"port": N, "token": "...", "pid": N} to <folder>/bridge.json. A
-// client sends one line, `RELAY <token> tongs` (the first line of Anvil's pipe relay, so one client speaks to both),
-// and is answered `OK` or `ERR <reason>`; from then on it speaks the pipe's protocol. Up to kMaxClients at once; a
-// client that does not send its line within five seconds is cut off. Returns false when it could not start.
-bool StartSocketServer(const Handlers& handlers, LogFn log, const std::filesystem::path& folder);
+// client sends one line, `RELAY <token> <pipe>` with this game's pipe name (`tongs`, or `tongs-<instance>` from
+// PipeName; the first line of Anvil's pipe relay, so one client speaks to both), and is answered `OK` or
+// `ERR <reason>`; from then on it speaks the pipe's protocol. Up to kMaxClients at once; a client that does not send
+// its line within five seconds is cut off. Returns false when it could not start.
+bool StartSocketServer(const Handlers& handlers, LogFn log, const std::filesystem::path& folder,
+                       const std::string& pipe = "tongs");
 
 }  // namespace tongs

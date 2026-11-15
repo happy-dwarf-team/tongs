@@ -79,6 +79,20 @@ shared with the repository) or `user` (you, every project). Everything after
 }
 ```
 
+### Several games
+
+With several games on one computer, each with its own `instance` in Tongs'
+settings, register one server per game and pass the name after `tongs_mcp`:
+
+```powershell
+claude mcp add --transport stdio tongs-host -- uv run --frozen --directory C:\path\to\tongs\mcp python -m tongs_mcp --instance host
+claude mcp add --transport stdio tongs-guest -- uv run --frozen --directory C:\path\to\tongs\mcp python -m tongs_mcp --instance guest
+```
+
+`TONGS_INSTANCE=NAME` in the server's environment does the same. Each server
+talks to its own game only (`\\.\pipe\tongs-NAME`, or under Wine the
+`bridge.json` of that name), and its instructions name that pipe.
+
 ### Other MCP clients
 
 Any client that starts stdio servers takes the same command and arguments,

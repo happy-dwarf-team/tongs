@@ -15,6 +15,8 @@ status = "draft"            # "checked" once a native speaker checked it
 "Lets scripts and agents run console commands and load saves, which change the game." = "允许脚本和代理运行控制台命令并载入存档，这些会改变游戏。"
 "Allowed danger commands" = "允许的危险命令"
 "Danger commands that game calls may run besides the safe ones, as names separated by commas or spaces, e.g. \"leak\"." = "除安全命令外，游戏调用还可以执行的危险命令，名称之间用逗号或空格分隔，例如 \"leak\"。"
+"Instance name" = "实例名称"
+"Leave empty for one game. To run several games on one computer, give each a different name of up to 32 letters, digits, _ or -: its pipe becomes \\\\.\\pipe\\tongs-NAME, and under Wine its bridge.json goes to a folder NAME below the default one. Clients choose the game with TONGS_INSTANCE=NAME or --instance NAME." = "只运行一个游戏时留空。要在一台电脑上运行多个游戏，请给每个游戏取一个不同的名称（最多 32 个字母、数字、_ 或 -）：它的管道变为 \\\\.\\pipe\\tongs-NAME，在 Wine 下它的 bridge.json 放在默认文件夹下的 NAME 文件夹中。客户端用 TONGS_INSTANCE=NAME 或 --instance NAME 选择游戏。"
 "Loopback socket under Wine" = "Wine 下的回环套接字"
 "Under Wine and Proton, also serves the pipe's commands on a socket on 127.0.0.1, so that a native Linux client can reach Tongs without a relay. It needs Open the pipe. The port and a token go to bridge.json in the folder below, which only you should be able to enter. Ignored on Windows." = "在 Wine 和 Proton 下，另外通过 127.0.0.1 上的套接字提供管道的命令，使原生 Linux 客户端无需中继即可访问 Tongs。需要启用“打开管道”。端口和令牌写入下方文件夹中的 bridge.json，只有你本人应能进入该文件夹。在 Windows 上会被忽略。"
 "Folder of bridge.json" = "bridge.json 所在文件夹"

@@ -119,6 +119,12 @@ A program connected to Tongs through the pipe, such as a script or the MCP
 server.
 _Avoid_: consumer (for a pipe program), user
 
+**Instance**:
+One of several games on one computer, each with Tongs, told apart by the name in
+Tongs' `instance` setting, which gives it the pipe `\\.\pipe\tongs-NAME`.
+_Avoid_: pipe instance (one of the 8 instances of a pipe, each serving one
+client at a time), copy
+
 **Consumer**:
 Another Anvil plugin that uses a service Tongs registers, from inside the
 game's process; never a client.
