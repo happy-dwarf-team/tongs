@@ -263,7 +263,7 @@ privately, as [SECURITY.md](SECURITY.md) says.
 Visual Studio 2022 (or Build Tools) with the C++ workload, CMake ≥ 3.25, Git.
 Tongs builds with the [Anvil SDK](https://github.com/happy-dwarf-team/anvil/blob/main/sdk/README.md)
 (`anvil_add_plugin`, `anvil gen`, `anvil check`). The first configure downloads
-the SDK archive of the Anvil release that `cmake/AnvilSdk.cmake` pins (1.20.0,
+the SDK archive of the Anvil release that `cmake/AnvilSdk.cmake` pins (1.23.0,
 checked against its SHA-256) into `build/_deps/anvil_sdk-src`;
 `-DTONGS_ANVIL_SDK=<sdk>` uses an unpacked SDK instead, for example one
 installed from a local Anvil checkout (`cmake --install <anvil build> --component sdk`).
