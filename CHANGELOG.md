@@ -5,25 +5,19 @@
 
 ### ⚠ BREAKING CHANGES
 
-* **plugin:** game calls become the game_calls module with Anvil's opt-ins ([#205](https://github.com/happy-dwarf-team/tongs/issues/205))
-* **pipe:** read provinces, countries and the player through anvil-game.world ([#204](https://github.com/happy-dwarf-team/tongs/issues/204))
+* Tongs 0.35 needs Anvil 1.23.0 or newer. `province`, `country` and `player` read the game through Anvil's `anvil-game.world`, so a game update needs a fix in one place instead of two. ([#204](https://github.com/happy-dwarf-team/tongs/issues/204)) ([705118a](https://github.com/happy-dwarf-team/tongs/commit/705118a7e3d43a6baea88a78aa63a92bc3c77d2c))
+* Game calls (console commands and save loads) are now Tongs' Game calls module: turn it on, and allow it in ironman or multiplayer, in the Plugins tab, or with `"tongs.game_calls"` in `anvil.toml`. Your game_calls settings move there at the first start. ([#205](https://github.com/happy-dwarf-team/tongs/issues/205)) ([9aefdc1](https://github.com/happy-dwarf-team/tongs/commit/9aefdc1e3e8701bc3f61d552777c890bb15a3b86))
 
 ### Features
 
-* **pipe:** diplomacy in country, through anvil-game.world ([#193](https://github.com/happy-dwarf-team/tongs/issues/193)) ([a68a6c8](https://github.com/happy-dwarf-team/tongs/commit/a68a6c82cd59c417db86468cd15ee36760b5e60e))
-* **pipe:** one command table and an activity gate; help reports each command's type ([#200](https://github.com/happy-dwarf-team/tongs/issues/200)) ([053912a](https://github.com/happy-dwarf-team/tongs/commit/053912aa5cd0737cba948da7692f3d293229f956))
-* **plugin:** game calls become the game_calls module with Anvil's opt-ins ([#205](https://github.com/happy-dwarf-team/tongs/issues/205)) ([9aefdc1](https://github.com/happy-dwarf-team/tongs/commit/9aefdc1e3e8701bc3f61d552777c890bb15a3b86))
-* save load names Anbennar's achievements notice and can close it ([#207](https://github.com/happy-dwarf-team/tongs/issues/207)) ([d0f1df3](https://github.com/happy-dwarf-team/tongs/commit/d0f1df31d21cc5d39e11b3182e8edd6f6bf8daa3))
+* `country` (`tongs_country`) also answers the country's diplomacy: relations, subjects, rivals and the opinions between it and the player, as the game's diplomacy view shows them. ([#193](https://github.com/happy-dwarf-team/tongs/issues/193)) ([a68a6c8](https://github.com/happy-dwarf-team/tongs/commit/a68a6c82cd59c417db86468cd15ee36760b5e60e))
+* `help` names each command's type (read, input, client call or game call), and every command that acts is checked in one place, so a refusal reads the same for all of them. ([#200](https://github.com/happy-dwarf-team/tongs/issues/200)) ([053912a](https://github.com/happy-dwarf-team/tongs/commit/053912aa5cd0737cba948da7692f3d293229f956))
+* `save load NAME dismiss=achievements` (MCP: `dismiss_achievements_notice=True`) closes Anbennar's "Vanilla achievements can no longer be earned" notice; without it a load stuck behind the notice answers `blocked`. ([#207](https://github.com/happy-dwarf-team/tongs/issues/207)) ([d0f1df3](https://github.com/happy-dwarf-team/tongs/commit/d0f1df31d21cc5d39e11b3182e8edd6f6bf8daa3))
 
 
 ### Bug Fixes
 
-* serve the pipe after the game's own restart ([#201](https://github.com/happy-dwarf-team/tongs/issues/201)) ([deb78d4](https://github.com/happy-dwarf-team/tongs/commit/deb78d48cdcb57904ae48aa651d2f247cb733ef9))
-
-
-### Refactoring
-
-* **pipe:** read provinces, countries and the player through anvil-game.world ([#204](https://github.com/happy-dwarf-team/tongs/issues/204)) ([705118a](https://github.com/happy-dwarf-team/tongs/commit/705118a7e3d43a6baea88a78aa63a92bc3c77d2c))
+* After the game restarts itself (Back without Hamweard, Exit to Menu, Anvil's Restart game), Tongs serves its pipe again in the new process instead of staying off. ([#201](https://github.com/happy-dwarf-team/tongs/issues/201)) ([deb78d4](https://github.com/happy-dwarf-team/tongs/commit/deb78d48cdcb57904ae48aa651d2f247cb733ef9))
 
 ## [0.34.0](https://github.com/happy-dwarf-team/tongs/compare/v0.33.0...v0.34.0) (2026-11-13)
 
