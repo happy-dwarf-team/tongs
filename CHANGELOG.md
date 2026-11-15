@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.36.0](https://github.com/happy-dwarf-team/tongs/compare/v0.35.0...v0.36.0) (2026-11-15)
+
+
+### Features
+
+* **input:** click and ui click hold modifier keys with mods= ([#220](https://github.com/happy-dwarf-team/tongs/issues/220)) ([4d9cb17](https://github.com/happy-dwarf-team/tongs/commit/4d9cb175675423ffb4c7e6030429bdc2bb9f919c))
+* **pipe:** several games on one computer, each with its own pipe ([#221](https://github.com/happy-dwarf-team/tongs/issues/221)) ([3de46d2](https://github.com/happy-dwarf-team/tongs/commit/3de46d22c1ebb1f9ef22f99695ae847670b0f167))
+* **state:** ironman and multiplayer from Anvil's session ([#214](https://github.com/happy-dwarf-team/tongs/issues/214)) ([72af07f](https://github.com/happy-dwarf-team/tongs/commit/72af07f87332ecc35a5b1966f9e5eeeec89422e3))
+
+
+### Bug Fixes
+
+* **console:** refuse game calls while Anvil suspends the Game calls module ([#218](https://github.com/happy-dwarf-team/tongs/issues/218)) ([be02fcc](https://github.com/happy-dwarf-team/tongs/commit/be02fcc2208e66cdf341be9765b90db100e3be9d))
+* **pipe:** a menu load that goes on after the achievements notice is not blocked ([#212](https://github.com/happy-dwarf-team/tongs/issues/212)) ([46cc06e](https://github.com/happy-dwarf-team/tongs/commit/46cc06e0452266b90b9e21d52cfae57f68346bc8))
+* **save:** a cancel or the client leaving ends the menu load's wait ([#216](https://github.com/happy-dwarf-team/tongs/issues/216)) ([abad71b](https://github.com/happy-dwarf-team/tongs/commit/abad71b6a0a359face92242592131ab7e4724950))
+* **save:** say why the achievements notice's Ok was not clicked ([#215](https://github.com/happy-dwarf-team/tongs/issues/215)) ([718e99b](https://github.com/happy-dwarf-team/tongs/commit/718e99b3acb5525110cf57cb3ab8dff8acede58d))
+* **screenshot:** copy the game's back buffer at Present under Wine and Proton ([#219](https://github.com/happy-dwarf-team/tongs/issues/219)) ([3e75351](https://github.com/happy-dwarf-team/tongs/commit/3e753516e3074c1832d36c371da7fdd0429f66bb))
+* **state:** read frame_number() first and settle the OOS and mode views two frames after a load ([#217](https://github.com/happy-dwarf-team/tongs/issues/217)) ([1001c8e](https://github.com/happy-dwarf-team/tongs/commit/1001c8ec86ade97e612976f97f4a67af6022fafe))
+
 ## [0.35.0](https://github.com/happy-dwarf-team/tongs/compare/v0.34.0...v0.35.0) (2026-11-15)
 
 
