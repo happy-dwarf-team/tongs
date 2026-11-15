@@ -81,18 +81,22 @@ std::optional<KeyPress> FindKey(std::string_view name) {
     return std::nullopt;
 }
 
+std::uint16_t ModifierNamed(std::string_view name) {
+    const std::string mod = Lower(name);
+    if (mod == "shift") return kModShift;
+    if (mod == "ctrl" || mod == "control") return kModCtrl;
+    if (mod == "alt") return kModAlt;
+    return 0;
+}
+
 std::optional<KeyChord> FindKeyChord(std::string_view text) {
     KeyChord chord;
     for (;;) {
         const std::size_t plus = text.find('+');
         // A `+` at the very end is part of no name (there is no `+` key); `kp_plus` is spelled out.
         if (plus == std::string_view::npos || plus == 0) break;
-        const std::string mod = Lower(text.substr(0, plus));
-        std::uint16_t bit = 0;
-        if (mod == "shift") bit = kModShift;
-        else if (mod == "ctrl" || mod == "control") bit = kModCtrl;
-        else if (mod == "alt") bit = kModAlt;
-        else return std::nullopt;
+        const std::uint16_t bit = ModifierNamed(text.substr(0, plus));
+        if (bit == 0) return std::nullopt;
         if ((chord.mods & bit) != 0) return std::nullopt;
         chord.mods |= bit;
         text.remove_prefix(plus + 1);
@@ -101,6 +105,26 @@ std::optional<KeyChord> FindKeyChord(std::string_view text) {
     if (!key) return std::nullopt;
     chord.key = *key;
     return chord;
+}
+
+std::optional<std::uint16_t> ParseModifiers(std::string_view text) {
+    std::uint16_t mods = 0;
+    for (;;) {
+        const std::size_t plus = text.find('+');
+        const std::uint16_t bit = ModifierNamed(text.substr(0, plus));
+        if (bit == 0 || (mods & bit) != 0) return std::nullopt;
+        mods |= bit;
+        if (plus == std::string_view::npos) return mods;
+        text.remove_prefix(plus + 1);
+    }
+}
+
+std::string ModifiersText(std::uint16_t mods) {
+    std::string out;
+    if (mods & kModCtrl) out += "ctrl";
+    if (mods & kModAlt) out += out.empty() ? "alt" : "+alt";
+    if (mods & kModShift) out += out.empty() ? "shift" : "+shift";
+    return out;
 }
 
 }  // namespace tongs

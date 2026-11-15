@@ -604,13 +604,19 @@ std::string MouseCommand(const Handlers& h, std::string_view command, std::strin
     }
     if (command == "click") {
         int x = 0, y = 0;
-        if (words.size() < 2 || words.size() > 4 || !ParseInt(words[0], x) || !ParseInt(words[1], y)) {
-            return Error("usage: click X Y [left|right|middle] [double]");
+        constexpr char kUsage[] = "usage: click X Y [left|right|middle] [double] [mods=shift+ctrl+alt]";
+        if (words.size() < 2 || words.size() > 5 || !ParseInt(words[0], x) || !ParseInt(words[1], y)) {
+            return Error(kUsage);
         }
         int button = 1;
         int count = 1;
+        std::uint16_t mods = 0;
         for (std::size_t i = 2; i < words.size(); ++i) {
-            if (words[i] == "left") {
+            if (words[i].starts_with("mods=")) {
+                const std::optional<std::uint16_t> parsed = ParseModifiers(words[i].substr(5));
+                if (!parsed || mods != 0) return Error("click: mods= joins shift, ctrl and alt with +, once");
+                mods = *parsed;
+            } else if (words[i] == "left") {
                 button = 1;
             } else if (words[i] == "middle") {
                 button = 2;
@@ -619,7 +625,7 @@ std::string MouseCommand(const Handlers& h, std::string_view command, std::strin
             } else if (words[i] == "double") {
                 count = 2;
             } else {
-                return Error("usage: click X Y [left|right|middle] [double]");
+                return Error(kUsage);
             }
         }
         if (std::string error = CheckPoint(h, x, y); !error.empty()) return Error(error);
@@ -642,9 +648,25 @@ std::string MouseCommand(const Handlers& h, std::string_view command, std::strin
             presses.push_back(up);
         }
         static const char* const kNames[] = {"", "left", "middle", "right"};
-        return ActionJson(command, actions.Settled(presses, count,
-                                                   point + ",\"button\":\"" + kNames[button] +
-                                                       "\",\"clicks\":" + std::to_string(count)));
+        std::string extra = point + ",\"button\":\"" + kNames[button] + "\",\"clicks\":" + std::to_string(count);
+        if (mods == 0) return ActionJson(command, actions.Settled(presses, count, extra));
+        // The game asks its own record of held keys for Shift, Ctrl and Alt while it handles the
+        // click: the modifier keys go down a few frames before the press and up after it settled.
+        extra += ",\"mods\":\"" + ModifiersText(mods) + "\"";  // only a-z and +
+        ActionResult held = actions.Settled(ModifierEvents(mods, true), 0);
+        if (!held.ok) {
+            // The keys go down one event at a time: a failure partway leaves the first ones down.
+            if (std::string error = h.send_input(ModifierEvents(mods, false)); !error.empty()) {
+                held.error += "; the modifier keys were not released: " + error;
+            }
+            return ActionJson(command, held);
+        }
+        ActionResult clicked = actions.Settled(presses, count, extra);
+        if (std::string error = h.send_input(ModifierEvents(mods, false)); !error.empty() && clicked.ok) {
+            clicked.ok = false;
+            clicked.error = "the modifier keys were not released: " + error;
+        }
+        return ActionJson(command, clicked);
     }
     // scroll STEPS [X Y]
     int steps = 0;
@@ -890,7 +912,8 @@ std::string PointerNote(const Handlers& h) { return PointerReleased(h) ? ",\"poi
 // that the game hovers the widget (or one inside it) there, then presses and
 // releases the left button. With `settle`, the state is read a moment after the
 // click; event choices watch the event instead. The caller holds the input lock.
-ClickOutcome ClickWidget(const Handlers& h, std::uintptr_t target, const UiRect& rect, int timeout_ms, bool settle) {
+ClickOutcome ClickWidget(const Handlers& h, std::uintptr_t target, const UiRect& rect, int timeout_ms, bool settle,
+                         std::uint16_t mods = 0) {
     ClickOutcome c;
     const int x = rect.x + rect.w / 2;
     const int y = rect.y + rect.h / 2;
@@ -924,8 +947,28 @@ ClickOutcome ClickWidget(const Handlers& h, std::uintptr_t target, const UiRect&
     down.y = y;
     InputEvent up = down;
     up.type = InputEvent::Type::MouseUp;
-    if (std::string error = h.send_input({down, up}); !error.empty()) return fail(error);
-    c.clicked_at = h.now_ms();
+    if (mods != 0) {
+        // Held from a few frames before the press until the click settled (see MouseCommand).
+        c.members += ",\"mods\":" + Quote(ModifiersText(mods));
+        if (std::string error = h.send_input(ModifierEvents(mods, true)); !error.empty()) {
+            // The keys go down one event at a time: a failure partway leaves the first ones down.
+            if (std::string released = h.send_input(ModifierEvents(mods, false)); !released.empty()) {
+                error += "; the modifier keys were not released: " + released;
+            }
+            return fail(error);
+        }
+        h.sleep_ms(kClickMoveSettleMs);
+    }
+    std::string error = h.send_input({down, up});
+    if (error.empty()) c.clicked_at = h.now_ms();
+    if (mods != 0) {
+        if (error.empty()) h.sleep_ms(h.key_settle_ms);
+        if (std::string released = h.send_input(ModifierEvents(mods, false)); !released.empty() && error.empty()) {
+            error = "the modifier keys were not released: " + released;
+        }
+        settle = false;  // already settled with the keys held
+    }
+    if (!error.empty()) return fail(error);
     if (settle) h.sleep_ms(h.key_settle_ms);
     c.ok = true;
     c.state = h.read_state();
@@ -999,7 +1042,7 @@ std::string UiClickAct(const Handlers& h, const UiRequest& request) {
     const StateSnapshot before = option ? h.read_state() : StateSnapshot{};
     // A choice is noted right after the click, before the settle time: the event
     // reader may see the event close within a few frames (live: chosen came null).
-    ClickOutcome c = ClickWidget(h, w.address, w.rect, timeout_ms, !option);
+    ClickOutcome c = ClickWidget(h, w.address, w.rect, timeout_ms, !option, request.mods);
     if (c.ok && option) {
         NoteChoice(h, *event, *option, before, "ui click");
         h.sleep_ms(h.key_settle_ms);
@@ -2802,7 +2845,7 @@ constexpr Command kCommands[] = {
     {"frames", Read, true, "frames [timeout=S]", &FramesHandler},
     {"ui find", Read, true, "ui find SEL [all] [stale] [limit=N]", &UiCommand},
     {"ui tree", Read, true, "ui tree [SEL] [depth=N] [limit=N] [all]", &UiCommand},
-    {"ui click", Input, true, "ui click SEL [timeout=S] [wait=S]", &UiCommand},
+    {"ui click", Input, true, "ui click SEL [timeout=S] [wait=S] [mods=shift+ctrl+alt]", &UiCommand},
     {"event list", Read, true, "event list [timeout=S]", &EventCommand},
     {"event choose", Input, true, "event choose N|text^=\"...\" [event=N|event=title^=\"...\"] [timeout=S]", &EventCommand},
     {"province", Read, true, "province ID [timeout=S]", &WorldCommand},
@@ -2820,7 +2863,7 @@ constexpr Command kCommands[] = {
     {"key", Input, false, "key [MOD+]NAME", &KeyCommand},
     {"text", Input, false, "text STRING", &TextHandler},
     {"move", Input, false, "move X Y", &MouseHandler},
-    {"click", Input, false, "click X Y [left|right|middle] [double]", &MouseHandler},
+    {"click", Input, false, "click X Y [left|right|middle] [double] [mods=shift+ctrl+alt]", &MouseHandler},
     {"scroll", Input, false, "scroll STEPS [X Y]", &MouseHandler},
     {"release", Read, false, "release", &ReleaseCommand},
     {"pause", Input, false, "pause", &PauseCommand},

@@ -188,6 +188,7 @@ struct UiRequest {
     int limit = 0;
     int timeout_ms = 0;  // 0: the dispatcher's default
     int wait_ms = 0;     // ui click wait=S: look again for a missing or hidden widget until S passes
+    std::uint16_t mods = 0;  // ui click mods=shift+ctrl+alt: modifier keys held during the click (keys.hpp)
 };
 
 constexpr int kUiFindLimit = 50;

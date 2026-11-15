@@ -259,6 +259,22 @@ X = Annotated[int, Field(ge=0, description="Client x in pixels (see tongs_window
 
 Y = Annotated[int, Field(ge=0, description="Client y in pixels.")]
 
+Modifiers = Annotated[
+    list[Literal["shift", "ctrl", "alt"]],
+    Field(
+        max_length=3,
+        description="Modifier keys held during the click, each at most once, e.g. [\"shift\"] to add to a unit "
+        "selection.",
+    ),
+]
+
+
+def _mods(modifiers: list[str]) -> str | None:
+    """`mods=` of click and ui click: the modifiers joined by +, None for none."""
+    if len(set(modifiers)) != len(modifiers):
+        raise ToolError("each modifier at most once")
+    return "+".join(modifiers) or None
+
 Selector = Annotated[
     str,
     Field(
@@ -716,10 +732,11 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
         y: Y,
         button: Literal["left", "right", "middle"] = "left",
         double: bool = False,
+        modifiers: Modifiers = [],
     ) -> CallToolResult:
-        """Moves the game's mouse to client coordinates and clicks. Prefer tongs_ui_click, which checks
-        what is under the pointer first."""
-        return await call(_line("click", x, y, button, "double" if double else None))
+        """Moves the game's mouse to client coordinates and clicks, with the modifier keys held if
+        given. Prefer tongs_ui_click, which checks what is under the pointer first."""
+        return await call(_line("click", x, y, button, "double" if double else None, mods=_mods(modifiers)))
 
     @tool("scroll", "input")
     async def tongs_scroll(
@@ -780,6 +797,7 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
                 "loading, then click it; for a dialog that shows later (waited_ms says how long).",
             ),
         ] = None,
+        modifiers: Modifiers = [],
     ) -> CallToolResult:
         """Clicks the centre of the one widget the selector matches, after checking that the click
         reaches it: the game hands a click down past labels, backgrounds and other widgets without a
@@ -788,7 +806,7 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
         the widget that would take the click). With `wait`, not_found and not_visible come only
         after that time, so a later dialog needs no loop of sleeps and finds."""
         _check(selector)
-        return await call(_line("ui click", selector, timeout=timeout, wait=wait))
+        return await call(_line("ui click", selector, timeout=timeout, wait=wait, mods=_mods(modifiers)))
 
     # --- world reads ---
 

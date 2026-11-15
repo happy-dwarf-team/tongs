@@ -183,7 +183,8 @@ gate applies the rules of the type, in this order:
    - an input counts once in `inputs`, when it ends, if anything was sent,
      pressed, posted or chosen through the handlers the gate gives it; a part
      of one counts under its own name (`run_until events=first: choice`); input
-     through the event queue is refused while the window is minimized;
+     through the event queue is refused while the window is minimized,
+     except a batch of key-ups alone (the release of keys a click held);
      `run_until`'s own presses go through the request's handlers and are not
      counted (ADR 0005);
    - a client call or game call counts once in `client_calls` or `game_calls`
@@ -3804,6 +3805,31 @@ Delete, Return, the four arrows, Home and End (mask 0, and with Shift: both
 select to the start or the end), Ctrl+C or Ctrl+Insert (copy), Ctrl+V or
 Shift+Insert (paste), Ctrl+X or Shift+Delete (cut). Any other key goes to the
 field's listeners. There is no Shift+arrow selection and no Ctrl+A.
+
+### Clicks with modifier keys (2026-11-15)
+
+The game's map and its widgets ask `IsShiftDown`, `IsControlDown` and
+`IsAltDown` (above) while they handle a click, not the SDL event's state (an
+`SDL_MouseButtonEvent` has no modifier field). So `mods=` of `click` and
+`ui click` queues the modifier keys' `SDL_KEYDOWN` (Ctrl, Alt, Shift, each
+event's `mod` the keys down after it, as for a chord), waits 50 ms (a few
+frames), queues the press and release, waits the usual settle time with the
+keys still held, then queues the `SDL_KEYUP` in reverse. Holding them across
+frames keeps the keys down even when the game handles the click later in the
+frame than its event loop. `ui click` holds them only after its hover check,
+so a refusal presses no key. Once a modifier key went down, the key-ups of all
+of them go out on every path: after the click, when the press fails, and when
+pressing the modifiers fails partway (the events are queued one at a time, so
+the first keys may be down). Input is refused while the game window is
+minimized, but a batch of key-ups alone is always sent, so a window minimized
+while the keys are held does not leave Shift or Ctrl down.
+
+Live check (2026-11-15, Steam 1.37.5 under Proton, Russia 1719): a click on the
+map icon of the army in Caceres, then `click 1110 633 mods=shift` on the one in
+Jaén: `unit drill stop selected` counted 1, then 2 (nothing posted, neither
+army drilled), and the screenshot showed the panel `2 Armies` with both. A plain
+click on Jaén selected one again (Shift had come up);
+`ui click unit_mapicon[9]/holder_shield mods=shift` added Caceres, 2 again.
 
 ## Input gaps, round 2 (2026-11-11)
 

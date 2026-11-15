@@ -37,6 +37,12 @@ std::vector<InputEvent> KeyPressEvents(const KeyPress& key);
 // `text`). Without modifiers the same events as KeyPressEvents.
 std::vector<InputEvent> KeyChordEvents(const KeyChord& chord);
 
+// The modifier keys of `mods` going down (Ctrl, Alt, Shift) or up (Shift,
+// Alt, Ctrl), as a chord presses and releases them; each event's `mod` holds
+// the modifiers down after it. A click with modifiers is queued between the
+// two (docs/design.md, "Clicks with modifier keys").
+std::vector<InputEvent> ModifierEvents(std::uint16_t mods, bool down);
+
 // One Text event per character. The game decodes only the first byte or
 // two of SDL_TEXTINPUT into one 8-bit character, so only U+0020-U+007E and
 // U+00A0-U+00FF arrive intact; returns an error text for anything else.

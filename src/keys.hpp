@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace tongs {
@@ -42,6 +43,14 @@ std::optional<KeyPress> FindKey(std::string_view name);
 // most once; NAME as FindKey takes it, or `shift`, `ctrl`, `alt` alone (the
 // left modifier keys). Nullopt for anything else.
 std::optional<KeyChord> FindKeyChord(std::string_view text);
+
+// The modifier keys held during a click (`mods=` of click and ui click):
+// `shift`, `ctrl` (or `control`) and `alt` joined by `+`, in any order and
+// case, each at most once. Nullopt for anything else, the empty text too.
+std::optional<std::uint16_t> ParseModifiers(std::string_view text);
+
+// The modifiers as the answers name them: `ctrl+alt+shift` order, empty for none.
+std::string ModifiersText(std::uint16_t mods);
 
 // The keys behind pause, resume and speed (see docs/design.md, "Input").
 inline constexpr std::string_view kPauseKeyName = "space";

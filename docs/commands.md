@@ -44,10 +44,10 @@ With `input = true` in the settings, also:
 | `key [MOD+]NAME` | presses one key: `a`–`z`, `0`–`9`, `f1`–`f12`, `space`, `return`, `escape`, `tab`, `backspace`, `delete`, `minus`, `equals`, `grave` (the console key on a US layout), `kp_plus`, `kp_minus`, `kp_enter`, arrows (`up`, `down`, `left`, `right`), `home`, `end`, `page_up`, `page_down`, and the left `shift`, `ctrl`, `alt` alone; with modifiers held while it is pressed, `MOD+` once each of `shift`, `ctrl` (or `control`), `alt`, in any order: `shift+left`, `ctrl+a`, `ctrl+shift+end` (see [Keys](#keys)) |
 | `text STRING` | types the rest of the line into the focused text field (characters U+0020–U+007E and U+00A0–U+00FF); with no text field focused it sends nothing and answers `no_text_field` |
 | `move X Y` | points the mouse at client coordinates `X Y` (hovering shows tooltips) |
-| `click X Y [left\|right\|middle] [double]` | moves there and clicks |
+| `click X Y [left\|right\|middle] [double] [mods=shift+ctrl+alt]` | moves there and clicks; `mods=` holds modifier keys during the click (see [Clicks with modifier keys](#clicks-with-modifier-keys)) |
 | `scroll STEPS [X Y]` | turns the wheel over the list or map under the pointer; positive scrolls up (zooms in on the map), negative down. With `X Y` it moves there first and lets the game see the pointer, as `click` does |
 | `release` | hands the pointer back to the real mouse |
-| `ui click SEL [timeout=S] [wait=S]` | clicks the centre of the one widget the selector matches; `wait=` waits for it to show (see [Widgets](#widgets)) |
+| `ui click SEL [timeout=S] [wait=S] [mods=shift+ctrl+alt]` | clicks the centre of the one widget the selector matches; `wait=` waits for it to show, `mods=` holds modifier keys during the click (see [Widgets](#widgets)) |
 | `event choose N\|text^="..." [event=N\|event=title^="..."] [timeout=S]` | clicks an option of an open event (see [Events](#events)) |
 | `province open ID [timeout=S]` | opens the province's view and moves the camera to it, as the game's links do (see [Navigation](#navigation)) |
 | `province goto ID [timeout=S]` | moves the camera to the province |
@@ -173,6 +173,30 @@ player (see [design.md](design.md#key-chords)):
 - `ctrl+c`, `ctrl+x` and `ctrl+v` are the game's copy, cut and paste (read
   from its code, not tried: they use the Windows clipboard, which is the
   player's).
+
+## Clicks with modifier keys
+
+`click` and `ui click` take `mods=` with the modifier keys to hold during the
+click: `shift`, `ctrl` (or `control`) and `alt` joined by `+`, each at most
+once, in any order: `mods=shift`, `mods=ctrl+shift`. The game asks its own
+record of held keys while it handles a click, as it does for a chord, so the
+modifier keys go down as key events a few frames before the press and come up
+after the click settled; the answer names them as `mods` (`ctrl+alt+shift`
+order). `key` holds modifiers with its own `MOD+NAME` (see [Keys](#keys)).
+
+- **Adding to a unit selection**: a click on an army's map icon selects it, and
+  a click with `mods=shift` on another adds it to the selection, as a player's
+  Shift+click does. Live, `click X Y` on one army and `click X Y mods=shift`
+  on another gave a selection of two (`unit drill stop selected` answered
+  `units: 2`, posting nothing) and the panel `2 Armies`; a plain click then
+  selected one again. `ui click unit_mapicon[9]/holder_shield mods=shift`
+  added in the same way.
+- A refusal of `ui click` (`covered`, `not_found`, ...) presses no key.
+
+```powershell
+.\scripts\tongs.ps1 'click 942 547' 'click 1110 633 mods=shift'
+# {"ok":true,"command":"click",...,"button":"left","clicks":1,"mods":"shift",...}
+```
 
 ## Sessions and the ready wait
 

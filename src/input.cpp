@@ -34,26 +34,37 @@ std::vector<InputEvent> KeyPressEvents(const KeyPress& key) {
     return events;
 }
 
-std::vector<InputEvent> KeyChordEvents(const KeyChord& chord) {
+std::vector<InputEvent> ModifierEvents(std::uint16_t mods, bool down) {
     struct Modifier {
         std::uint16_t bit;
         const char* name;
     };
     static constexpr Modifier kOrder[] = {{kModCtrl, "ctrl"}, {kModAlt, "alt"}, {kModShift, "shift"}};
     std::vector<InputEvent> events;
-    std::vector<KeyPress> held;
-    std::uint16_t mods = 0;
+    std::uint16_t held = 0;
     for (const Modifier& m : kOrder) {
-        if ((chord.mods & m.bit) == 0) continue;
-        mods |= m.bit;
-        KeyPress modifier = *FindKey(m.name);
-        modifier.mod = mods;
-        InputEvent down;
-        down.type = InputEvent::Type::KeyDown;
-        down.key = modifier;
-        events.push_back(down);
-        held.push_back(modifier);
+        if ((mods & m.bit) == 0) continue;
+        held |= m.bit;
+        InputEvent event;
+        event.type = InputEvent::Type::KeyDown;
+        event.key = *FindKey(m.name);
+        event.key.mod = held;
+        events.push_back(event);
     }
+    if (down) return events;
+    // Released in reverse; a key-up carries the modifiers still down after it, as SDL reports them.
+    std::vector<InputEvent> ups(events.rbegin(), events.rend());
+    for (InputEvent& event : ups) {
+        event.type = InputEvent::Type::KeyUp;
+        held = static_cast<std::uint16_t>(held & ~ModifierBit(event.key.scancode));
+        event.key.mod = held;
+    }
+    return ups;
+}
+
+std::vector<InputEvent> KeyChordEvents(const KeyChord& chord) {
+    std::vector<InputEvent> events = ModifierEvents(chord.mods, true);
+    const std::uint16_t mods = chord.mods;
     KeyPress key = chord.key;
     key.mod = mods;
     if (mods == kModShift && key.text >= 'a' && key.text <= 'z') {
@@ -62,17 +73,7 @@ std::vector<InputEvent> KeyChordEvents(const KeyChord& chord) {
         key.text = 0;
     }
     for (InputEvent& event : KeyPressEvents(key)) events.push_back(event);
-    for (auto it = held.rbegin(); it != held.rend(); ++it) {
-        InputEvent up;
-        up.type = InputEvent::Type::KeyUp;
-        up.key = *it;
-        events.push_back(up);
-    }
-    // A key-up carries the modifiers still down after it, as SDL reports them.
-    for (std::size_t i = events.size() - held.size(); i < events.size(); ++i) {
-        mods = static_cast<std::uint16_t>(mods & ~ModifierBit(events[i].key.scancode));
-        events[i].key.mod = mods;
-    }
+    for (InputEvent& event : ModifierEvents(mods, false)) events.push_back(event);
     return events;
 }
 

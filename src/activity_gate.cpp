@@ -2,6 +2,7 @@
 
 #include "game_date.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <utility>
 
@@ -171,7 +172,12 @@ ActivityGate::Part::Part(ActivityGate& gate, const Handlers& h, std::string comm
     : gate_(gate), handlers_(h), command_(std::move(command)), client_(client) {
     if (h.send_input) {
         handlers_.send_input = [this, send = h.send_input, window = h.read_window](const std::vector<InputEvent>& events) {
-            if (window) {
+            // Key-ups alone always go out: a key a command put down must not stay held (Shift of a
+            // click with mods=) because the window was minimized meanwhile.
+            const bool releases_only = !events.empty() && std::all_of(events.begin(), events.end(), [](const InputEvent& e) {
+                return e.type == InputEvent::Type::KeyUp;
+            });
+            if (window && !releases_only) {
                 const WindowSnapshot w = window();
                 if (w.found && w.minimized) return std::string(kWindowMinimized);
             }
