@@ -2439,7 +2439,19 @@ std::string SaveLoad(const Request& r, std::string_view argument) {
             int clicks = 0;        // ... and sent
             std::uint64_t next_look = 0;
             std::string click_error;  // why the last click on Ok was not sent
+            // A cancel or the client leaving ends the wait, as every other wait: no more clicks, and
+            // the activity's turn goes back (the load itself may still go on).
+            const std::uint64_t generation = g_cancel_generation.load();
+            bool cancelled = false, client_left = false;
             for (;;) {
+                if (g_cancel_generation.load() != generation) {
+                    cancelled = true;
+                    break;
+                }
+                if (ClientLeft()) {
+                    client_left = true;
+                    break;
+                }
                 StateSnapshot seen;
                 bool loading = true, read = false;
                 const int left = deadline > h.now_ms() ? static_cast<int>(deadline - h.now_ms()) : 0;
@@ -2501,6 +2513,13 @@ std::string SaveLoad(const Request& r, std::string_view argument) {
             }
             called = ",\"called\":true,\"load_ms\":" + std::to_string(call->load_ms) + meta_members + ",\"via\":\"menu\"" +
                      notice_members;
+            if (cancelled || client_left) {
+                const std::uint64_t total = a.Total(call->before);
+                return refuse(cancelled ? "cancelled" : "client_left",
+                              std::string(cancelled ? "cancelled" : "its client left") +
+                                  " while the game was taking the load from the menu; the load may still go on",
+                              called + ",\"game_calls_total\":" + std::to_string(total));
+            }
             if (!loaded && noticed) {
                 const std::uint64_t total = a.Total(call->before);
                 return refuse("blocked",

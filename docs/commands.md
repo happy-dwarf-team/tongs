@@ -789,7 +789,10 @@ when Tongs called the game's loader. A run with it is a marked run.
   answer has `dismiss_clicks` (the clicks sent) and, unless the notice was
   still open on the last look, `dismissed: "achievements_notice"`. A sent
   click, or the game going silent while it loads, counts as the notice
-  closed, so a load that outlasts the timeout after Ok is not `blocked`. Each
+  closed, so a load that outlasts the timeout after Ok is not `blocked`. A
+  `cancel` or the client leaving ends this wait at once with `cancelled` or
+  `client_left` (`called: true`): no more clicks are sent, and the load may
+  still go on. Each
   click is one **input**, counted in `inputs` with an `activity`
   notification, so the option needs `input = true` (`input_disabled`
   otherwise, before anything is called). Only the menu path looks for the

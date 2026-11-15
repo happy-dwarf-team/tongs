@@ -5555,6 +5555,15 @@ static void TestSaveLoadAchievementsNotice() {
     assert(Contains(out, "whose Ok could not be clicked: ") && Contains(out, "the window is minimised"));
     assert(!Contains(out, "stayed open after its Ok was clicked"));
 
+    // Its client leaving ends the wait at once: no click, and the answer says so.
+    to_menu();
+    const int clicks_before = clicks;
+    {
+        const ClientScope scope([] { return true; });
+        out = HandleRequest("save load x dismiss=achievements timeout=20", h);
+    }
+    assert(Contains(out, "\"error\":\"client_left\"") && Contains(out, "\"called\":true") && clicks == clicks_before);
+
     // The click is an input: without input = true the option is refused before anything is called.
     to_menu();
     h.send_input = nullptr;
