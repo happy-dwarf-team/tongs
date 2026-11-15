@@ -24,19 +24,19 @@ Keyboard, mouse and console commands change your game exactly as if you had pres
 Tongs is a real program running inside your game, not just a pile of text files. Anvil makes sure nothing like that runs without your nod. Trust, but verify. Dwarf law.
 
 ### I subscribed and nothing happens.
-That is on purpose: Tongs starts switched off. Turn it on in Anvil's panel or in Anvil Manager and restart the game. Then point your script at it; the GitHub page shows how.
+That is on purpose: Tongs starts switched off. Turn it on in Anvil's panel or in Anvil Manager, restart the game and point your script at it; the GitHub page shows how.
 
 ### Can someone on the internet control my game?
-No. Tongs only answers programs running on your own computer under your own Windows user. The front gate stays shut, and the dwarf keeps the key.
+No: Tongs only answers programs on your own computer under your own Windows user. The front gate stays shut, and the dwarf keeps the key.
 
 ### Can it play through events while I am away?
-With input switched on, `run_until` runs the game to a date at the speed you ask and can choose the first option of each of your events on the way. It chooses them the way the event's button does, so it works with the window minimized too; in our tests eight events in a row went through, two of them minimized. Your script can also switch the map mode, a plugin's map modes included.
+Yes, with input switched on: your script can run the game to a date and pick the first option of each of your events on the way, with the window minimized too.
 
 ### Does it work with my mods?
-It reads the interface the game is actually showing, so interface mods should not get in its way. The game itself has to be 1.37.5 (or GOG's 1.37.5.2 or 1.37.5.0).
+It should: Tongs reads the interface the game actually shows, so interface mods don't get in its way. The game itself has to be 1.37.5.
 
 ### I play on GOG. Can I use it?
-Yes, on the GOG builds 1.37.5.2 and 1.37.5.0, with the latest Anvil. GOG has no Workshop, so install Tongs from the **Catalog** tab in Anvil Manager, or from the release zip on [GitHub](https://github.com/happy-dwarf-team/tongs/releases). The tongs fit either hand.
+Yes, 1.37.5.2 and 1.37.5.0: GOG has no Workshop, so install it from the **Catalog** page of Anvil Manager. The tongs fit either hand.
 
 ### Something's wrong. Where do I ask?
 In **#help-and-bugs** on our [Discord server](https://discord.happydwarf.dev/) (pick the Tongs tag), or in a [GitHub issue](https://github.com/happy-dwarf-team/tongs/issues/new/choose). What we confirm on Discord goes to GitHub too.
