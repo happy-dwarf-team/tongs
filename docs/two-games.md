@@ -10,14 +10,17 @@ The Windows steps below follow the same rules but have not been tried on Windows
 
 ## The rules that make it work
 
-- **Two copies of the game**, one per player: a **GOG copy and a Steam copy**. Two Steam copies did not join each
-  other ("Game not found"), probably because both use the same Steam account in the multiplayer service.
+- **Two copies of the game**, one per player. The simplest pair is a **GOG copy and a Steam copy**. Two Steam copies
+  work too, but need extra steps after every start (see "Two Steam copies" below): on its own, every Steam copy logs in
+  with the Paradox account linked to the Steam account, so two Steam copies are one player to the multiplayer service.
 - **Nakama multiplayer**: start both with `-nakamamp`.
 - **Two Paradox accounts**: each game is logged in to a different Paradox account. The GOG copy asks for the login the
-  first time it opens the multiplayer menu (`pdx_online_login_dialog`); the login is kept in that game's profile.
+  first time it opens the multiplayer menu (`pdx_online_login_dialog`); the login is kept in that game's profile, in
+  `pdx_login_cache.txt`. That file holds a login token: treat it like a password, and never commit, upload or share it.
 - **Two player names**: each profile needs its own player name (`lastplayer` in `settings.txt`, or the name field in
   the multiplayer menu). With the same name, the join is refused with "Your name is taken".
-- **The GOG copy hosts.** A game hosted by the Steam copy was never joinable in our tests.
+- **Who hosts.** With a GOG and a Steam copy, let the GOG copy host: in our first test a game hosted by the Steam copy
+  was not joinable. With two Steam copies on two accounts, either one could host (15 November 2026).
 - **The full out-of-sync check**: add `-hardoos` to the host's command line; the lobby then says "Hard OOS is enabled".
   The guest needs no flag, because the host's settings travel with the session.
 - **One Tongs instance per game**: give each game its own `instance` (for example `host` and `guest`), so each serves
@@ -54,7 +57,8 @@ one wineserver; that is why the instance names are needed.
    `TONGS_INSTANCE`).
 
 Quit each game from its main menu. The lobby's **Back** button ended *both* games in our test, probably because the
-game restarts itself and the shared wineserver goes down with the first launch.
+game restarts itself and the shared wineserver goes down with the first launch. With each game in its own prefix (as in
+"Two Steam copies" below), Back ends only its own game.
 
 ## Windows
 
@@ -68,6 +72,42 @@ second game cannot serve `\\.\pipe\tongs`.
    for that start (or `instance = "guest"` in that copy's Tongs settings), with the launch options
    `-nakamamp -userdir=C:\eu4\guest`.
 5. Drive each with `tongs.py --instance host …` and `tongs.py --instance guest …`.
+
+## Two Steam copies
+
+Verified on Linux (15 November 2026, Tongs 0.34.0): two Steam copies joined in both directions and stayed in sync with
+`-hardoos` on the host. Not tried on Windows yet.
+
+Two things make them two players:
+
+- **A second Paradox account in the second copy, switched by hand after every start.** A Steam copy logs in with the
+  Steam-linked Paradox account each time it starts; copying another profile's login file does not change that. After
+  the second copy has reached its main menu, log out of the Paradox account there and log in with the second account.
+  The switch does not survive a restart, so it is needed after every start of that copy.
+- **Each game in its own environment**, so that each keeps its own login and, under Wine, its own wineserver.
+
+### On Linux
+
+1. Make a second copy of the Steam installation (for example a reflink copy) and the two profile folders, as above.
+2. Copy the Steam prefix of EU4 (`compatdata/236850`) to a folder of its own for the second copy.
+3. Start the first copy as usual: `ANVIL_TONGS_INSTANCE=host protontricks-launch --appid 236850 <steam-copy-1>/eu4.exe -nakamamp -hardoos -userdir=<host-profile>`.
+4. Start the second copy in its own prefix: `STEAM_COMPAT_DATA_PATH=<copied-prefix> ANVIL_TONGS_INSTANCE=guest protontricks-launch --appid 236850 <steam-copy-2>/eu4.exe -nakamamp -userdir=<guest-profile>`
+   (protontricks uses `STEAM_COMPAT_DATA_PATH` when it is set).
+5. In the second copy's main menu, switch to the second Paradox account, then host and join as below.
+
+### On Windows
+
+Not tried yet; these steps follow the same rules.
+
+1. Make a second copy of the Steam installation folder (a plain folder copy), and install Anvil and Tongs into it.
+2. Make the two profile folders as above. On Windows both games run as the same Windows user; the separate `-userdir`
+   folders keep their profiles, and so their logins, apart.
+3. Start the first copy through Steam, with the launch options `-nakamamp -hardoos -userdir=C:\eu4\host` and
+   `ANVIL_TONGS_INSTANCE=host` set for it (or `instance = "host"` in that copy's Tongs settings).
+4. Start the second copy from its own folder, with Steam running: `set ANVIL_TONGS_INSTANCE=guest` and then
+   `eu4.exe -nakamamp -userdir=C:\eu4\guest`. Steam may refuse to start the same game twice through its own
+   launcher, which is why this copy starts from its folder (not checked).
+5. In the second copy's main menu, switch to the second Paradox account, then host and join as below.
 
 ## Hosting and joining
 
