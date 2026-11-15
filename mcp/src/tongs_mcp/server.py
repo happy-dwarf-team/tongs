@@ -479,8 +479,9 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
         the UI), paused, paused_flag (the player pause), out_of_sync (this client's checksums
         differed from the host's), paused_oos (paused because a machine went out of sync),
         map_mode (the map mode shown, a value of the game's map mode enum), map_mode_id (the id of
-        the plugin mode that borrowed that number, from Anvil's anvil-map, or null),
-        session (1 for the first game of the
+        the plugin mode that borrowed that number, from Anvil's anvil-map, or null), ironman and
+        multiplayer (the session's mode as Anvil sees it; absent until Anvil saw a frame of the
+        session; a host alone is not multiplayer), session (1 for the first game of the
         process, +1 at every load), game_calls_total and client_calls_total (since the save was
         loaded); always pid and process_start_ms (Unix ms) of the game process. Cheap; call it
         first."""

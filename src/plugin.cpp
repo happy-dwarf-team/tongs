@@ -163,10 +163,15 @@ struct Tongs : anvil::Plugin {
         // and a reloaded save starts game_calls_total and client_calls_total again.
         static tongs::LoadWatch load_watch;
         // anvil-game.game: the out-of-sync flags for state, and the session's ironman and
-        // multiplayer flags for the console's mode (docs/design.md, "Out of sync").
+        // multiplayer flags for state and the console's mode (docs/design.md, "Out of sync" and
+        // "Session mode").
         const auto* game = host.service<AnvilGameService>(ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION);
-        if (game == nullptr) host.warn("{} is not loaded: out_of_sync stays false and console refuses", ANVIL_GAME_SERVICE);
+        if (game == nullptr) {
+            host.warn("{} is not loaded: out_of_sync stays false, state has no ironman or multiplayer and console refuses",
+                      ANVIL_GAME_SERVICE);
+        }
         static tongs::OosView oos_view;
+        static tongs::ModeView mode_view;
         // anvil-map is optional: with it, state names the plugin mode a map mode number belongs to.
         // Its mode_id may be called from any thread, so the pipe thread asks it for the number it
         // just read and the id always matches that number.
@@ -182,6 +187,10 @@ struct Tongs : anvil::Plugin {
             load_watch.Observe(s);
             if (game != nullptr && ANVIL_GAME_HAS(game, out_of_sync)) {
                 oos_view.Apply(s, game->frame_number(), game->out_of_sync());
+            }
+            if (game != nullptr && s.in_game) {
+                AnvilGameSession mode{};
+                if (game->session(&mode) != 0) mode_view.Apply(s, game->frame_number(), mode);
             }
             if (s.in_game && map_modes != nullptr) s.map_mode_id = map_modes->mode_id(s.map_mode);
             s.pid = pid;

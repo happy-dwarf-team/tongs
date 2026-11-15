@@ -107,6 +107,9 @@ std::string StateFields(const StateSnapshot& s) {
     out += std::string(",\"paused_oos\":") + Bool(s.paused_oos);
     out += ",\"map_mode\":" + std::to_string(s.map_mode);
     out += ",\"map_mode_id\":" + (s.map_mode_id != nullptr ? "\"" + JsonEscape(s.map_mode_id) + "\"" : std::string("null"));
+    if (s.mode_known) {
+        out += std::string(",\"ironman\":") + Bool(s.ironman) + ",\"multiplayer\":" + Bool(s.multiplayer);
+    }
     if (s.load != 0) out += ",\"session\":" + std::to_string(s.load);
     return out + process;
 }

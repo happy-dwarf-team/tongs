@@ -222,6 +222,19 @@ is exactly such a load. Tongs reports both fields `false` until
 shows in `state` one outer frame later than before, also in the `out_of_sync`
 notification. Without `anvil-game.game` both stay `false`.
 
+### Session mode
+
+`ironman` and `multiplayer` in `state` are Anvil's view of the session:
+`anvil-game.game`'s `session()`, the same flags Anvil uses to suspend a
+plugin in ironman or multiplayer and Tongs' console reads for its gates.
+Like `out_of_sync()` the view is as of the last outer frame, so Tongs
+leaves both fields out of `state` until an outer frame ran after the read
+that saw a new load (`ModeView`, `src/load_watch.cpp`, which shares
+`OosView`'s gate), and without `anvil-game.game`. `multiplayer` is the
+game's own `is_multiplayer`: a host alone in a multiplayer lobby's game is
+not multiplayer until another player has joined. Reads keep working while
+Anvil suspends Tongs, so a client sees why its inputs are refused.
+
 ### Map mode
 
 `map_mode` is the session's current map mode: an int32 at `session+0x2C`

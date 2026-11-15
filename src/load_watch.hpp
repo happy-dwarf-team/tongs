@@ -27,6 +27,19 @@ private:
     std::int32_t date_raw_ = 0;
 };
 
+// Whether an outer frame ran after the read that first saw the load `s` belongs to: until then
+// anvil-game's views (as of the last outer frame) can still be the previous session's. Thread-safe.
+class FrameGate {
+public:
+    // `s` after LoadWatch::Observe; `frame` is frame_number(). False without a game.
+    bool Settled(const StateSnapshot& s, std::uint64_t frame);
+
+private:
+    std::mutex mutex_;
+    std::uint64_t load_ = 0;
+    std::uint64_t frame_at_load_ = 0;
+};
+
 // `out_of_sync` and `paused_oos` from anvil-game's out_of_sync() (docs/design.md, "Out of sync").
 // Its flags are as of the last outer frame, and no outer frame runs between Tongs seeing a new load
 // and the first frame of that session, so in that gap they can still be the previous session's: a
@@ -38,9 +51,19 @@ public:
     void Apply(StateSnapshot& s, std::uint64_t frame, std::uint32_t flags);
 
 private:
-    std::mutex mutex_;
-    std::uint64_t load_ = 0;
-    std::uint64_t frame_at_load_ = 0;
+    FrameGate gate_;
+};
+
+// `ironman` and `multiplayer` from anvil-game's session() (docs/design.md, "Session mode"). Like
+// out_of_sync() it is as of the last outer frame, so after a new load the view reports nothing
+// (mode_known false) until an outer frame ran after the read that saw the load. Thread-safe.
+class ModeView {
+public:
+    // `s` after LoadWatch::Observe; `frame` is frame_number(), `mode` what session() filled.
+    void Apply(StateSnapshot& s, std::uint64_t frame, const AnvilGameSession& mode);
+
+private:
+    FrameGate gate_;
 };
 
 }  // namespace tongs

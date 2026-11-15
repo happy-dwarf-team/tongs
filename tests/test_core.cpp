@@ -38,6 +38,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -625,6 +626,29 @@ static void TestOosView() {
     assert(apply(true, 2, 15, both) == std::pair(true, true));
 }
 
+static void TestModeView() {
+    ModeView view;
+    const auto apply = [&view](bool in_game, std::uint64_t load, std::uint64_t frame, bool ironman, bool multiplayer) {
+        StateSnapshot s;
+        s.in_game = in_game;
+        s.load = load;
+        s.mode_known = s.ironman = s.multiplayer = true;  // the view decides
+        AnvilGameSession mode{};
+        mode.ironman = ironman ? 1 : 0;
+        mode.multiplayer = multiplayer ? 1 : 0;
+        view.Apply(s, frame, mode);
+        return std::tuple{s.mode_known, s.ironman, s.multiplayer};
+    };
+    assert(apply(false, 0, 10, true, true) == std::tuple(false, false, false));  // no game
+    // The first read of a load: session() is as of a frame before it, so nothing yet.
+    assert(apply(true, 1, 10, true, false) == std::tuple(false, false, false));
+    assert(apply(true, 1, 11, true, false) == std::tuple(true, true, false));
+    assert(apply(true, 1, 12, false, false) == std::tuple(true, false, false));
+    // Another save loaded from a running game: the old session's flags until a frame of the new one ran.
+    assert(apply(true, 2, 12, false, false) == std::tuple(false, false, false));
+    assert(apply(true, 2, 13, false, true) == std::tuple(true, false, true));
+}
+
 // The 0.12 default config.toml, which a player may still have.
 constexpr char kOldDefaultConfig[] =
     "# Tongs\n"
@@ -737,6 +761,16 @@ static void TestProtocol() {
     assert(Contains(HandleRequest("state", h), "\"paused_oos\":false,\"map_mode\":37,\"map_mode_id\":null,\"session\":3,"));
     snapshot.map_mode = 0;
     assert(Contains(HandleRequest("state", h), "\"game_calls_total\":0,\"client_calls_total\":0"));
+    // The session's mode, once ModeView knows it.
+    assert(!Contains(HandleRequest("state", h), "\"ironman\""));
+    snapshot.mode_known = true;
+    snapshot.ironman = true;
+    assert(Contains(HandleRequest("state", h), "\"map_mode_id\":null,\"ironman\":true,\"multiplayer\":false,\"session\":3,"));
+    snapshot.ironman = false;
+    snapshot.multiplayer = true;
+    assert(Contains(HandleRequest("state", h), "\"ironman\":false,\"multiplayer\":true,\"session\":3,"));
+    snapshot.in_game = false;
+    assert(!Contains(HandleRequest("state", h), "\"ironman\""));
 
     assert(JsonEscape("a\"b\\c\n\x01") == "a\\\"b\\\\c\\n\\u0001");
 }
@@ -6368,6 +6402,7 @@ int main(int argc, char** argv) {
     TestDate();
     TestLoadWatch();
     TestOosView();
+    TestModeView();
     TestScreenshot();
     TestThreads();
     TestTextEvents();
