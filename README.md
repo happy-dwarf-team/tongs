@@ -195,8 +195,7 @@ first, with its standard plugin `anvil-game` (part of Anvil's package). Then
 [install the plugin](https://anvil.happydwarf.dev/docs/install-plugins/) one of
 these ways:
 
-- click **Install** next to Tongs on the **Catalog** tab of Anvil Manager (Anvil
-  1.9 or newer);
+- click **Install** next to Tongs on the **Catalog** tab of Anvil Manager;
 - subscribe to the
   [Steam Workshop mod](https://steamcommunity.com/sharedfiles/filedetails/?id=3826695093)
   and approve it, or
@@ -243,7 +242,7 @@ variables (for example `ANVIL_TONGS_ENABLED=true`) override a value for one
 start, without changing the file. An `anvil/data/tongs/config.toml` from Tongs
 0.12 or older is moved into `settings.toml` on the first start.
 
-With Anvil 1.20 or newer, the Anvil panel and Anvil Manager show these settings and Tongs' description in the player's
+The Anvil panel and Anvil Manager show these settings and Tongs' description in the player's
 language: French, German, Spanish, Simplified and Traditional Chinese, Japanese, Korean or
 Polish, from [`plugin/translations/`](plugin/translations/). The translations are drafts that native speakers
 have not checked yet; a correction is welcome in an issue or a pull request.
