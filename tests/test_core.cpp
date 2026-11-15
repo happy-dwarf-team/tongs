@@ -66,10 +66,12 @@ public:
     explicit FakeMainThread(Dispatcher& d) : thread_([this, &d] {
         std::uint64_t frame = 0;
         while (!stop_) {
-            d.RunBatch(++frame);
+            if (!held_) d.RunBatch(++frame);
             SleepMs(2);
         }
     }) {}
+    // Held: no frames, as while the game loads.
+    void Hold(bool held) { held_ = held; }
     ~FakeMainThread() {
         stop_ = true;
         thread_.join();
@@ -77,6 +79,7 @@ public:
 
 private:
     std::atomic<bool> stop_{false};
+    std::atomic<bool> held_{false};
     std::thread thread_;
 };
 
@@ -5481,6 +5484,40 @@ static void TestSaveLoadAchievementsNotice() {
     };
     out = HandleRequest("save load x dismiss=achievements", h);
     assert(Contains(out, "\"ok\":true") && !Contains(out, "\"dismissed\"") && clicks == 1);
+
+    // Ok closes the notice, then the load holds the main thread past the timeout: not "blocked".
+    to_menu();
+    h.read_continue_flag = [&](bool& set) {
+        if (flag) {
+            flag = false;
+            notice = true;
+        }
+        set = flag;
+        return true;
+    };
+    h.send_input = [&](const std::vector<InputEvent>& events) {
+        for (const InputEvent& e : events) {
+            if (e.type != InputEvent::Type::MouseUp || !over_ok()) continue;
+            ++clicks;
+            notice = false;
+        }
+        return std::string();
+    };
+    h.release_cursor = [&] {
+        cursor = {-1, -1};
+        if (!notice) main.Hold(true);
+    };
+    out = HandleRequest("save load x dismiss=achievements timeout=3", h);
+    main.Hold(false);
+    assert(!Contains(out, "\"error\":\"blocked\"") && Contains(out, "\"called\":true"));
+    assert(Contains(out, "\"dismissed\":\"achievements_notice\",\"dismiss_clicks\":1") && clicks == 2 && !notice);
+
+    // A click that is not sent is no dismissal: the notice stays open and the answer says blocked.
+    to_menu();
+    h.release_cursor = [&cursor] { cursor = {-1, -1}; };
+    h.send_input = [](const std::vector<InputEvent>&) { return std::string("the window is minimised"); };
+    out = HandleRequest("save load x dismiss=achievements timeout=3", h);
+    assert(Contains(out, "\"error\":\"blocked\"") && !Contains(out, "\"dismiss") && notice);
 
     // The click is an input: without input = true the option is refused before anything is called.
     to_menu();

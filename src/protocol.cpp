@@ -2431,8 +2431,9 @@ std::string SaveLoad(const Request& r, std::string_view argument) {
             // the load until it is closed (lab, 14.11.2026).
             const std::uint64_t t0 = h.now_ms();
             bool loaded = false;
-            bool noticed = false;  // the notice was open on the last look
-            int clicks = 0;        // dismiss=achievements: clicks on its Ok
+            bool noticed = false;  // the notice was open on the last look, and nothing since says it closed
+            int attempts = 0;      // dismiss=achievements: clicks tried on its Ok
+            int clicks = 0;        // ... and sent
             std::uint64_t next_look = 0;
             for (;;) {
                 StateSnapshot seen;
@@ -2458,19 +2459,25 @@ std::string SaveLoad(const Request& r, std::string_view argument) {
                     loaded = true;
                     break;
                 }
-                if (frame.ran && seen.in_game) noticed = false;
+                // In game, or no frame for a while (the game is loading; a menu with the notice
+                // open draws many frames in that time): nothing holds the load.
+                if ((!frame.ran && left >= kNoticeLookMs) || seen.in_game) noticed = false;
                 if (frame.ran && looked) {
                     next_look = h.now_ms() + kNoticeLookMs;
                     const UiNotice notice = FindAchievementsNotice(tree);
                     noticed = notice.window != -1;
-                    if (noticed && dismiss && clicks < kMaxNoticeClicks) {
+                    if (noticed && dismiss && attempts < kMaxNoticeClicks) {
                         const UiWidget& ok = tree.widgets[notice.agree];
-                        ++clicks;
+                        ++attempts;
                         // One input of its own, counted when the part ends if the click was sent.
                         ActivityGate::Part part = a.CountAs("save load");
                         const ClickOutcome c = ClickWidget(part.handlers(), ok.address, ok.rect, left, false);
                         a.Log(kLogWarning, c.ok ? std::string("clicked Ok on the achievements notice")
                                                 : "could not click Ok on the achievements notice: " + c.error);
+                        if (c.ok) {
+                            ++clicks;
+                            noticed = false;  // until a later look sees it still open
+                        }
                         if (h.release_cursor) {
                             h.release_cursor();
                             Hold({});
@@ -2481,7 +2488,11 @@ std::string SaveLoad(const Request& r, std::string_view argument) {
             }
             call->load_ms = h.now_ms() - t0;
             std::string notice_members;
-            if (clicks > 0) notice_members = ",\"dismissed\":\"achievements_notice\",\"dismiss_clicks\":" + std::to_string(clicks);
+            if (clicks > 0) {
+                // Dismissed only when the notice did not stay open after the clicks.
+                notice_members = std::string(!loaded && noticed ? "" : ",\"dismissed\":\"achievements_notice\"") +
+                                 ",\"dismiss_clicks\":" + std::to_string(clicks);
+            }
             called = ",\"called\":true,\"load_ms\":" + std::to_string(call->load_ms) + meta_members + ",\"via\":\"menu\"" +
                      notice_members;
             if (!loaded && noticed) {

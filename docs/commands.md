@@ -786,7 +786,10 @@ when Tongs called the game's loader. A run with it is a marked run.
   open answers `blocked` with `blocked_by: "achievements_notice"` (`called:
   true`) instead of `not_loaded`. With `dismiss=achievements` Tongs clicks its
   `AgreeButton` as `ui click` does (up to three times) and waits on; the
-  answer has `dismissed: "achievements_notice"` and `dismiss_clicks`. Each
+  answer has `dismiss_clicks` (the clicks sent) and, unless the notice was
+  still open on the last look, `dismissed: "achievements_notice"`. A sent
+  click, or the game going silent while it loads, counts as the notice
+  closed, so a load that outlasts the timeout after Ok is not `blocked`. Each
   click is one **input**, counted in `inputs` with an `activity`
   notification, so the option needs `input = true` (`input_disabled`
   otherwise, before anything is called). Only the menu path looks for the
