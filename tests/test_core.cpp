@@ -5552,6 +5552,8 @@ static void TestSaveLoadAchievementsNotice() {
     h.send_input = [](const std::vector<InputEvent>&) { return std::string("the window is minimised"); };
     out = HandleRequest("save load x dismiss=achievements timeout=3", h);
     assert(Contains(out, "\"error\":\"blocked\"") && !Contains(out, "\"dismiss") && notice);
+    assert(Contains(out, "whose Ok could not be clicked: ") && Contains(out, "the window is minimised"));
+    assert(!Contains(out, "stayed open after its Ok was clicked"));
 
     // The click is an input: without input = true the option is refused before anything is called.
     to_menu();

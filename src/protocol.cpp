@@ -2438,6 +2438,7 @@ std::string SaveLoad(const Request& r, std::string_view argument) {
             int attempts = 0;      // dismiss=achievements: clicks tried on its Ok
             int clicks = 0;        // ... and sent
             std::uint64_t next_look = 0;
+            std::string click_error;  // why the last click on Ok was not sent
             for (;;) {
                 StateSnapshot seen;
                 bool loading = true, read = false;
@@ -2480,6 +2481,8 @@ std::string SaveLoad(const Request& r, std::string_view argument) {
                         if (c.ok) {
                             ++clicks;
                             noticed = false;  // until a later look sees it still open
+                        } else {
+                            click_error = c.error;
                         }
                         if (h.release_cursor) {
                             h.release_cursor();
@@ -2502,7 +2505,11 @@ std::string SaveLoad(const Request& r, std::string_view argument) {
                 const std::uint64_t total = a.Total(call->before);
                 return refuse("blocked",
                               std::string("the load waits behind Anbennar's notice \"") + std::string(kAchievementsNoticeTitle) +
-                                  "\"" + (dismiss ? ", which stayed open after its Ok was clicked" : "; dismiss=achievements clicks its Ok"),
+                                  "\"" +
+                                  (!dismiss         ? std::string("; dismiss=achievements clicks its Ok")
+                                   : clicks > 0     ? std::string(", which stayed open after its Ok was clicked")
+                                   : click_error.empty() ? std::string(", whose Ok was not found to click")
+                                                    : ", whose Ok could not be clicked: " + click_error),
                               called + ",\"blocked_by\":\"achievements_notice\",\"game_calls_total\":" + std::to_string(total));
             }
         } else if (call->load.result != 0) {
