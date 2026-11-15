@@ -246,7 +246,8 @@ start, without changing the file. An `anvil/data/tongs/config.toml` from Tongs
 To drive several games on one computer, give each its own `instance` (for
 example `ANVIL_TONGS_INSTANCE=guest` for one start) and point each client at it
 with `TONGS_INSTANCE=guest` or `--instance guest`; see
-[docs/design.md](docs/design.md), "Several games on one computer".
+[docs/design.md](docs/design.md), "Several games on one computer". [docs/two-games.md](docs/two-games.md) says how to set up two games
+(a GOG and a Steam copy) with the same playset and settings to play one multiplayer game, on Linux and Windows.
 
 The Anvil panel and Anvil Manager show these settings and Tongs' description in the player's
 language: French, German, Spanish, Simplified and Traditional Chinese, Japanese, Korean or
