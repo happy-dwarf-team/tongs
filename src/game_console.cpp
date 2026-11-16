@@ -1,6 +1,7 @@
 #include "game_console.hpp"
 
 #include "game_memory.hpp"
+#include "protocol.hpp"
 
 #include <windows.h>
 
@@ -87,7 +88,7 @@ std::string ReadGameConsole(std::uintptr_t base, const ConsoleLayout& layout, co
     if (!Read(base + layout.root_rva, root) || root == 0) return "no game loaded (root object is null)";
     std::uintptr_t session = 0, vtable = 0;
     if (!Read(root + layout.session, session) || session == 0) return "no game loaded (session is null)";
-    if (!Read(session, vtable) || vtable != base + layout.session_vtable_rva) return "session object has an unexpected vtable";
+    if (!Read(session, vtable) || vtable != base + layout.session_vtable_rva) return kSessionNotInGame;
     out.session = session;
     // The flags the console's registration reads (is_multiplayer(session), the root's ironman
     // byte), as anvil-game read them after the last outer frame.

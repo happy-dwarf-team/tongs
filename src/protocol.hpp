@@ -24,6 +24,12 @@
 
 namespace tongs {
 
+// The reason when the pointer at root + session_offset holds another class than
+// the in-game session: the main menu, the nation selection and the last part of
+// a save load (docs/design.md). It is not a wrong address.
+inline constexpr char kSessionNotInGame[] =
+    "no game loaded (main menu, nation selection or loading: the session object is another class)";
+
 // One snapshot of what the plugin can read from the game (game_state.cpp).
 struct StateSnapshot {
     bool in_game = false;        // a game is loaded (root object and session present)

@@ -5411,7 +5411,7 @@ static void TestSaveLoadFromMenu() {
     h.game_calls.enabled = true;
     StateSnapshot game;
     game.in_game = false;
-    game.reason = "session object has an unexpected vtable";
+    game.reason = kSessionNotInGame;
     game.load = 0;
     h.read_state = [&game] { return game; };
     Dispatcher d(SteadyMs);
@@ -5552,7 +5552,7 @@ static void TestSaveLoadAchievementsNotice() {
     const auto to_menu = [&game] {
         game = {};
         game.in_game = false;
-        game.reason = "session object has an unexpected vtable";
+        game.reason = kSessionNotInGame;
         game.load = 0;
     };
     to_menu();
