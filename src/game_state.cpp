@@ -31,7 +31,7 @@ void ReadUnguarded(std::uintptr_t base, const GameLayout& layout, StateSnapshot&
         return;
     }
     if (At<std::uintptr_t>(session) != base + layout.session_vtable_rva) {
-        out.reason = "session object has an unexpected vtable";
+        out.reason = kSessionNotInGame;
         return;
     }
     const auto game_speed = At<std::uintptr_t>(session + layout.game_speed_offset);

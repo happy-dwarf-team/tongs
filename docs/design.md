@@ -224,8 +224,13 @@ While a save is read into the session (live, 2026-10-19: reloading the save
 from the in-game menu), the session pointer is null for a second or two and
 then the date is 1 January of year 1, hour 0, for a moment. Tongs answers
 `in_game: false` for both: "no game loaded (session is null)" and "save still
-loading (date not set)". In the main menu the pointer at `root + 0x1E00`
-holds another class ("session object has an unexpected vtable").
+loading (date not set)". In the main menu, in the nation selection and for a
+few seconds of a load, the pointer at `root + 0x1E00` holds another class than
+the in-game session (`CInGameIdler`, vtable `0x1CB8460`, GOG `0x1CA1088`):
+"no game loaded (main menu, nation selection or loading: the session object is
+another class)". Tongs before 0.37 answered "session object has an unexpected
+vtable" there, which read like a wrong address on GOG; it was the same menu
+state on every build (the lab's GOG 1.37.5.2 and 1.37.5.0 check, 2026-11-16).
 
 `plugin/symbols.toml` declares the code that holds these offsets and takes
 them from it as `values`, so Anvil skips the plugin when any of it differs.
