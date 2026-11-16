@@ -13,7 +13,7 @@ dependencies = ["mcp==2.3.0"]
 tongs-mcp = "tongs_mcp.server:main"
 
 [dependency-groups]
-dev = ["pytest==9.1.1"]
+dev = ["pytest==9.2.0"]
 
 [build-system]
 requires = ["uv_build>=0.9.28,<0.14"]
