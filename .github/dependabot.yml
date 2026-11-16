@@ -10,3 +10,14 @@ updates:
         patterns: ["*"]
     commit-message:
       prefix: ci
+  # The MCP server's Python dependencies (mcp/pyproject.toml and mcp/uv.lock).
+  # They reach users with the next release, so the entry is a build change.
+  - package-ecosystem: uv
+    directory: /mcp
+    schedule:
+      interval: monthly
+    groups:
+      mcp:
+        patterns: ["*"]
+    commit-message:
+      prefix: build(mcp)
