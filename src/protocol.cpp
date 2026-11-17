@@ -2361,74 +2361,86 @@ std::string SaveLoad(const Request& r, std::string_view argument) {
         // The members of the `activity` notification after "command".
         const std::string activity = ",\"name\":\"save load\",\"save\":" + Quote(name);
         std::thread([call, handlers, name, timeout_s, activity, client] {
-            t_client = client;
-            const Handlers& hh = handlers;
-            Dispatcher::Outcome o = hh.dispatcher->Run(
-                Dispatcher::Kind::GameCall,
-                [&] {
-                    StateSnapshot before = hh.read_state();
-                    call->before = before;
-                    const auto refused = [&](const char* error, std::string detail) {
-                        call->refusal = error;
-                        call->refusal_detail = std::move(detail);
-                        return std::string();
-                    };
-                    if (!before.in_game) {
-                        // The main menu: its own Continue, as a start with continue= (ADR 0001 game call).
-                        if (!hh.call_menu_load || !hh.read_continue_flag || !hh.clear_continue) {
-                            return refused("not_in_game", before.reason ? before.reason : "no game loaded");
+            // A detached thread: an exception leaving it would end the game. The
+            // request then answers as if the job had not run, unless it called the loader.
+            try {
+                t_client = client;
+                const Handlers& hh = handlers;
+                Dispatcher::Outcome o = hh.dispatcher->Run(
+                    Dispatcher::Kind::GameCall,
+                    [&] {
+                        StateSnapshot before = hh.read_state();
+                        call->before = before;
+                        const auto refused = [&](const char* error, std::string detail) {
+                            call->refusal = error;
+                            call->refusal_detail = std::move(detail);
+                            return std::string();
+                        };
+                        if (!before.in_game) {
+                            // The main menu: its own Continue, as a start with continue= (ADR 0001 game call).
+                            if (!hh.call_menu_load || !hh.read_continue_flag || !hh.clear_continue) {
+                                return refused("not_in_game", before.reason ? before.reason : "no game loaded");
+                            }
+                            if (hh.gate->Tripped(Breaker::GameCalls)) return refused("game_calls_tripped", "game calls are off until the game exits");
+                            const LoadCall posted = hh.call_menu_load(name);
+                            if (!posted.faulted && posted.result == 4) {
+                                return refused("not_in_menu", "the game shows neither a game nor its main menu");
+                            }
+                            g_tongs_load.store(before.load + 1);
+                            call->called = true;
+                            call->menu = true;
+                            call->load = posted;
+                            if (posted.faulted) hh.gate->Trip(Breaker::GameCalls);
+                            return std::string();
                         }
-                        if (hh.gate->Tripped(Breaker::GameCalls)) return refused("game_calls_tripped", "game calls are off until the game exits");
-                        const LoadCall posted = hh.call_menu_load(name);
-                        if (!posted.faulted && posted.result == 4) {
-                            return refused("not_in_menu", "the game shows neither a game nor its main menu");
-                        }
-                        g_tongs_load.store(before.load + 1);
-                        call->called = true;
-                        call->menu = true;
-                        call->load = posted;
-                        if (posted.faulted) hh.gate->Trip(Breaker::GameCalls);
-                        return std::string();
-                    }
-                    if (!before.paused) return refused("not_paused", "the game runs; a player loads from the paused in-game menu");
-                    if (ConsoleRefusal r = CheckModuleSuspended(hh.game_calls); r.refused()) {
-                        call->refusal = r.error;
-                        call->refusal_detail = r.detail;
-                        return std::string();
-                    }
-                    if (hh.read_console) {
-                        ConsoleRaw raw;
-                        if (std::string error = hh.read_console(raw); !error.empty()) return refused("console_unavailable", error);
-                        call->mode = ModeMembers(hh.game_calls, raw);
-                        if (ConsoleRefusal r = CheckConsoleMode(hh.game_calls, raw); r.refused()) {
+                        if (!before.paused) return refused("not_paused", "the game runs; a player loads from the paused in-game menu");
+                        if (ConsoleRefusal r = CheckModuleSuspended(hh.game_calls); r.refused()) {
                             call->refusal = r.error;
                             call->refusal_detail = r.detail;
                             return std::string();
                         }
-                    }
-                    if (hh.gate->Tripped(Breaker::GameCalls)) return refused("game_calls_tripped", "game calls are off until the game exits");
-                    g_tongs_load.store(before.load + 1);
-                    call->called = true;
-                    const std::uint64_t t0 = hh.now_ms();
-                    call->load = hh.call_load(name);
-                    call->load_ms = hh.now_ms() - t0;
-                    if (call->load.faulted) {
-                        hh.gate->Trip(Breaker::GameCalls);
-                    } else if (call->load.result == 0) {
-                        unsigned long code = 0;
-                        call->closed = hh.close_windows(code);
-                    }
-                    return std::string();
-                },
-                timeout_s * 1000);
-            std::lock_guard g(call->mutex);
-            call->outcome = o;
-            call->done = true;
-            if (call->abandoned && call->called) {
-                // Nobody waits for this load any more; it is still one game call.
-                hh.gate->Counted(hh, CommandType::GameCall, "save load", client, hh.read_state(), activity);
+                        if (hh.read_console) {
+                            ConsoleRaw raw;
+                            if (std::string error = hh.read_console(raw); !error.empty()) return refused("console_unavailable", error);
+                            call->mode = ModeMembers(hh.game_calls, raw);
+                            if (ConsoleRefusal r = CheckConsoleMode(hh.game_calls, raw); r.refused()) {
+                                call->refusal = r.error;
+                                call->refusal_detail = r.detail;
+                                return std::string();
+                            }
+                        }
+                        if (hh.gate->Tripped(Breaker::GameCalls)) return refused("game_calls_tripped", "game calls are off until the game exits");
+                        g_tongs_load.store(before.load + 1);
+                        call->called = true;
+                        const std::uint64_t t0 = hh.now_ms();
+                        call->load = hh.call_load(name);
+                        call->load_ms = hh.now_ms() - t0;
+                        if (call->load.faulted) {
+                            hh.gate->Trip(Breaker::GameCalls);
+                        } else if (call->load.result == 0) {
+                            unsigned long code = 0;
+                            call->closed = hh.close_windows(code);
+                        }
+                        return std::string();
+                    },
+                    timeout_s * 1000);
+                std::lock_guard g(call->mutex);
+                call->outcome = o;
+                call->done = true;
+                if (call->abandoned && call->called) {
+                    // Nobody waits for this load any more; it is still one game call.
+                    hh.gate->Counted(hh, CommandType::GameCall, "save load", client, hh.read_state(), activity);
+                }
+                call->done_cv.notify_all();
+            } catch (...) {
+                std::lock_guard g(call->mutex);
+                if (!call->done) {
+                    call->outcome.ran = call->called;
+                    if (!call->called) call->outcome.error = "internal_error";
+                    call->done = true;
+                }
+                call->done_cv.notify_all();
             }
-            call->done_cv.notify_all();
         }).detach();
         {
             const std::uint64_t now = h.now_ms();
@@ -2442,7 +2454,11 @@ std::string SaveLoad(const Request& r, std::string_view argument) {
                               ",\"started\":true" + meta_members);
             }
         }
-        if (!call->outcome.ran) return refuse(call->outcome.error, "no outer frame came within the timeout; nothing was called");
+        if (!call->outcome.ran) {
+            return refuse(call->outcome.error, call->outcome.error == "internal_error"
+                                                   ? "an exception on the load's thread; nothing was called"
+                                                   : "no outer frame came within the timeout; nothing was called");
+        }
         if (!call->refusal.empty()) return refuse(call->refusal, call->refusal_detail, meta_members + call->mode);
 
         // Called: one game call, counted in the session it made (game_calls_total is 1 afterwards).

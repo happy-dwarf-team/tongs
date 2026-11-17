@@ -408,33 +408,48 @@ std::size_t NotificationSources::PollErrorLog() {
 void NotificationSources::Start() {
     constexpr int kIdleWaitMs = 1000;
     const auto sleep = [this](int ms) { h_.sleep_ms(ms); };
-    std::thread([this, sleep] {
+    // Detached threads: an exception (in practice a failed allocation) leaving
+    // one would end the game, so a step that throws is skipped and tried again.
+    const auto guarded = [sleep](auto&& step) {
+        try {
+            step();
+        } catch (...) {
+            sleep(kIdleWaitMs);
+        }
+    };
+    std::thread([this, sleep, guarded] {
         for (;;) {
-            if (!hub_.WaitFor(Bit(NotificationKind::State) | Bit(NotificationKind::Date), kIdleWaitMs)) {
-                ResetState();
-                continue;
-            }
-            PollState();
-            sleep(h_.poll_interval_ms);
+            guarded([&] {
+                if (!hub_.WaitFor(Bit(NotificationKind::State) | Bit(NotificationKind::Date), kIdleWaitMs)) {
+                    ResetState();
+                    return;
+                }
+                PollState();
+                sleep(h_.poll_interval_ms);
+            });
         }
     }).detach();
-    std::thread([this, sleep] {
+    std::thread([this, sleep, guarded] {
         for (;;) {
-            if (!hub_.WaitFor(Bit(NotificationKind::Event), kIdleWaitMs)) {
-                ResetEvents();
-                continue;
-            }
-            PollEvents();
-            sleep(h_.poll_interval_ms);
+            guarded([&] {
+                if (!hub_.WaitFor(Bit(NotificationKind::Event), kIdleWaitMs)) {
+                    ResetEvents();
+                    return;
+                }
+                PollEvents();
+                sleep(h_.poll_interval_ms);
+            });
         }
     }).detach();
-    std::thread([this, sleep] {
+    std::thread([this, sleep, guarded] {
         for (;;) {
-            if (!hub_.WaitFor(Bit(NotificationKind::ErrorLog), kIdleWaitMs)) {
-                ResetErrorLog();
-                continue;
-            }
-            if (PollErrorLog() < kErrorLogChunk) sleep(kErrorLogPollMs);
+            guarded([&] {
+                if (!hub_.WaitFor(Bit(NotificationKind::ErrorLog), kIdleWaitMs)) {
+                    ResetErrorLog();
+                    return;
+                }
+                if (PollErrorLog() < kErrorLogChunk) sleep(kErrorLogPollMs);
+            });
         }
     }).detach();
 }

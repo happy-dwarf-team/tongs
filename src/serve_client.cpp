@@ -23,7 +23,7 @@ std::uint64_t UnixMs() {
 
 }  // namespace
 
-void ServeClient(const Handlers& handlers, Channel& channel, int number) {
+static void ServeClientLoop(const Handlers& handlers, Channel& channel, int number) {
     std::string pending;
     std::shared_ptr<Subscription> subscription;
     NotificationHub* hub = handlers.notifications;
@@ -74,6 +74,16 @@ void ServeClient(const Handlers& handlers, Channel& channel, int number) {
         }
         const std::string lines = subscription->Take(kStreamWaitMs);
         if (!lines.empty() && !channel.Write(lines)) return end();
+    }
+}
+
+// The pipe's and the socket's threads have no handler of their own: an exception
+// (in practice a failed allocation) that left a request would end the game.
+// It ends the connection instead; the client sees it close.
+void ServeClient(const Handlers& handlers, Channel& channel, int number) {
+    try {
+        ServeClientLoop(handlers, channel, number);
+    } catch (...) {
     }
 }
 
