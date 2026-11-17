@@ -929,7 +929,11 @@ Tongs refuses, without calling the game:
 - `suspended`: Anvil suspended Tongs in this ironman or multiplayer game (see
   [Safety](../README.md#safety)), before any of Tongs' own switches are asked;
 - `game_calls_disabled` (the module is off), `not_in_game`, `unknown_command`, `bad_command`
-  (printable ASCII only), `console_unavailable`;
+  (printable ASCII only; or, on the main thread, an argument the game would use
+  unchecked: a province ID outside the map's 1 to `province_limit` - 1, read as
+  a leading integer the way the game reads it, or a three-character country
+  tag the game does not know; which argument is which comes from the game's own
+  argument descriptions), `console_unavailable`;
 - `game_calls_tripped`: a game call that faulted answers `faulted`, and every
   later one is refused until the game exits. Reads keep working.
 

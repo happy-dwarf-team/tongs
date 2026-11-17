@@ -1888,6 +1888,13 @@ private:
             refusal_ = {r.error, r.detail};
             return {};
         }
+        if (h_.province_limit && h_.country_known) {
+            if (ConsoleRefusal r = CheckConsoleArguments(name_, tokens_, h_.province_limit(), h_.country_known);
+                r.refused()) {
+                refusal_ = {r.error, r.detail};
+                return {};
+            }
+        }
         if (activity_->Tripped()) {
             refusal_ = ActivityGate::TrippedRefusal(Breaker::GameCalls);
             return {};

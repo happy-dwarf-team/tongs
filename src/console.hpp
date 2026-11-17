@@ -129,4 +129,20 @@ ConsoleRefusal CheckConsoleMode(const GameCallPolicy& policy, const ConsoleRaw& 
 // Notes for the log about console_allow entries that cannot take effect.
 std::vector<std::string> CheckConsoleAllow(const std::vector<std::string>& allow);
 
+// What each argument of a console command is, from the game's own descriptions
+// of 1.37.5 ("<Province ID>", "<Country tag> OPTIONAL"): 'P' a province ID,
+// 'T' a country tag, 'E' either, '-' anything else; empty for a command that
+// takes neither (or one the table does not know, such as the engine's own).
+std::string_view ConsoleArgumentKinds(std::string_view name);
+
+// Refusals by argument, checked on the main thread before the call: many of the
+// game's commands index the province array with the ID unchecked (anvil#426,
+// anvil#452), so a province ID read the way the game reads it (a leading
+// integer) must be in 1 .. province_limit - 1, and a country tag (three letters
+// or digits) must be one `country_known` finds. Refused with bad_command. A
+// province_limit of 1 or less (no world service) checks no province.
+ConsoleRefusal CheckConsoleArguments(std::string_view name, const std::vector<std::string>& tokens,
+                                     std::int32_t province_limit,
+                                     const std::function<bool(std::string_view tag)>& country_known);
+
 }  // namespace tongs
