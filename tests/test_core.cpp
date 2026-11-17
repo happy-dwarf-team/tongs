@@ -2575,6 +2575,58 @@ struct FakeConsole {
     }
 };
 
+// Console arguments: province IDs and country tags checked before the call (anvil#426, anvil#452).
+static void TestConsoleArguments() {
+    // The table, from the game's own argument descriptions.
+    assert(ConsoleArgumentKinds("own") == "PT");
+    assert(ConsoleArgumentKinds("OWN") == "PT");
+    assert(ConsoleArgumentKinds("annex") == "TT");
+    assert(ConsoleArgumentKinds("cash") == "-T");
+    assert(ConsoleArgumentKinds("dist") == "PP");
+    assert(ConsoleArgumentKinds("harmonization") == "-T");  // "<AMOUNT [0, 100]>" is one argument
+    assert(ConsoleArgumentKinds("spread_revolution") == "E");
+    assert(ConsoleArgumentKinds("echo").empty() && ConsoleArgumentKinds("speed").empty());
+
+    const auto known = [](std::string_view tag) { return tag == "RUS" || tag == "SWE"; };
+    const auto check = [&](std::vector<std::string> tokens, std::int32_t limit = 4942) {
+        return CheckConsoleArguments(tokens[0], tokens, limit, known);
+    };
+    assert(!check({"own", "295"}).refused());
+    assert(!check({"own", "4941", "RUS"}).refused());
+    assert(!check({"own", "295", "rus"}).refused());  // tags as the game reads them, any case
+    ConsoleRefusal r = check({"own", "4942"});
+    assert(r.error == "bad_command" && r.detail.find("province 4942") != std::string::npos &&
+           r.detail.find("1..4941") != std::string::npos);
+    assert(check({"own", "0"}).refused() && check({"own", "-1"}).refused());
+    assert(check({"own", "5075abc"}).refused());           // the leading integer, as atoi reads it
+    assert(check({"own", "99999999999999999999"}).refused());  // saturates, does not wrap
+    assert(!check({"own", "abc"}).refused());              // not a number: left to the game
+    r = check({"own", "295", "XXX"});
+    assert(r.error == "bad_command" && r.detail.find("country tag XXX") != std::string::npos);
+    assert(!check({"own", "295", "toolong"}).refused());   // not a tag's shape: left to the game
+    assert(check({"annex", "SWE", "ZZZ"}).refused());
+    assert(!check({"cash", "100000", "SWE"}).refused());   // an amount is not a province
+    assert(check({"cash", "100000", "ZZZ"}).refused());
+    assert(check({"dist", "1", "9999"}).refused());
+    assert(check({"spread_revolution", "9999"}).refused() && check({"spread_revolution", "ZZZ"}).refused());
+    assert(!check({"spread_revolution", "SWE"}).refused());
+    assert(!check({"echo", "99999", "ZZZ"}).refused());    // a command without IDs
+    assert(!check({"own", "99999"}, 0).refused());         // no world service: provinces not checked
+    assert(!CheckConsoleArguments("own", {"own", "295", "ZZZ"}, 4942, nullptr).refused());
+
+    // Through the pipe: refused on the main thread, the game not called.
+    FakeConsole console;
+    console.raw.entries.push_back({"own", {}});
+    Handlers h = console.Make();
+    FakeMainThread main(console.dispatcher);
+    h.province_limit = [] { return 4942; };
+    h.country_known = known;
+    std::string out = HandleRequest("console own 5075", h);
+    assert(Contains(out, "\"error\":\"bad_command\"") && Contains(out, "province 5075") && console.calls.empty());
+    out = HandleRequest("console own 295 RUS", h);
+    assert(Contains(out, "\"ok\":true") && console.calls.size() == 1);
+}
+
 static void TestConsoleCommand() {
     FakeConsole console;
     Handlers h = console.Make();
@@ -6601,6 +6653,7 @@ int main(int argc, char** argv) {
     TestFindAchievementsNotice();
     TestSaveLoadAchievementsNotice();
     TestConsoleCommand();
+    TestConsoleArguments();
     std::puts("ok");
     return 0;
 }

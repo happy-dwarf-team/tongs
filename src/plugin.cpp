@@ -319,6 +319,15 @@ struct Tongs : anvil::Plugin {
                 return f;
             };
             handlers.read_player = [world_service](tongs::PlayerRaw& out) { return tongs::ReadPlayer(world_service, out); };
+            if (world_service != nullptr && world_service->province_limit != nullptr && world_service->country != nullptr) {
+                handlers.province_limit = [world_service] { return world_service->province_limit(); };
+                handlers.country_known = [world_service](std::string_view tag) {
+                    const std::string text(tag);
+                    AnvilGameCountry c{};
+                    c.size = sizeof(c);
+                    return world_service->country(text.c_str(), &c) == ANVIL_OK;
+                };
+            }
             handlers.read_selection = [image_base, world](tongs::SelectionRaw& out) {
                 return tongs::ReadSelection(image_base, world, out);
             };

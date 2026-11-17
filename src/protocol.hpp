@@ -188,6 +188,10 @@ struct Handlers {
     std::function<WorldFailure(std::string_view tag, CountryRaw&)> read_country;
     std::function<WorldFailure(PlayerRaw&)> read_player;
     std::function<WorldFailure(SelectionRaw&)> read_selection;
+    // Main thread: the console's argument checks (CheckConsoleArguments), through
+    // anvil-game.world. Null: no argument is checked.
+    std::function<std::int32_t()> province_limit;
+    std::function<bool(std::string_view tag)> country_known;
     // Main thread: navigation (game_navigation.cpp), client calls behind `input`.
     // read_navigation reads what the call checks first; call_navigation closes the
     // views, moves the camera and (open) selects, and returns false when the
