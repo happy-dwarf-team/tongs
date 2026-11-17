@@ -409,7 +409,11 @@ struct Tongs : anvil::Plugin {
         // see it even when no client asks, so `session` and the totals count every load.
         std::thread([read_state = handlers.read_state] {
             for (;;) {
-                read_state();
+                try {
+                    read_state();
+                } catch (...) {
+                    // A detached thread: what throws is skipped, not the game ended.
+                }
                 Sleep(20);
             }
         }).detach();

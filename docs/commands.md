@@ -783,6 +783,8 @@ when Tongs called the game's loader. A run with it is a marked run.
   quoted when it has spaces: `save load "Russia test"`. No display names, no
   subfolders, no Steam cloud saves. A name that is empty or has `/`, `\`, `..`
   or characters outside printable ASCII and Latin-1 is `bad_name`.
+- **`internal_error`**: an exception (in practice a failed allocation) on the
+  load's own thread before it called the loader; nothing was called.
 - **In a game, paused; or in the main menu.** In a game it must be paused, as
   it is in the Load dialog (`not_paused` otherwise). In the main menu it needs
   no pause (see below). Other menu screens (the single-player lobby, the

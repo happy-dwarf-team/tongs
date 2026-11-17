@@ -9,6 +9,7 @@
 
 #include <windows.h>
 
+#include <new>
 #include <utility>
 
 namespace tongs {
@@ -19,10 +20,25 @@ NavigationService* g_service = nullptr;
 // Set while loading, read on the main thread afterwards.
 std::function<void()> g_count;
 
-AnvilResult ProvinceView(TongsProvinceView* out) { return g_service->ProvinceView(out); }
+// Other plugins call these through C pointers: no exception may leave them.
+AnvilResult ProvinceView(TongsProvinceView* out) {
+    try {
+        return g_service->ProvinceView(out);
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    } catch (...) {
+        return ANVIL_ERROR_INTERNAL;
+    }
+}
 
 AnvilResult OpenProvince(std::int32_t id, std::uint32_t flags, std::uint32_t* outcome) {
-    return g_service->OpenProvince(id, flags, outcome);
+    try {
+        return g_service->OpenProvince(id, flags, outcome);
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    } catch (...) {
+        return ANVIL_ERROR_INTERNAL;
+    }
 }
 
 constexpr TongsNavigationService kTable = {sizeof(TongsNavigationService), &ProvinceView, &OpenProvince};
