@@ -1251,8 +1251,9 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
         dismiss_achievements_notice: Annotated[
             bool,
             Field(
-                description="From the main menu: click Ok on Anbennar's notice \"Vanilla achievements can no longer "
-                "be earned\", which holds the load, and wait on (an INPUT: needs input = true)."
+                description="From the main menu: click Ok on the achievements notice (\"Achievements can no "
+                "longer be earned\", the DefaultConfirm window that holds the load, in any mod or build) and wait on "
+                "(an INPUT: needs input = true). Other confirm windows are never clicked."
             ),
         ] = False,
     ) -> CallToolResult:
@@ -1264,8 +1265,11 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
         save's date and player. Refuses before calling: bad_name, no_such_save, unreadable_save,
         ironman_save (an ironman save is loaded only from an ironman game that allows game calls), not_paused;
         after calling: no_such_save / rejected (called: true), not_loaded,
-        timeout (started: true), blocked (blocked_by: "achievements_notice": a menu load held by
-        Anbennar's notice; dismiss_achievements_notice closes it and the answer then has dismissed)."""
+        timeout (started: true), blocked (a menu load held by the game's DefaultConfirm window for 2 s,
+        answered then, not at the timeout: blocked_by "achievements_notice" or "confirm_dialog",
+        notice_title, next_session; click DefaultConfirm/AgreeButton, then tongs_ready with
+        next_session; dismiss_achievements_notice closes the achievements notice itself and the answer
+        then has dismissed)."""
         _check(name)
         quoted = f'"{name}"' if " " in name else name
         dismiss = "achievements" if dismiss_achievements_notice else None

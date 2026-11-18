@@ -5581,20 +5581,31 @@ static UiTree AchievementsNoticeTree(const char* title = "Vanilla achievements c
     return t;
 }
 
-static void TestFindAchievementsNotice() {
+static void TestFindConfirmNotice() {
     UiTree t = AchievementsNoticeTree();
-    UiNotice n = FindAchievementsNotice(t);
-    assert(n.window == 1 && n.agree == 3);
-    // DefaultConfirm is the game's generic confirm window: another title is not this notice.
-    assert(FindAchievementsNotice(AchievementsNoticeTree("Are you sure you want to quit?")).window == -1);
-    assert(FindAchievementsNotice(AchievementsNoticeTree("Vanilla achievements can no longer be earned!")).window == -1);
-    assert(FindAchievementsNotice(AchievementsNoticeTree(kAchievementsNoticeTitle.data(), false)).window == -1);
+    UiNotice n = FindConfirmNotice(t);
+    assert(n.window == 1 && n.agree == 3 && n.kind == NoticeKind::Achievements);
+    assert(n.title == "Vanilla achievements can no longer be earned");
+    // The game's own title (vanilla saves with a mod, the GOG build, 17.11.2026) and its other languages.
+    for (const char* title : {"Achievements can no longer be earned", "ACHIEVEMENTS CAN NO LONGER BE EARNED!",
+                              "Les succ\xC3\xA8s ne peuvent plus \xC3\xAAtre remport\xC3\xA9s",
+                              "Errungenschaften k\xC3\xB6nnen nicht mehr erspielt werden", "Ya no se pueden ganar logros."}) {
+        assert(FindConfirmNotice(AchievementsNoticeTree(title)).kind == NoticeKind::Achievements);
+    }
+    // DefaultConfirm is the game's generic confirm window: another title is found, as another notice.
+    n = FindConfirmNotice(AchievementsNoticeTree("Old Savegame"));
+    assert(n.window == 1 && n.agree == 3 && n.kind == NoticeKind::Other && n.title == "Old Savegame");
+    assert(!IsAchievementsNoticeTitle("Achievements") && !IsAchievementsNoticeTitle(""));
+    t.widgets[4].has_text = false;  // no title: still a window that holds the load
+    n = FindConfirmNotice(t);
+    assert(n.kind == NoticeKind::Other && n.title.empty());
+    assert(FindConfirmNotice(AchievementsNoticeTree("Achievements can no longer be earned", false)).window == -1);
     t.widgets[3].shown = false;  // no Ok to click
-    assert(FindAchievementsNotice(t).window == -1);
-    assert(FindAchievementsNotice(UiTree{}).window == -1);
+    assert(FindConfirmNotice(t).window == -1 && FindConfirmNotice(t).kind == NoticeKind::None);
+    assert(FindConfirmNotice(UiTree{}).window == -1);
 }
 
-// From the main menu, the load waits behind Anbennar's notice until its Ok is clicked.
+// From the main menu, the load waits behind the game's confirm window until its Ok is clicked.
 static void TestSaveLoadAchievementsNotice() {
     Handlers h;
     h.now_ms = SteadyMs;
@@ -5648,7 +5659,7 @@ static void TestSaveLoadAchievementsNotice() {
         return true;
     };
     h.clear_continue = [&flag] { flag = false; };
-    const UiTree open = AchievementsNoticeTree();
+    UiTree open = AchievementsNoticeTree();
     const UiRect ok = open.widgets[3].rect;
     h.read_ui = [&](UiTree& out) {
         out = notice ? open : UiTree{};
@@ -5685,11 +5696,14 @@ static void TestSaveLoadAchievementsNotice() {
     };
     FakeMainThread main(d);
 
-    // By default nothing is clicked: the timeout names the notice.
-    std::string out = HandleRequest("save load x timeout=2", h);
+    // By default nothing is clicked: the answer names the notice soon, not at the timeout.
+    std::uint64_t t_start = SteadyMs();
+    std::string out = HandleRequest("save load x timeout=60", h);
     assert(Contains(out, "\"error\":\"blocked\"") && Contains(out, "\"blocked_by\":\"achievements_notice\""));
     assert(Contains(out, "\"called\":true") && Contains(out, "\"via\":\"menu\"") && !Contains(out, "\"dismissed\""));
-    assert(clicks == 0 && notice);
+    assert(Contains(out, "\"notice_title\":\"Vanilla achievements can no longer be earned\",\"next_session\":1,"));
+    assert(Contains(out, "dismiss=achievements clicks its Ok") && Contains(out, "then wait with ready session=1"));
+    assert(clicks == 0 && notice && SteadyMs() - t_start < 10'000);
 
     // dismiss=achievements clicks its Ok by name and waits on: one input, and the answer says so.
     notice = false;
@@ -5699,6 +5713,24 @@ static void TestSaveLoadAchievementsNotice() {
     assert(Contains(out, "{\"ok\":true,\"command\":\"save load\",\"save\":\"x\"") && Contains(out, "\"via\":\"menu\""));
     assert(Contains(out, "\"dismissed\":\"achievements_notice\",\"dismiss_clicks\":1") && Contains(out, "\"session\":1,"));
     assert(clicks == 1 && !notice && h.gate->counts().inputs == inputs + 1);
+
+    // The game's own title (vanilla saves with a test mod, the GOG build): the same notice, closed the same way.
+    open = AchievementsNoticeTree("Achievements can no longer be earned");
+    to_menu();
+    out = HandleRequest("save load x dismiss=achievements timeout=20", h);
+    assert(Contains(out, "{\"ok\":true,\"command\":\"save load\"") && Contains(out, "\"dismissed\":\"achievements_notice\""));
+    assert(clicks == 2 && !notice);
+
+    // Another confirm window holds the load as well: blocked soon, named by its title, and never clicked.
+    open = AchievementsNoticeTree("Old Savegame");
+    to_menu();
+    t_start = SteadyMs();
+    out = HandleRequest("save load x dismiss=achievements timeout=60", h);
+    assert(Contains(out, "\"error\":\"blocked\"") && Contains(out, "\"blocked_by\":\"confirm_dialog\""));
+    assert(Contains(out, "\"notice_title\":\"Old Savegame\"") && Contains(out, "closes only the achievements notice"));
+    assert(clicks == 2 && notice && SteadyMs() - t_start < 10'000);
+    open = AchievementsNoticeTree();
+    notice = false;
 
     // Without the notice the option clicks nothing.
     to_menu();
@@ -5716,7 +5748,7 @@ static void TestSaveLoadAchievementsNotice() {
         return true;
     };
     out = HandleRequest("save load x dismiss=achievements", h);
-    assert(Contains(out, "\"ok\":true") && !Contains(out, "\"dismissed\"") && clicks == 1);
+    assert(Contains(out, "\"ok\":true") && !Contains(out, "\"dismissed\"") && clicks == 2);
 
     // Ok closes the notice, then the load holds the main thread past the timeout: not "blocked".
     to_menu();
@@ -5743,7 +5775,7 @@ static void TestSaveLoadAchievementsNotice() {
     out = HandleRequest("save load x dismiss=achievements timeout=3", h);
     main.Hold(false);
     assert(!Contains(out, "\"error\":\"blocked\"") && Contains(out, "\"called\":true"));
-    assert(Contains(out, "\"dismissed\":\"achievements_notice\",\"dismiss_clicks\":1") && clicks == 2 && !notice);
+    assert(Contains(out, "\"dismissed\":\"achievements_notice\",\"dismiss_clicks\":1") && clicks == 3 && !notice);
 
     // A click that is not sent is no dismissal: the notice stays open and the answer says blocked.
     to_menu();
@@ -6650,7 +6682,7 @@ int main(int argc, char** argv) {
     TestSaveLoadCommand();
     TestSaveLoadCommand(true);
     TestSaveLoadFromMenu();
-    TestFindAchievementsNotice();
+    TestFindConfirmNotice();
     TestSaveLoadAchievementsNotice();
     TestConsoleCommand();
     TestConsoleArguments();

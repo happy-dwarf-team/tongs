@@ -919,22 +919,44 @@ std::string GameTextToUtf8(std::string_view text, bool colour_codes) {
     return out;
 }
 
-UiNotice FindAchievementsNotice(const UiTree& tree) {
+bool IsAchievementsNoticeTitle(std::string_view title) {
+    // SAVEGAME_WARNING_ACHIEVEMENTS_DISABLED_TITLE of the game's localisation (1.37.5), in
+    // lower case and UTF-8: English, French, German, Spanish.
+    static constexpr std::string_view kTitles[] = {
+        "achievements can no longer be earned",
+        "les succ\xC3\xA8s ne peuvent plus \xC3\xAAtre remport\xC3\xA9s",
+        "errungenschaften k\xC3\xB6nnen nicht mehr erspielt werden",
+        "ya no se pueden ganar logros",
+    };
+    std::string lower(title);
+    for (char& c : lower) {
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    }
+    for (const std::string_view t : kTitles) {
+        if (lower.find(t) != std::string::npos) return true;
+    }
+    return false;
+}
+
+UiNotice FindConfirmNotice(const UiTree& tree) {
     const auto valid = [&tree](int i) { return i >= 0 && i < static_cast<int>(tree.widgets.size()); };
     for (const int root : tree.roots) {
         if (!valid(root)) continue;
         const UiWidget& window = tree.widgets[root];
         if (window.name != "DefaultConfirm" || !window.shown || window.stale) continue;
-        bool titled = false;
+        const UiWidget* title = nullptr;
         int agree = -1;
         for (const int child : window.children) {
             if (!valid(child)) continue;
             const UiWidget& w = tree.widgets[child];
             if (!w.shown || w.stale) continue;
-            if (w.name == "Title" && w.has_text && w.text == kAchievementsNoticeTitle) titled = true;
+            if (w.name == "Title" && w.has_text && title == nullptr) title = &w;
             if (w.name == "AgreeButton" && w.type == UiType::Button) agree = child;
         }
-        if (titled && agree != -1) return {root, agree};
+        if (agree == -1) continue;
+        UiNotice notice{root, agree, NoticeKind::Other, title ? title->text : std::string()};
+        if (IsAchievementsNoticeTitle(notice.title)) notice.kind = NoticeKind::Achievements;
+        return notice;
     }
     return {};
 }
