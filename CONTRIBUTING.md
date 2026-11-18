@@ -46,10 +46,15 @@ game and fails when the lock does not match `symbols.toml`.
 `CHANGELOG.md`. Merging it tags `vX.Y.Z` and creates a **draft** GitHub
 release; the release workflow then builds the tag and attaches
 `tongs-windows-x64.zip` (the `tongs/` plugin folder) and `SHA256SUMS.txt` with
-a build provenance attestation to the draft. Once they are attached, publish
-the draft on GitHub: that makes the release public, rebuilds
-anvil.happydwarf.dev and happydwarf.dev (`website.yml`) and,
-when it is turned on, publishes the Steam Workshop mod (see [docs/workshop.md](docs/workshop.md)).
+a build provenance attestation to the draft, and publishes it once they are
+attached. The approval of a release is the merge of its pull request. Publishing
+makes the release public, rebuilds anvil.happydwarf.dev and happydwarf.dev
+(`website.yml`) and, when it is turned on, publishes the Steam Workshop mod
+after the maintainer approves the `steam-workshop` deployment (see
+[docs/workshop.md](docs/workshop.md)). The workflow publishes with the
+`RELEASE_PLEASE_TOKEN` secret, since a release published with `GITHUB_TOKEN`
+starts no workflow; without the secret the draft stays, with its files, for a
+maintainer to publish on GitHub.
 
 Do not edit `version.txt`, the manifest or descriptor `version` or `CHANGELOG.md` by hand;
 CMake refuses to configure when `version.txt` and `plugin/plugin.toml`

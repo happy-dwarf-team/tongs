@@ -1,8 +1,10 @@
 name: workshop-publish
 
 # Publishes Tongs as a Steam Workshop mod when a release is published:
-# release.yml creates a draft release with tongs-windows-x64.zip, and
-# publishing that draft on GitHub starts this workflow. The mod gets exactly
+# release.yml creates a draft release with tongs-windows-x64.zip and publishes
+# it once the zip is attached, which starts this workflow (so does a draft
+# published by hand on GitHub). The steam-workshop environment then waits for
+# the maintainer's approval before anything goes to Steam. The mod gets exactly
 # the plugin folder of that zip, checked against its build attestation, so the
 # Workshop and GitHub serve the same build. The release notes become the
 # Workshop change note, and workshop/description.md the item's description.
