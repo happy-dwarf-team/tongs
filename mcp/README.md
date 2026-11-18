@@ -93,6 +93,20 @@ claude mcp add --transport stdio tongs-guest -- uv run --frozen --directory C:\p
 talks to its own game only (`\\.\pipe\tongs-NAME`, or under Wine the
 `bridge.json` of that name), and its instructions name that pipe.
 
+Games that share a pipe name (two sessions on one computer, each starting its
+own game without an `instance`) can answer each other's calls. Every tool that
+acts on the game (inputs, client calls, game calls, `tongs_wait_until`,
+`tongs_cancel`, `tongs_release`, `tongs_raw`) takes `expect_pid` and
+`expect_start_ms`, the `pid` and `process_start_ms` of `tongs_state` or of the
+launcher. With them the server sends `ping` first, on the connection the
+command then goes on: a connection reaches one game process, so the check and
+the command cannot reach two games. When `ping` names another process the
+answer is the error `process_mismatch` with `expected` and `seen` (the other
+game's `pid` and `process_start_ms`), and the command is not sent. A wait with
+progress checks its progress connection the same way. `tongs_ready` has the
+same two arguments: there they fail the wait at once on another process.
+The check needs no plugin change: `ping` answers with `pid` and `process_start_ms`.
+
 ### Other MCP clients
 
 Any client that starts stdio servers takes the same command and arguments,
@@ -171,7 +185,12 @@ npx @modelcontextprotocol/inspector uv run --frozen --directory C:\path\to\tongs
   is unknown, then the plugin's answer, or why none came. Each is told once.
 - **Arguments** are checked before anything is sent: values with a line break
   or NUL are refused (one request is one line), event texts may not contain
-  `"`, and numbers keep to the plugin's ranges.
+  `"`, and numbers keep to the plugin's ranges. An argument the tool does not
+  have is refused, not dropped, with the tool's arguments and, for a common
+  guess, the right name: `tongs_province {"id": 295}` answers
+  ``tongs_province has no argument `id` (did you mean province_id?); nothing
+  was sent. Its arguments: province_id (required), timeout.`` A value of the
+  wrong type or range answers in one line the same way.
 - **Connections.** Each call opens its own pipe connection and closes it after
   the answer, so one tool call can wait in `run_until` while another reads
   `tongs_state` or sends `tongs_cancel`. A wait with progress uses a second
