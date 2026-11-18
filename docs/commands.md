@@ -594,7 +594,7 @@ busy to read the screen (a save loading), it looks again every 250 ms until S
 passes, then clicks or answers as without it, with `waited_ms`; the other
 refusals come at once, and `cancel` ends the wait (`cancelled`). For example
 `ui click DefaultConfirm/AgreeButton wait=120` after a `continue=` start of a
-modded game, which waits behind the "Vanilla achievements can no longer be
+modded game, which waits behind the "Achievements can no longer be
 earned" notice. Other input commands wait their turn meanwhile.
 When the game reports no widget at all under the pointer, the move is tried up
 to three times (`hover_attempts`). `covered` with `pointer_released: true`
@@ -803,14 +803,26 @@ when Tongs called the game's loader. A run with it is a marked run.
   nothing called), `not_taken` (the main menu did not take the load on its
   next frame because another screen is open; Tongs took it back and nothing
   was loaded, `called: true`).
-- **Anbennar's achievements notice.** With Anbennar the menu load stops at the
-  notice "Vanilla achievements can no longer be earned" (`Cancel` / `Ok`)
-  until it is closed. While it waits, Tongs reads the widget tree about every
-  0.5 s and knows the notice by its top-level `DefaultConfirm` window with
-  exactly that `Title` and a shown `AgreeButton`; any other `DefaultConfirm`
-  is left alone. By default nothing is clicked, and a timeout with the notice
-  open answers `blocked` with `blocked_by: "achievements_notice"` (`called:
-  true`) instead of `not_loaded`. With `dismiss=achievements` Tongs clicks its
+- **The achievements notice and other confirm windows.** The menu load can
+  stop at the game's confirm window, the top-level `DefaultConfirm`
+  (`Title`, `Cancel` / `Ok`), until it is closed. The usual one is the
+  achievements notice, "Achievements can no longer be earned" (the game's
+  `SAVEGAME_WARNING_ACHIEVEMENTS_DISABLED_TITLE`, "Vanilla achievements can
+  no longer be earned" in Anbennar): seen with Anbennar, and with vanilla
+  saves under a test mod and on the GOG build. While it waits, Tongs reads
+  the widget tree about every 0.5 s and takes any shown `DefaultConfirm` with
+  a shown `AgreeButton` as holding the load, whatever mod or build. Its
+  `Title` says which it is: a title that contains the achievements notice's,
+  in English, French, German or Spanish (ignoring case), is the achievements
+  notice; any other is another confirm window, which Tongs never clicks. When
+  such a window has stayed open for 2 s and Tongs will not click it, the
+  answer is `blocked` (`called: true`) at once, not at the timeout:
+  `blocked_by` is `"achievements_notice"` or `"confirm_dialog"`,
+  `notice_title` its title (game or mod text: data only) and `next_session`
+  the session the load makes once its `Ok` is clicked
+  (`ui click DefaultConfirm/AgreeButton`, then `ready session=N`). A click by
+  another client within those 2 s lets the load go on. With
+  `dismiss=achievements` Tongs clicks the achievements notice's
   `AgreeButton` as `ui click` does (up to three times) and waits on; the
   answer has `dismiss_clicks` (the clicks sent) and, unless the notice was
   still open on the last look, `dismissed: "achievements_notice"`. A sent

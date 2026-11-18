@@ -267,18 +267,33 @@ std::string WidgetPathOf(const UiTree& tree, std::uintptr_t address);
 
 std::string GameTextToUtf8(std::string_view text, bool colour_codes = false);
 
-// Anbennar's notice "Vanilla achievements can no longer be earned", which opens while a
-// save loads from the main menu and holds the load until it is closed (lab, 14.11.2026):
-// the game's top-level `DefaultConfirm` window, shown, with its `Title` text exactly that
-// and a shown `AgreeButton` ("Ok"). `DefaultConfirm` is the game's generic confirm window,
-// so the title is what makes it this notice; nothing else in it is read as anything but data.
-inline constexpr std::string_view kAchievementsNoticeTitle = "Vanilla achievements can no longer be earned";
-
-struct UiNotice {
-    int window = -1;  // index of the DefaultConfirm window, -1 when the notice is not open
-    int agree = -1;   // its AgreeButton
+// The game's save-load warnings. While a save loads from the main menu, the game can open
+// its generic confirm window, the top-level `DefaultConfirm` (`Title`, `DeclineButton`
+// "Cancel", `AgreeButton` "Ok"), and hold the load until it is closed: with Anbennar
+// (lab, 14.11.2026), and with vanilla saves under a test mod and on the GOG build
+// (17.11.2026). Which warning it is shows only in its `Title`: the achievements notice is the
+// game's SAVEGAME_WARNING_ACHIEVEMENTS_DISABLED_TITLE ("Achievements can no longer be
+// earned", Anbennar: "Vanilla achievements can no longer be earned"). The title is data:
+// it is only compared and quoted.
+enum class NoticeKind {
+    None,          // no DefaultConfirm is open
+    Achievements,  // its title is the achievements notice's, in one of the game's languages
+    Other,         // another title (another warning, or a mod's own wording)
 };
 
-UiNotice FindAchievementsNotice(const UiTree& tree);
+struct UiNotice {
+    int window = -1;  // index of the DefaultConfirm window, -1 when none is open
+    int agree = -1;   // its AgreeButton
+    NoticeKind kind = NoticeKind::None;
+    std::string title;  // its Title text, empty without one
+};
+
+// Whether `title` is the achievements notice's: it contains the game's title in English
+// (Anbennar's wording included), French, German or Spanish, ignoring ASCII case.
+bool IsAchievementsNoticeTitle(std::string_view title);
+
+// The first shown, not stale top-level `DefaultConfirm` with a shown `AgreeButton` button,
+// whatever its title, with the kind its title gives.
+UiNotice FindConfirmNotice(const UiTree& tree);
 
 }  // namespace tongs

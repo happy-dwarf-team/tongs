@@ -2147,6 +2147,9 @@ constexpr int kDefaultLoadTimeoutS = 120;
 constexpr int kMaxLoadTimeoutS = 600;
 constexpr int kNoticeLookMs = 500;   // save load from the menu: how often the widget tree is read for the notice
 constexpr int kMaxNoticeClicks = 3;  // dismiss=achievements: clicks on its Ok before the load gives up on it
+// save load from the menu: how long a notice that nothing of ours will close stays open before the
+// answer is `blocked` (a click by another client in that time lets the load go on)
+constexpr std::uint64_t kNoticeGraceMs = 2000;
 
 std::string Refused(std::string_view command, std::string_view error, std::string_view detail);
 
@@ -2260,8 +2263,9 @@ std::string MapModeAct(const Handlers& h, const std::string& mode, int timeout_m
 // in-game Load dialog's own loader. The metadata is read first, on the pipe thread; one
 // main-thread job checks the game and calls the loader, which returns after the
 // whole load; the next outer frame checks the loaded session. From the main menu the
-// wait looks for Anbennar's achievements notice, which holds the load: a timeout with it
-// open answers `blocked`, and dismiss=achievements clicks its Ok (each click an input).
+// wait looks for the game's confirm window (DefaultConfirm), which holds the load: one open
+// for kNoticeGraceMs answers `blocked`, and dismiss=achievements clicks the Ok of the
+// achievements notice (each click an input).
 std::string SaveLoad(const Request& r, std::string_view argument) {
     const Handlers& h = r.handlers;
     const int client = r.client;
@@ -2501,11 +2505,16 @@ std::string SaveLoad(const Request& r, std::string_view argument) {
                               called + ",\"game_calls_total\":" + std::to_string(total));
             }
             // The load: wait for the new session in game, past its loading. Until the game is in,
-            // the widget tree is read now and then for Anbennar's achievements notice, which holds
-            // the load until it is closed (lab, 14.11.2026).
+            // the widget tree is read now and then for the game's confirm window (DefaultConfirm),
+            // which holds the load until it is closed: the achievements notice with Anbennar
+            // (lab, 14.11.2026) and with vanilla saves, a test mod and the GOG build (17.11.2026).
+            // A notice open for kNoticeGraceMs that nothing will close answers `blocked` at once.
             const std::uint64_t t0 = h.now_ms();
             bool loaded = false;
-            bool noticed = false;  // the notice was open on the last look, and nothing since says it closed
+            bool noticed = false;  // a notice was open on the last look, and nothing since says it closed
+            bool held = false;     // ... for kNoticeGraceMs, with no click of ours left to make
+            std::uint64_t open_since = 0;  // when the looks began to see it, 0 while they do not
+            UiNotice last;                 // the notice of the last look that saw one
             int attempts = 0;      // dismiss=achievements: clicks tried on its Ok
             int clicks = 0;        // ... and sent
             std::uint64_t next_look = 0;
@@ -2548,12 +2557,22 @@ std::string SaveLoad(const Request& r, std::string_view argument) {
                 }
                 // In game, or no frame for a while (the game is loading; a menu with the notice
                 // open draws many frames in that time): nothing holds the load.
-                if ((!frame.ran && left >= kNoticeLookMs) || seen.in_game) noticed = false;
+                if ((!frame.ran && left >= kNoticeLookMs) || seen.in_game) {
+                    noticed = false;
+                    open_since = 0;
+                }
                 if (frame.ran && looked) {
                     next_look = h.now_ms() + kNoticeLookMs;
-                    const UiNotice notice = FindAchievementsNotice(tree);
+                    const UiNotice notice = FindConfirmNotice(tree);
                     noticed = notice.window != -1;
-                    if (noticed && dismiss && attempts < kMaxNoticeClicks) {
+                    if (!noticed) {
+                        open_since = 0;
+                    } else {
+                        if (open_since == 0) open_since = h.now_ms();
+                        last = notice;
+                    }
+                    const bool ours = dismiss && notice.kind == NoticeKind::Achievements;  // a notice we close
+                    if (noticed && ours && attempts < kMaxNoticeClicks) {
                         const UiWidget& ok = tree.widgets[notice.agree];
                         ++attempts;
                         // One input of its own, counted when the part ends if the click was sent.
@@ -2564,6 +2583,7 @@ std::string SaveLoad(const Request& r, std::string_view argument) {
                         if (c.ok) {
                             ++clicks;
                             noticed = false;  // until a later look sees it still open
+                            open_since = 0;
                         } else {
                             click_error = c.error;
                         }
@@ -2571,6 +2591,10 @@ std::string SaveLoad(const Request& r, std::string_view argument) {
                             h.release_cursor();
                             Hold({});
                         }
+                    }
+                    if (noticed && !(ours && attempts < kMaxNoticeClicks) && h.now_ms() - open_since >= kNoticeGraceMs) {
+                        held = true;  // nothing of ours will close it: say so now, not at the timeout
+                        break;
                     }
                 }
                 if (h.sleep_ms) h.sleep_ms(50);
@@ -2591,16 +2615,30 @@ std::string SaveLoad(const Request& r, std::string_view argument) {
                                   " while the game was taking the load from the menu; the load may still go on",
                               called + ",\"game_calls_total\":" + std::to_string(total));
             }
-            if (!loaded && noticed) {
+            if (!loaded && (noticed || held)) {
                 const std::uint64_t total = a.Total(call->before);
+                const bool achievements = last.kind == NoticeKind::Achievements;
+                const std::string next_session = std::to_string(call->before.load + 1);
+                std::string why;
+                if (!achievements) {
+                    why = "; dismiss=achievements closes only the achievements notice";
+                } else if (!dismiss) {
+                    why = "; dismiss=achievements clicks its Ok";
+                } else if (clicks > 0) {
+                    why = ", which stayed open after its Ok was clicked";
+                } else if (click_error.empty()) {
+                    why = ", whose Ok was not found to click";
+                } else {
+                    why = ", whose Ok could not be clicked: " + click_error;
+                }
                 return refuse("blocked",
-                              std::string("the load waits behind Anbennar's notice \"") + std::string(kAchievementsNoticeTitle) +
-                                  "\"" +
-                                  (!dismiss         ? std::string("; dismiss=achievements clicks its Ok")
-                                   : clicks > 0     ? std::string(", which stayed open after its Ok was clicked")
-                                   : click_error.empty() ? std::string(", whose Ok was not found to click")
-                                                    : ", whose Ok could not be clicked: " + click_error),
-                              called + ",\"blocked_by\":\"achievements_notice\",\"game_calls_total\":" + std::to_string(total));
+                              std::string("the load waits behind the game's ") +
+                                  (achievements ? "achievements notice" : "confirm window") + " (DefaultConfirm) \"" +
+                                  last.title + "\"" + why + ". After DefaultConfirm/AgreeButton (Ok) the load goes on: "
+                                  "then wait with ready session=" + next_session,
+                              called + ",\"blocked_by\":\"" + (achievements ? "achievements_notice" : "confirm_dialog") +
+                                  "\",\"notice_title\":" + Quote(last.title) + ",\"next_session\":" + next_session +
+                                  ",\"game_calls_total\":" + std::to_string(total));
             }
         } else if (call->load.result != 0) {
             const int r = call->load.result;
