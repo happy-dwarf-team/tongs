@@ -38,6 +38,9 @@ It should: Tongs reads the interface the game actually shows, so interface mods 
 ### I play on GOG. Can I use it?
 Yes, 1.37.5.2 and 1.37.5.0: GOG has no Workshop, so install it from the **Catalog** page of Anvil Manager. The tongs fit either hand.
 
+### I play on Linux. Can I use it?
+Yes, through Proton: our team runs Tongs on desktop Linux, the Steam Deck is not tested yet. Force Proton for EU4, install Anvil from its zip and add the launch option `WINEDLLOVERRIDES="version=n,b" %command%` ([the steps](https://anvil.happydwarf.dev/docs/install/#on-linux-with-proton)). Approving a Workshop plugin there has not been tried yet; if it fails, install the plugin's zip by hand. For a native Linux client, set `bridge = true` in Tongs' settings. Penguins can hold tongs too.
+
 ### Something's wrong. Where do I ask?
 In **#help-and-bugs** on our [Discord server](https://discord.happydwarf.dev/) (pick the Tongs tag), or in a [GitHub issue](https://github.com/happy-dwarf-team/tongs/issues/new/choose). What we confirm on Discord goes to GitHub too.
 
