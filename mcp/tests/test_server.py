@@ -776,3 +776,183 @@ async def test_ready_for_the_main_menu():
     result = await call(pipe, "tongs_ready", {"in_game": False, "speed": 5})
     assert not result.is_error
     assert pipe.sent == ["state", "frames timeout=10"]  # no speed outside a game
+
+
+# --- argument names ----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("tool", "args", "meant"),
+    [
+        ("tongs_ready", {"timeout_s": "240"}, "timeout"),
+        ("tongs_ready", {"timeout_ms": "240000"}, "timeout"),
+        ("tongs_province", {"id": 295}, "province_id"),
+        ("tongs_province", {"province": 295}, "province_id"),
+        ("tongs_province_open", {"id": 295}, "province_id"),
+        ("tongs_console", {"command": "echo x"}, "line"),
+        ("tongs_key", {"key": "f1"}, "name"),
+        ("tongs_ui_find", {"text": "Ok"}, "selector"),
+        ("tongs_ui_find", {"name": "AgreeButton"}, "selector"),
+        ("tongs_ui_click", {"path": "DefaultConfirm/AgreeButton"}, "selector"),
+        ("tongs_ui_click", {"selectr": "x"}, "selector"),  # a near miss, from the tool's own names
+        ("tongs_speed", {"speed": 5, "pid": 42}, "expect_pid"),
+    ],
+)
+async def test_a_guessed_argument_is_refused_with_the_right_name(tool, args, meant):
+    pipe = FakePipe()
+    result = await call(pipe, tool, args)
+    assert result.is_error and pipe.sent == []
+    text = result.content[0].text
+    guess = next(iter(args.keys() - {"speed"}))
+    assert f"{tool} has no argument `{guess}` (did you mean {meant}?" in text
+    assert "nothing was sent" in text and "Its arguments: " in text
+
+
+async def test_an_unknown_argument_names_the_tools_arguments():
+    pipe = FakePipe()
+    result = await call(pipe, "tongs_province", {"province_id": 295, "colour": "red"})
+    assert result.is_error and pipe.sent == []
+    assert result.content[0].text == (
+        "tongs_province has no argument `colour`; nothing was sent. Its arguments: province_id (required), timeout."
+    )
+
+
+async def test_a_tool_without_arguments_refuses_any():
+    pipe = FakePipe()
+    result = await call(pipe, "tongs_state", {"verbose": True})
+    assert result.is_error and pipe.sent == []
+    assert result.content[0].text.endswith("Its arguments: none.")
+
+
+async def test_timeout_ms_says_timeout_is_in_seconds():
+    result = await call(FakePipe(), "tongs_ready", {"timeout_ms": 240000})
+    assert "(did you mean timeout? timeout is in seconds)" in result.content[0].text
+
+
+async def test_a_guess_for_an_argument_already_given_is_not_offered():
+    result = await call(FakePipe(), "tongs_province", {"province_id": 295, "id": 1})
+    assert result.is_error and "did you mean" not in result.content[0].text
+
+
+async def test_a_number_as_a_string_still_fits():
+    pipe = FakePipe()
+    result = await call(pipe, "tongs_frames", {"timeout": "30"})
+    assert not result.is_error and pipe.sent == ["frames timeout=30"]
+
+
+async def test_a_validation_error_is_one_line_with_the_arguments():
+    pipe = FakePipe()
+    result = await call(pipe, "tongs_province", {})
+    assert result.is_error and pipe.sent == []
+    assert result.content[0].text == (
+        "tongs_province: province_id: Field required; nothing was sent. "
+        "Its arguments: province_id (required), timeout."
+    )
+
+
+async def test_every_tool_refuses_an_unknown_argument():
+    pipe = FakePipe()
+    async with Client(build_server(pipe.connect)) as client:
+        for tool in (await client.list_tools()).tools:
+            result = await client.call_tool(tool.name, {"no_such_argument": 1})
+            assert result.is_error, tool.name
+            assert result.content[0].text.startswith(f"{tool.name} has no argument `no_such_argument`")
+    assert pipe.sent == []
+
+
+# --- expect_pid / expect_start_ms ------------------------------------------------
+
+PING = {"ok": True, "command": "ping", "pong": True, "version": "0.36.0", "pid": 42, "process_start_ms": 7}
+
+
+def game_with_ping(ping=None):
+    def handler(line):
+        if line == "ping":
+            return {k: v for k, v in {**PING, **(ping or {})}.items() if v is not None}
+        return {"ok": True, "echo": line, "pid": PING["pid"]}
+
+    return FakePipe(handler)
+
+
+async def test_tools_that_act_on_the_game_take_expect_pid():
+    async with Client(build_server(FakePipe().connect)) as client:
+        listed = {t.name: t for t in (await client.list_tools()).tools}
+    for name, t in TOOLS.items():
+        props = listed[name].input_schema["properties"]
+        acts = t.type != "read" or t.effect in ("waits", "control", "pointer", "raw")
+        assert ("expect_pid" in props) == acts, name
+        assert ("expect_start_ms" in props) == acts, name
+        if acts and name != "tongs_ready":
+            assert "process_mismatch" in listed[name].description, name
+
+
+@pytest.mark.parametrize(
+    ("tool", "args", "line"),
+    [
+        ("tongs_speed", {"speed": 5}, "speed 5"),
+        ("tongs_ui_click", {"selector": "DefaultConfirm/AgreeButton"}, "ui click DefaultConfirm/AgreeButton"),
+        ("tongs_console", {"line": "echo x"}, "console echo x"),
+        ("tongs_save_load", {"name": "x"}, "save load x"),
+        ("tongs_province_open", {"province_id": 295}, "province open 295"),
+        ("tongs_raw", {"line": "state"}, "state"),
+        ("tongs_cancel", {}, "cancel"),
+        ("tongs_release", {}, "release"),
+        ("tongs_wait_until", {"date": "1720.1.1", "progress": False}, "wait_until 1720.1.1"),
+    ],
+)
+async def test_expect_pid_checks_the_game_on_the_same_connection_first(tool, args, line):
+    pipe = game_with_ping()
+    result = await call(pipe, tool, {**args, "expect_pid": 42, "expect_start_ms": 7})
+    assert not result.is_error
+    assert pipe.sent == ["ping", line] and pipe.closed == 1
+
+
+@pytest.mark.parametrize(
+    "expect", [{"expect_pid": 41}, {"expect_start_ms": 8}, {"expect_pid": 42, "expect_start_ms": 8}]
+)
+async def test_another_game_is_refused_without_sending(expect):
+    pipe = game_with_ping()
+    result = await call(pipe, "tongs_ui_click", {"selector": "x", **expect})
+    assert result.is_error and pipe.sent == ["ping"]
+    answer = result.structured_content
+    assert answer["ok"] is False and answer["error"] == "process_mismatch" and answer["command"] == "ui"
+    assert answer["seen"] == {"pid": 42, "process_start_ms": 7}
+    assert answer["expected"] == {"pid": expect.get("expect_pid"), "process_start_ms": expect.get("expect_start_ms")}
+    assert "nothing was sent" in answer["detail"]
+
+
+async def test_without_expect_pid_no_ping_is_sent():
+    pipe = game_with_ping()
+    result = await call(pipe, "tongs_speed", {"speed": 5})
+    assert not result.is_error and pipe.sent == ["speed 5"]
+
+
+async def test_expect_start_ms_needs_the_games_start_time():
+    pipe = game_with_ping({"process_start_ms": None})
+    result = await call(pipe, "tongs_speed", {"speed": 5, "expect_start_ms": 7})
+    assert result.is_error and pipe.sent == ["ping"]
+    assert "process_start_ms" in result.content[0].text
+
+
+@pytest.mark.parametrize("value", [0, -1, "x", 1.5])
+async def test_a_bad_expect_pid_is_refused(value):
+    pipe = game_with_ping()
+    result = await call(pipe, "tongs_speed", {"speed": 5, "expect_pid": value})
+    assert result.is_error and pipe.sent == []
+    assert result.content[0].text.startswith("tongs_speed: expect_pid: ")
+
+
+async def test_a_read_does_not_take_expect_pid():
+    result = await call(game_with_ping(), "tongs_state", {"expect_pid": 42})
+    assert result.is_error and "has no argument `expect_pid`" in result.content[0].text
+
+
+async def test_a_wait_with_progress_sends_nothing_to_another_game():
+    pipe = game_with_ping()
+
+    async def progress(*_):
+        pass
+
+    result = await call(pipe, "tongs_wait_until", {"date": "1720.1.1", "expect_pid": 41}, progress_callback=progress)
+    assert result.is_error and result.structured_content["error"] == "process_mismatch"
+    assert pipe.sent and all(line == "ping" for line in pipe.sent)  # neither the wait nor a subscription

@@ -17,11 +17,13 @@ per game: `python -m tongs_mcp --instance NAME` (or TONGS_INSTANCE=NAME) talks t
 
 import argparse
 import base64
+import contextvars
+import difflib
 import inspect
 import json
 import os
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from typing import Annotated, Any, Literal, Protocol
@@ -31,9 +33,20 @@ import anyio.to_thread
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import CallToolResult, ImageContent, TextContent, ToolAnnotations
-from pydantic import Field
+from pydantic import Field, TypeAdapter, ValidationError
 
-from .tongs import INSTANCE_ENV, CallTimeout, TongsError, follow_dates, game_days, instance_name, pipe_path, wait_ready
+from .tongs import (
+    INSTANCE_ENV,
+    CallTimeout,
+    ProcessMismatch,
+    TongsError,
+    check_process,
+    follow_dates,
+    game_days,
+    instance_name,
+    pipe_path,
+    wait_ready,
+)
 
 __all__ = ["build_server", "game_days", "main", "tool_commands"]
 
@@ -121,6 +134,11 @@ JSON answer unchanged; "ok": false answers come back as errors with an "error" f
   game was restarted and earlier answers describe another process. `session` is 1 for
   the first game of the process and +1 at every load: when it changes, the game state
   was replaced.
+- Another game, of another session, can answer on the same pipe. Pass expect_pid (and
+  expect_start_ms) of your game to tongs_ready and to every tool that acts on the game: the
+  call first checks on its own connection that the game is that process and otherwise
+  answers process_mismatch (expected, seen) without sending anything.
+- A tool refuses an argument it does not have and names its arguments; nothing is sent.
 - World reads (tongs_province, tongs_country, tongs_player, tongs_selection, tongs_units, tongs_cursor)
   answer the game's own values by province ID or tag; they are not counted and never mark a run.
 - Inputs ({input}) work only with input = true in the plugin config and are counted in
@@ -306,6 +324,200 @@ TextMatch = Annotated[
 _MATCH = {"starts": "^=", "equals": "=", "contains": "~="}
 
 
+# --- arguments ---------------------------------------------------------------
+
+# Argument names agents guess (lab sessions, November 2026), each with the arguments meant, in
+# order of preference: a refusal names the first one the tool has.
+GUESSES: dict[str, tuple[str, ...]] = {
+    "id": ("province_id", "unit", "units"),
+    "province": ("province_id",),
+    "provinceid": ("province_id",),
+    "province_ids": ("province_id",),
+    "command": ("line",),
+    "cmd": ("line",),
+    "console": ("line",),
+    "key": ("name",),
+    "keys": ("name",),
+    "text": ("selector", "option_text"),
+    "name": ("selector",),
+    "path": ("selector",),
+    "widget": ("selector",),
+    "timeout_s": ("timeout",),
+    "timeout_ms": ("timeout",),
+    "timeout_sec": ("timeout",),
+    "timeout_seconds": ("timeout",),
+    "seconds": ("timeout",),
+    "wait_s": ("wait", "timeout"),
+    "pid": ("expect_pid",),
+    "process_id": ("expect_pid",),
+    "country": ("tag",),
+    "save": ("name",),
+    "file": ("name",),
+}
+# What to add when the guess is meant as that argument.
+GUESS_NOTES: dict[tuple[str, str], str] = {
+    ("timeout_ms", "timeout"): "timeout is in seconds",
+    ("text", "selector"): "a text match is a selector filter, e.g. //[text~=Ok]",
+    ("name", "selector"): "a widget name is a selector, e.g. //AgreeButton",
+}
+
+
+def argument_problem(tool: str, arguments: Mapping[str, Any], schema: Mapping[str, Any]) -> str | None:
+    """Why `arguments` do not fit the tool's input schema by name: the unknown ones, the right
+    names for common guesses and the tool's arguments; None when every name is the tool's."""
+    fields = list(schema.get("properties", {}))
+    unknown = [key for key in arguments if key not in fields]
+    if not unknown:
+        return None
+    named = []
+    for key in unknown:
+        meant = next((f for f in GUESSES.get(key.lower(), ()) if f in fields and f not in arguments), None)
+        if meant is None:
+            close = difflib.get_close_matches(key, [f for f in fields if f not in arguments], n=1, cutoff=0.6)
+            meant = close[0] if close else None
+        if meant is None:
+            named.append(f"`{key}`")
+            continue
+        note = GUESS_NOTES.get((key.lower(), meant))
+        named.append(f"`{key}` (did you mean {meant}?{' ' + note if note else ''})")
+    return f"{tool} has no argument {', '.join(named)}; nothing was sent. Its arguments: {argument_list(schema)}."
+
+
+def argument_list(schema: Mapping[str, Any]) -> str:
+    """The tool's arguments by name, the required ones marked."""
+    required = set(schema.get("required", ()))
+    fields = [f"{name} (required)" if name in required else name for name in schema.get("properties", {})]
+    return ", ".join(fields) or "none"
+
+
+def validation_problem(tool: str, error: ValidationError, schema: Mapping[str, Any]) -> str:
+    """A ValidationError of the tool's arguments in one line, with the tool's arguments."""
+    parts = []
+    for e in error.errors(include_url=False):
+        where = ".".join(str(p) for p in e["loc"]) or "arguments"
+        parts.append(f"{where}: {e['msg']}")
+    return f"{tool}: {'; '.join(parts)}; nothing was sent. Its arguments: {argument_list(schema)}."
+
+
+# expect_pid / expect_start_ms, which every tool that acts on the game takes: the server asks
+# the pipe's game for its process (`ping`, on the pipe thread) on the connection the command then
+# goes on, so the check and the command reach one process and nothing is sent to another game.
+EXPECT_FIELDS: dict[str, dict[str, Any]] = {
+    "expect_pid": {
+        "anyOf": [{"type": "integer", "minimum": 1}, {"type": "null"}],
+        "default": None,
+        "description": "Refuse with process_mismatch, sending nothing, unless the game on the pipe has this process "
+        "id (pid from tongs_state or the launcher).",
+    },
+    "expect_start_ms": {
+        "anyOf": [{"type": "integer", "minimum": 1}, {"type": "null"}],
+        "default": None,
+        "description": "Refuse with process_mismatch, sending nothing, unless the game process was created at this "
+        "Unix ms (process_start_ms from tongs_state).",
+    },
+}
+EXPECT_NOTE = (
+    "\n\nWith expect_pid (and expect_start_ms), the call first checks on the same pipe connection that the game "
+    "is that process, and refuses with process_mismatch (expected, seen) without sending anything when it is not."
+)
+_expect_value = TypeAdapter(Annotated[int | None, Field(ge=1)])
+
+
+def expects_process(kind: CommandType, effect: Effect | None) -> bool:
+    """Whether a tool takes expect_pid / expect_start_ms: every tool that acts on the game (inputs,
+    client calls, game calls, tongs_raw) or on its waits (tongs_wait_until, tongs_cancel), and
+    tongs_release, which hands the game's pointer back."""
+    return kind != "read" or effect in ("waits", "control", "pointer", "raw")
+
+
+@dataclass(frozen=True)
+class Expected:
+    """The game process a call is meant for (expect_pid / expect_start_ms); empty for any game."""
+
+    pid: int | None = None
+    start_ms: int | None = None
+
+    def __bool__(self) -> bool:
+        return self.pid is not None or self.start_ms is not None
+
+
+_expected: contextvars.ContextVar[Expected] = contextvars.ContextVar("tongs_expected", default=Expected())  # noqa: B039 - frozen
+
+
+def mismatch_answer(line: str, expected: Expected, ping: str) -> str | None:
+    """The process_mismatch answer when the `ping` answer names another process than expected."""
+    command = line.split(" ", 1)[0][:64]
+    try:
+        answer = json.loads(ping)
+    except json.JSONDecodeError:
+        answer = None
+    if not isinstance(answer, dict) or "pid" not in answer:
+        raise ToolError(f"the process check (`ping`) did not answer with the game's pid; `{command}` was not sent")
+    if expected.start_ms is not None and "process_start_ms" not in answer:
+        raise ToolError(
+            f"the game did not tell its process_start_ms to check expect_start_ms; `{command}` was not sent"
+        )
+    try:
+        check_process(line, answer, expected.pid, expected.start_ms)
+    except ProcessMismatch as e:
+        refusal = {"ok": False, "error": "process_mismatch", **e.answer}
+        refusal["detail"] = "the game on the pipe is another process; nothing was sent"
+        refusal["command"] = command
+        return json.dumps(refusal, ensure_ascii=False)
+    return None
+
+
+class TongsServer(MCPServer):
+    """MCPServer that refuses arguments a tool does not have, instead of dropping them, says what
+    a validation error means in one line, and takes expect_pid / expect_start_ms off the arguments
+    of the tools that have them as `checked` (the call's Expected)."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.checked: set[str] = set()
+
+    def schema(self, name: str) -> dict[str, Any] | None:
+        tool = self._tool_manager.get_tool(name)  # mcp is pinned exactly (pyproject.toml)
+        return None if tool is None else tool.parameters
+
+    def check_process_of(self, name: str) -> None:
+        """Gives the tool expect_pid / expect_start_ms, which the server checks for it."""
+        schema = self.schema(name)
+        assert schema is not None and not EXPECT_FIELDS.keys() & schema.get("properties", {}).keys()
+        schema.setdefault("properties", {}).update(EXPECT_FIELDS)
+        self.checked.add(name)
+
+    async def call_tool(self, name: str, arguments: dict[str, Any], context: Context[Any, Any] | None = None) -> Any:
+        schema = self.schema(name)
+        if schema is None:
+            return await super().call_tool(name, arguments, context)
+        problem = argument_problem(name, arguments, schema)
+        if problem:
+            raise ToolError(problem)
+        expected = Expected()
+        if name in self.checked:
+            arguments = dict(arguments)
+            values: dict[str, int | None] = {}
+            for key in EXPECT_FIELDS:
+                try:
+                    values[key] = _expect_value.validate_python(arguments.pop(key, None))
+                except ValidationError as e:
+                    raise ToolError(
+                        f"{name}: {key}: {e.errors()[0]['msg']}; nothing was sent. Its arguments: "
+                        f"{argument_list(schema)}."
+                    ) from e
+            expected = Expected(values["expect_pid"], values["expect_start_ms"])
+        token = _expected.set(expected)
+        try:
+            return await super().call_tool(name, arguments, context)
+        except ToolError as e:
+            if isinstance(e.__cause__, ValidationError):
+                raise ToolError(validation_problem(name, e.__cause__, schema)) from e.__cause__
+            raise
+        finally:
+            _expected.reset(token)
+
+
 def build_server(connect: Callable[[], Connection] = open_pipe) -> MCPServer:
     return _build(connect)[0]
 
@@ -323,24 +535,31 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
     instance = instance_name()  # TONGS_INSTANCE, which main() sets from --instance
     pipe = pipe_path(instance)
     tools: dict[str, ToolCommands] = {}
-    pending: list[tuple[Any, str, ToolAnnotations]] = []
+    pending: list[tuple[Any, str, ToolAnnotations, bool]] = []
 
     def tool(
         commands: str | tuple[str, ...] | None, kind: CommandType, effect: Effect | None = None
     ) -> Callable[[Any], Any]:
         """Declares a tool: the commands it sends, their type and its own effect. The type gives
-        the safety note and, with the effect, the hints; docs/commands.json checks the type."""
+        the safety note and, with the effect, the hints; docs/commands.json checks the type.
+        Every tool that acts on the game (expects_process) gets expect_pid / expect_start_ms, unless
+        it has them as its own arguments (tongs_ready)."""
         names = (commands,) if isinstance(commands, str) else tuple(commands or ())
 
         def register(fn: Any) -> Any:
             tools[fn.__name__] = ToolCommands(names, kind, effect)
             note = "" if effect == "raw" else NOTES[kind]
-            pending.append((fn, inspect.cleandoc(fn.__doc__) + note, annotations(kind, effect)))
+            own = "expect_pid" in inspect.signature(fn).parameters
+            checked = expects_process(kind, effect) and not own
+            description = inspect.cleandoc(fn.__doc__) + note + (EXPECT_NOTE if checked else "")
+            pending.append((fn, description, annotations(kind, effect), checked))
             return fn
 
         return register
 
-    def exchange(line: str) -> str:
+    def exchange(line: str, expected: Expected = Expected()) -> str:
+        """Sends `line` on a connection of its own; with `expected`, only after `ping` on that
+        connection named that process, else answers process_mismatch without sending it."""
         try:
             conn = connect()
         except FileNotFoundError:
@@ -353,6 +572,14 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
         except OSError as e:
             raise ToolError(f"cannot open {pipe} ({e}); all 8 pipe instances may be busy") from None
         try:
+            if expected:
+                try:
+                    ping = conn.raw("ping")
+                except CallTimeout:
+                    raise ToolError("no answer to the process check (`ping`); nothing was sent") from None
+                mismatch = mismatch_answer(line, expected, ping)
+                if mismatch is not None:
+                    return mismatch
             return conn.raw(line)
         except CallTimeout as e:
             if e.late is not None:
@@ -408,12 +635,14 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
     async def send(line: str, *, cancel_on_abort: bool = False) -> str:
         """Sends one line on a connection of its own and returns the answer line.
         When the MCP request is cancelled, the line stays with the plugin and its outcome goes into
-        the notes of later answers; with `cancel_on_abort` it also sends `cancel`."""
+        the notes of later answers; with `cancel_on_abort` it also sends `cancel`. The call's
+        expect_pid / expect_start_ms (TongsServer) are checked on that connection first."""
         entry = Abandoned(line)
+        expected = _expected.get()
 
         def run() -> tuple[str, str]:
             try:
-                outcome = ("answer", exchange(line))
+                outcome = ("answer", exchange(line, expected))
             except ToolError as e:
                 outcome = ("failure", str(e))
             except Exception as e:  # noqa: BLE001 - kept for the note on a cancelled call, and raised below
@@ -430,7 +659,7 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
             if cancel_on_abort:
                 with anyio.CancelScope(shield=True), anyio.move_on_after(5):
                     try:
-                        await anyio.to_thread.run_sync(exchange, "cancel", abandon_on_cancel=True)
+                        await anyio.to_thread.run_sync(exchange, "cancel", expected, abandon_on_cancel=True)
                     except ToolError:
                         pass
             raise
@@ -441,8 +670,9 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
     async def call(line: str) -> CallToolResult:
         return finish(_answer(await send(line)))
 
-    async def report_dates(ctx: Context, target: float | None) -> None:
-        """Reports the game date as progress until cancelled; quietly stops on any pipe trouble.
+    async def report_dates(ctx: Context, target: float | None, expected: Expected) -> None:
+        """Reports the game date as progress until cancelled; quietly stops on any pipe trouble
+        and, with `expected`, when the connection reaches another game process.
         While no new day comes (the game is paused), the client's heartbeat pings the plugin
         every HEARTBEAT_S seconds and, if it answers, progress moves a tiny step on."""
         try:
@@ -451,6 +681,8 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
             return
         end = object()
         try:
+            if expected and mismatch_answer("subscribe", expected, await anyio.to_thread.run_sync(conn.raw, "ping")):
+                return
             feed = follow_dates(conn, HEARTBEAT_S, PROGRESS_POLL_S)
             start = 0.0
             total: float | None = None
@@ -473,7 +705,7 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
                     message = f"game date {p.date}, no new day for {p.idle_s:.0f} s"
                 await ctx.report_progress(value, total, message)
                 sent = value
-        except (OSError, ValueError, TongsError):
+        except (OSError, ValueError, TongsError, ToolError):
             return
         finally:
             conn.close()  # reads above are not abandoned, so nothing else uses it
@@ -484,7 +716,7 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
             return finish(_answer(await send(line, cancel_on_abort=True)))
         failure: ToolError | None = None
         async with anyio.create_task_group() as tg:
-            tg.start_soon(report_dates, ctx, game_days(date))
+            tg.start_soon(report_dates, ctx, game_days(date), _expected.get())
             try:
                 text = await send(line, cancel_on_abort=True)
             except ToolError as e:
@@ -1052,9 +1284,11 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
             raise ToolError("subscribe needs a connection of its own; the MCP tools report progress instead")
         return await call(line.strip())
 
-    mcp = MCPServer("tongs", version=server_version, instructions=instructions(tools, pipe))
-    for fn, description, hints in pending:
+    mcp = TongsServer("tongs", version=server_version, instructions=instructions(tools, pipe))
+    for fn, description, hints, checked in pending:
         mcp.add_tool(fn, description=description, annotations=hints, structured_output=False)
+        if checked:
+            mcp.check_process_of(fn.__name__)
     return mcp, tools
 
 
