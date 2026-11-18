@@ -67,7 +67,7 @@ checksum.
    publish job.
 4. **Turn publishing on:** `gh variable set WORKSHOP_PUBLISH --body true`.
 
-From then on, publishing a release's draft (see
+From then on, every published release (the release workflow publishes it, see
 [CONTRIBUTING.md](../CONTRIBUTING.md#versions-and-releases)) also publishes the
 Workshop mod. When the Steam session expires, the job fails with exit code 3:
 export a new one into the organization secret, for every repository that uses

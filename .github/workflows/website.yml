@@ -2,8 +2,8 @@ name: website
 
 # Rebuilds the sites that show the new Tongs version: anvil.happydwarf.dev (the
 # plugin page) and happydwarf.dev (the hub). The sites read the latest published
-# release, so this runs when the draft that release.yml creates is published, not
-# when the draft is created. Run it by hand to resend the dispatch. Needs a
+# release, so this runs when release.yml publishes the draft it created, not when
+# the draft is created. Run it by hand to resend the dispatch. Needs a
 # WEBSITE_DISPATCH_TOKEN secret with Contents: write on happy-dwarf-team/anvil-website
 # and happy-dwarf-team/happydwarf-website.
 on:
