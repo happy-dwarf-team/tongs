@@ -81,6 +81,12 @@ struct UiStructureLayout {
     // Render nodes: the owning widget and the parent node.
     unsigned node_owner = 0;
     unsigned node_parent = 0;
+    // Whether a render node draws its children: its vtable slot node_children_slot,
+    // trusted only when it is the getter at node_children_getter_rva (an RVA, set
+    // when loading), returns the byte at node_children.
+    unsigned node_children_slot = 0;
+    unsigned node_children = 0;
+    std::uint32_t node_children_getter_rva = 0;
     std::vector<UiKind> kinds;
 };
 
@@ -101,6 +107,16 @@ struct UiEntry {
 };
 
 constexpr std::size_t kMaxUiWidgets = 200000;  // the registry reserves 64 000
+
+// Whether the game draws what a window or container holds although the window's
+// own visible byte is clear (docs/design.md, "Windows the game never shows"):
+// the game's code attaches some windows it builds under a shown parent and never
+// shows them, and the render list walks into a node by the node's own byte, not
+// the widget's. True when the window's render node hangs straight under the
+// render node of `parent`, the widget Tongs placed it under, and draws its
+// children; false for any other widget and whenever a read fails.
+bool DrawnInsideParent(const UiStructureLayout& l, std::uintptr_t image_base, const ReadMemory& read,
+                       const UiEntry& window, const UiEntry& parent);
 
 // The registry's live widgets, placed: each under the first widget whose
 // containers hold it, else under the owner of its render node's parent (a

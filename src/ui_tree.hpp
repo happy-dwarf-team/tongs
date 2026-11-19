@@ -33,7 +33,9 @@ struct UiRect {
 struct UiWidget {
     std::string name;  // the .gui name, case kept
     UiType type = UiType::Other;
-    bool shown = false;  // the widget's own visible flag; `visible` in answers also needs every ancestor shown
+    // The widget's own visible flag, or for a window the game draws without having shown it, its render
+    // node's (DrawnInsideParent in ui_structure.hpp); `visible` in answers also needs every ancestor shown.
+    bool shown = false;
     UiRect rect;
     bool has_text = false;
     std::string text;    // UTF-8

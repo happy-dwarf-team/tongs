@@ -288,6 +288,17 @@ float ReadGuiScale(const UiLayout& l, std::uintptr_t manager) {
     return PlausibleUiScale(scale);
 }
 
+// A window the game drew without showing it counts as shown: its own byte is
+// clear, its render node draws its children under its parent's (DrawnInsideParent).
+void ShowDrawnWindow(const UiLayout& l, std::uintptr_t image_base, const std::vector<UiEntry>& entries, int i,
+                     UiWidget& w) {
+    const int parent = entries[i].parent;
+    if (!w.shown && parent >= 0 && parent < static_cast<int>(entries.size()) &&
+        DrawnInsideParent(l, image_base, GameMemory(), entries[i], entries[parent])) {
+        w.shown = true;
+    }
+}
+
 // Scroll bars have no render node: their rect is the bounds of their buttons.
 void ScrollbarRects(const std::vector<UiEntry>& entries, UiTree& out) {
     for (int i = 0; i < static_cast<int>(entries.size()); ++i) {
@@ -322,6 +333,7 @@ public:
             UiWidget& w = out.widgets[i];
             w.children = structure_.children()[i];
             describer_.Describe(entries[i], w);
+            ShowDrawnWindow(l_, base_, entries, i, w);
             std::uintptr_t definition = 0;
             const bool live = tongs::Read(entries[i].pointer + l_.definition, definition) && definitions_.contains(definition);
             describer_.Name(entries[i], live, false, w);
@@ -397,6 +409,7 @@ private:
     std::string Describe(int i, bool named, UiTree& out) {
         UiWidget& w = out.widgets[i];
         describer_.Describe(entries_[i], w);
+        ShowDrawnWindow(l_, base_, entries_, i, w);
         if (!named) return {};
         std::uintptr_t definition = 0;
         bool live = false;

@@ -222,6 +222,23 @@ std::string UiStructure::ReadAll(std::uintptr_t manager) {
     return {};
 }
 
+bool DrawnInsideParent(const UiStructureLayout& l, std::uintptr_t image_base, const ReadMemory& read,
+                       const UiEntry& window, const UiEntry& parent) {
+    using C = UiKind::Children;
+    if (!window.kind || !parent.kind || window.kind->node == 0 || parent.kind->node == 0 ||
+        (window.kind->children != C::Window && window.kind->children != C::Container) ||
+        l.node_children_getter_rva == 0) {
+        return false;
+    }
+    std::uintptr_t node = 0, parent_node = 0, above = 0, vtable = 0, getter = 0;
+    std::uint8_t draws = 0;
+    return Get(read, window.pointer + window.kind->node, node) && node != 0 &&
+           Get(read, parent.pointer + parent.kind->node, parent_node) && parent_node != 0 &&
+           Get(read, node + l.node_parent, above) && above == parent_node && Get(read, node, vtable) &&
+           Get(read, vtable + l.node_children_slot, getter) && getter == image_base + l.node_children_getter_rva &&
+           Get(read, node + l.node_children, draws) && draws != 0;
+}
+
 void UiStructure::Adopt(int parent, int child, const UiHeld* held) {
     if (child < 0 || parent < 0 || child == parent || entries_[child].parent != -1) return;
     int depth = 0;

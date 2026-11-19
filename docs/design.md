@@ -912,7 +912,7 @@ this section describes what holds.
   | Field | Where |
   | --- | --- |
   | Name | vtable slot `0xA0`, a `std::string*`: the `.gui` name, case kept (`type+0x10` of the definition at `+0xB0`, or a window's own name); from 0.14.0 called only when that definition is live ("Stale widgets") |
-  | Visible | `+0xC5` |
+  | Visible | `+0xC5`; for a window the game drew without showing it, its render node's ("Windows the game never shows") |
   | Dead | `+0xC4` |
   | Position | slot `0xD8`: two int32 in the game's coordinates (client pixels divided by the GUI scale, "GUI scale"), read from the widget's render node |
   | Size | slot `0xE0`, corrected where it is not what is drawn ("Widget sizes") |
@@ -1013,7 +1013,8 @@ with a throwaway prototype on `prototype/ui-selectors`):
     same `all`. Siblings that share a name get `[n]`, counted among the
     widgets the command sees; a widget without a usable name gets a
     positional step such as `[3]`;
-  - `type`, `visible` (the widget and all its ancestors);
+  - `type`, `visible` (the widget and all its ancestors shown, "Windows
+    the game never shows");
   - `rect` (client pixels of the game window) and `click_point` (its centre);
   - `text` (displayed text: UTF-8, without the colour codes `§X`; icons stay
     as `£name`) and `enabled` where they apply.
@@ -1228,10 +1229,76 @@ shields `GFX_shield_small` with `flag` `RUS`, the third modifier
 selected tab frame 2; Etch's snapshot drew them as the game did. Seen and left:
 the likely rebels' shield gives no `flag` (the game draws the rebels' picture
 into it); two modifier icons give `GFX_idea_unknown` while the game draws
-another picture (a texture set on the node, not read); check boxes give their
-`sprite` but no `frame`; and the five built buildings
-(`building_progress_entry[1..5]`) are reported hidden with the right sprites
-while the game draws them.
+another picture (a texture set on the node, not read); and check boxes give
+their `sprite` but no `frame`. The five built buildings
+(`building_progress_entry[1..5]`) came with the right sprites but hidden
+while the game drew them; the next section fixes that.
+
+### Windows the game never shows (2026-11-19)
+
+Some windows the game's code builds from a `.gui` template are attached under
+a shown parent and never shown: their visible byte (`+0xC5`) stays 0 while the
+game draws what they hold. The 2D render list (Steam `0x14DD7A0`) never reads
+`+0xC5`. It starts at the node the graphics object holds at `+0x110`, draws a
+node when the node's slot `0x70` says so (the byte at node `+0x120`), and walks
+into its children (the first at node `+0x100`, each next one at `+0xF8`) when
+its slot `0x270` says so: the byte at node `+0x178`, through the getter at
+`0x11483A0`, which the GUI node classes share. A window's show (`0x1547D90`)
+sets `+0xC5` and node `+0x178`; its hide (`0x1547B00`) clears both and node
+`+0x120`.
+
+The province view is one such case. When it rebuilds its buildings
+(`0x138EF20`), it makes a `building_progress_entry` per slot, but it calls the
+show only for the empty slot and the locked ones. The entries of built
+buildings are attached under `general_buildings_window` (its slot `0x140`) and
+placed, never shown, so in Kaluga entries 1 to 5 read `+0xC5` 0, node `+0x120`
+0 and node `+0x178` 1, while their `building` and `building_destroy` buttons
+read 1, 1 and 1.
+
+So a window or a container (not a leaf) whose own byte is clear counts as
+shown (`DrawnInsideParent` in `ui_structure.cpp`) when:
+
+- its render node's parent (`+0x110`) is the render node of the widget Tongs
+  placed it under; and
+- its node's slot `0x270` is that getter and returns a byte other than 0.
+
+`symbols.toml`:
+
+- `node_parents_draw_children` gives `+0x110` and `0x270`: the game's walk up
+  a node's parents that asks each one through that slot (Steam `0x15BAA90`);
+- `node_draws_children` gives `+0x178`: the getter itself.
+
+Each pattern is unique in the three builds. A window whose slot holds another
+function stays hidden. Buttons, icons and texts keep their own byte, which
+matched node `+0x120` for all 115 leaves of the province view's buildings window.
+
+The parent node has to match because the render list reaches a node only from
+its parent. A debug build of 19.11.2026 read every window with the province
+view open: 3 443 top-level windows had `+0xC5` 0 and node `+0x178` 1, and none
+of them was drawn. A rule on the byte alone would have shown them all; Tongs
+has no parent for them, so they stay hidden. No window had `+0xC5` 1 with node
+`+0x178` 0.
+
+Checked in the game on 19.11.2026 (Steam, the Russia save of 1719, the lab's
+`anvil-play.ps1 -Scenario tongs`; the save unchanged in every run). Each view
+was read with `ui find //* limit=5000` under this change and under `main`
+884e1a5, then compared with the screen:
+
+| View | `main` | This change | Drawn |
+| --- | --- | --- | --- |
+| Kaluga's province view: `building_progress_entry[1..5]` with `building` and `building_destroy` | hidden | visible | yes |
+| The same: `building_canbuild` in entries 1 and 2 | hidden | visible | yes: the pulsing green frame of an upgrade (green of the icon's edge 84 to 111 over four screenshots; entries 3 to 5 steady) |
+| The same: `building_status`, `building_progress`, `building_currentlybuilding` | hidden | hidden | no |
+| Missions view: the 14 entries of `countrymissionsview_country_list`, with their shields | hidden | visible | yes |
+| Outliner settings, the trade, technology and estates views, and the rest of the screen | the same widgets | the same widgets | as before |
+
+The province-view screen went from 581 visible widgets to 597:
+
+- 17 came in: 5 entries, 5 buildings, 5 destroy buttons and 2 upgrade frames;
+- 1 went: a tooltip an earlier hover had left.
+
+Etch's live snapshot copies `visible`, so a Tongs release with this change
+draws the built buildings without a rule of its own.
 
 ### Text encoding (2026-11-09)
 
