@@ -179,7 +179,11 @@ struct UiLayout : UiStructureLayout {
         // Render nodes: the owning widget and the parent node. Widgets the game's
         // own code holds (not a window) are placed under the owner of the parent node.
         node_owner = U32(sym::render_pick.node_owner);
-        node_parent = 0x110;  // not in symbols.toml
+        node_parent = U32(sym::node_parents_draw_children.parent);
+        // Whether a node draws its children: a window that the game never showed is
+        // still drawn when its node does (docs/design.md, "Windows the game never shows").
+        node_children_slot = U32(sym::node_parents_draw_children.children_slot);
+        node_children = U32(sym::node_draws_children.flag);
         // The vtables, from each class's constructor, and where each class keeps
         // its render node (read by its slot 0xD8) and its text.
         kinds = {
@@ -233,6 +237,7 @@ struct UiLayout : UiStructureLayout {
         l.sprite_node_size_rva = RvaOf(sym::sprite_node_size);
         l.node_type_getter_rva = RvaOf(sym::node_object_type);
         l.node_frame_getter_rva = RvaOf(sym::node_super_state);
+        l.node_children_getter_rva = RvaOf(sym::node_draws_children);
         Require(Value(sym::player_country, "countries_db") == l.countries_db_rva, "the country database");
         l.widget_name_slot_rva = RvaOf(sym::widget_name_slot);
         l.window_name_slot_rva = RvaOf(sym::window_name_slot);

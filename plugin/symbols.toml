@@ -1191,6 +1191,25 @@ build."eu4-1.37.5-steam-win64" = { rva = 0x1535CF0 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x152CBF0 }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x152CBF0 }
 
+[symbol.node_parents_draw_children]
+bytes = "48 89 5C 24 08 57 48 83 EC 20 48 8B 99 10 01 00 00 33 FF 48 85 DB 74 23 83 FF 64 7D 1E 48 8B 03 48 8B CB FF 90 70 02 00 00 84 C0 74 1B 48 8B 9B 10 01 00 00"
+memory = "code"
+values.parent = { at = 13, size = 4 }
+values.children_slot = { at = 37, size = 4 }
+note = "whether every render node above one draws its children: the parent node at +0x110, asked through its slot 0x270 (the 2D render list's test before it walks into a node)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x15BAA90 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x15B15B0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x15B15B0 }
+
+[symbol.node_draws_children]
+bytes = "0F B6 81 78 01 00 00 C3"
+memory = "code"
+values.flag = { at = 3, size = 4 }
+note = "render node slot 0x270 of the GUI node classes (shared by identical code folding): the byte at +0x178, which a window's show sets and its hide clears"
+build."eu4-1.37.5-steam-win64" = { rva = 0x11483A0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1142710 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1142710 }
+
 [symbol.shield_object_vtable]
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }

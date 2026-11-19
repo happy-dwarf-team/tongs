@@ -3996,6 +3996,50 @@ static std::vector<std::uintptr_t> PlacedChain(const UiStructure& all, std::uint
     return chain;
 }
 
+// A window the game attached under its parent and never showed is drawn when its render node
+// draws its children (docs/design.md, "Windows the game never shows").
+static void TestUiDrawnWindows() {
+    FakeWidgets g;
+    g.layout.node_children_slot = 0x270;
+    g.layout.node_children = 0x178;
+    g.layout.node_children_getter_rva = 0x777;
+    const std::uintptr_t getter_vtable = g.Block(), other_vtable = g.Block();
+    FakeWidgets::Put<std::uintptr_t>(getter_vtable + 0x270, 0x777);
+    FakeWidgets::Put<std::uintptr_t>(other_vtable + 0x270, 0x778);
+    const auto node = [&](std::uintptr_t widget, std::uintptr_t vtable, std::uint8_t draws) {
+        FakeWidgets::Put<std::uintptr_t>(FakeWidgets::NodeOf(widget), vtable);
+        FakeWidgets::Put<std::uint8_t>(FakeWidgets::NodeOf(widget) + 0x178, draws);
+    };
+    const std::uintptr_t parent = g.Widget(FakeWidgets::kWindow, 0);
+    const std::uintptr_t built = g.Widget(FakeWidgets::kWindow, FakeWidgets::NodeOf(parent));
+    const std::uintptr_t box = g.Widget(FakeWidgets::kContainer, FakeWidgets::NodeOf(parent));
+    const std::uintptr_t hidden = g.Widget(FakeWidgets::kWindow, FakeWidgets::NodeOf(parent));
+    const std::uintptr_t detached = g.Widget(FakeWidgets::kWindow, 0);
+    const std::uintptr_t foreign = g.Widget(FakeWidgets::kWindow, FakeWidgets::NodeOf(parent));
+    const std::uintptr_t button = g.Widget(FakeWidgets::kButton, FakeWidgets::NodeOf(parent));
+    const std::uintptr_t bare = g.Widget(FakeWidgets::kWindow, 0, false);
+    for (const std::uintptr_t w : {parent, built, box, detached, button}) node(w, getter_vtable, 1);
+    node(hidden, getter_vtable, 0);
+    node(foreign, other_vtable, 1);
+    const UiKind* window = &g.layout.kinds[0];
+    const UiKind* container = &g.layout.kinds[1];
+    const UiKind* button_kind = &g.layout.kinds[4];
+    const auto inside = [&](std::uintptr_t w, const UiKind* kind, std::uintptr_t under = 0) {
+        return DrawnInsideParent(g.layout, 0, g.Reader(), UiEntry{w, kind}, UiEntry{under ? under : parent, window});
+    };
+    assert(inside(built, window));
+    assert(inside(box, container));
+    assert(!inside(hidden, window));        // the game's hide cleared its node's byte
+    assert(!inside(detached, window));      // its node hangs elsewhere: not drawn as a part of the parent
+    assert(!inside(foreign, window));       // slot 0x270 is not the known getter: nothing is trusted
+    assert(!inside(button, button_kind));   // a leaf keeps its own visible byte
+    assert(!inside(bare, window));          // no render node
+    assert(!inside(built, window, bare));   // a parent without one
+    assert(!inside(built, nullptr));        // a class Tongs does not know
+    g.layout.node_children_getter_rva = 0;  // not loaded
+    assert(!inside(built, window));
+}
+
 static void TestUiStructureClimb() {
     FakeWidgets g;
     // A top-level window holding a container, a list box and a button. The list
@@ -6678,6 +6722,7 @@ int main(int argc, char** argv) {
     TestUiServiceDefinitionFile();
     TestUiSprites();
     TestUiStructureClimb();
+    TestUiDrawnWindows();
     TestLiveDefinitionCache();
     TestChildrenBounds();
     TestFitRects();
