@@ -44,6 +44,14 @@ bool Visit(const UiView& view, int widget, int parent, std::uint32_t extra, std:
     out.sprite = sprite ? w.sprite.c_str() : nullptr;
     out.flag = sprite && !w.flag.empty() ? w.flag.c_str() : nullptr;
     out.frame = sprite ? w.frame : 0;
+    out.texture = sprite && !w.texture.empty() ? w.texture.c_str() : nullptr;
+    out.rebels = sprite && !w.rebels.empty() ? w.rebels.c_str() : nullptr;
+    std::vector<TongsUiSlice> slices;
+    if (sprite) {
+        for (const UiSlice& s : w.slices) slices.push_back({s.percent, s.color});
+    }
+    out.slices = slices.empty() ? nullptr : slices.data();
+    out.slice_count = static_cast<std::uint32_t>(slices.size());
     return visit(context, &out) != 0;
 }
 

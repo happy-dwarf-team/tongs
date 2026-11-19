@@ -24,6 +24,7 @@
 #include <limits>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -3638,6 +3639,7 @@ struct SeenWidget {
     std::string text;
     bool has_file = false;
     std::string file;
+    std::vector<TongsUiSlice> slices;  // raw.slices lives only during the visit
 };
 
 struct SeenVisits {
@@ -3656,6 +3658,9 @@ struct SeenVisits {
         w.has_file = widget->definition_file != nullptr;
         if (w.has_file) w.file = widget->definition_file;
         assert(widget->size == sizeof(TongsUiWidget));
+        assert((widget->slices == nullptr) == (widget->slice_count == 0));
+        if (widget->slices) w.slices.assign(widget->slices, widget->slices + widget->slice_count);
+        w.raw.slices = nullptr;
         self.widgets.push_back(std::move(w));
         return self.stop_after < 0 || static_cast<int>(self.widgets.size()) < self.stop_after;
     }
@@ -4297,6 +4302,61 @@ static void TestUiSprites() {
     assert(CountryTagText(junk, 300).empty());
     const char colony[8] = {'C', '0', '1', '\0', 0x00, 0x02, 0, 1};
     assert(CountryTagText(colony, 512) == "C01");
+}
+
+// texture, rebels and slices: what the game's code draws instead of the sprite's own picture, in the
+// service and the pipe's answers, under the sprite's rule (never for a stale widget).
+static void TestUiDrawnPictures() {
+    UiTree t = StaleTree();
+    for (const int i : {3, 19, 22}) {  // speed_controls/button_speedup, the stale icon, the live icon
+        t.widgets[i].sprite = "GFX_idea_unknown";
+        t.widgets[i].texture = "gfx/interface/ideas_EU4/unknown.dds";
+        t.widgets[i].rebels = "nationalist_rebels";
+        t.widgets[i].slices = {{70, 0xFFD8261Cu}, {30, 0x80102030u}};
+    }
+    t.widgets[3].sprite.clear();  // no sprite read: none of them either
+    UiSelector sel;
+    assert(ParseUiSelector("//icon", sel).empty());
+    SeenVisits seen;
+    assert(VisitUiFind(t, sel, TONGS_UI_STALE, 0, &SeenVisits::Visit, &seen) == 2 && seen.widgets.size() == 4);
+    const SeenWidget& stale = seen.widgets[1];
+    assert(stale.path == "[3]/icon" && stale.raw.texture == nullptr && stale.raw.rebels == nullptr &&
+           stale.raw.slice_count == 0 && stale.slices.empty());
+    const SeenWidget& live = seen.widgets[3];
+    assert(live.path == "hotkey_assign_parent/icon" &&
+           std::string(live.raw.texture) == "gfx/interface/ideas_EU4/unknown.dds" &&
+           std::string(live.raw.rebels) == "nationalist_rebels" && live.raw.slice_count == 2);
+    assert(live.slices.size() == 2 && live.slices[0].percent == 70 && live.slices[0].color == 0xFFD8261Cu &&
+           live.slices[1].percent == 30 && live.slices[1].color == 0x80102030u);
+    assert(ParseUiSelector("speed_controls/button_speedup", sel).empty());
+    seen = {};
+    assert(VisitUiFind(t, sel, 0, 0, &SeenVisits::Visit, &seen) == 1 && seen.widgets[1].raw.texture == nullptr &&
+           seen.widgets[1].raw.rebels == nullptr && seen.widgets[1].raw.slices == nullptr);
+    // The pipe: after the sprite, the live icon only.
+    UiRequest r;
+    bool found = false;
+    assert(ParseUiRequest("find //icon stale", r).empty());
+    const std::string out = UiAnswer(t, r, found);
+    assert(Contains(out, "\"sprite\":\"GFX_idea_unknown\",\"texture\":\"gfx/interface/ideas_EU4/unknown.dds\","
+                         "\"rebels\":\"nationalist_rebels\",\"slices\":[{\"percent\":70,\"color\":\"#d8261cff\"},"
+                         "{\"percent\":30,\"color\":\"#10203080\"}]"));
+    assert(out.find("\"texture\"") == out.rfind("\"texture\""));
+    assert(ParseUiRequest("find speed_controls/button_speedup", r).empty() &&
+           !Contains(UiAnswer(t, r, found), "\"texture\""));
+
+    // A shield's rebels: a custom value -(r+1) at country index count + r.
+    assert(ShieldRebelType(-1, 812, 812) == 0 && ShieldRebelType(-5, 816, 812) == 4);
+    assert(ShieldRebelType(-5, 815, 812) == -1);  // set again since: the index disagrees
+    assert(ShieldRebelType(0, 812, 812) == -1 && ShieldRebelType(7, 7, 812) == -1);  // a country
+    assert(ShieldRebelType(-1, 812, -1) == -1 && ShieldRebelType(-0x10001, 0x10812, 0x812) == -1);
+    assert(ScriptNameText("nationalist_rebels") == "nationalist_rebels" && ScriptNameText("REB2") == "REB2");
+    assert(ScriptNameText("").empty() && ScriptNameText("a b").empty() && ScriptNameText("x\x01").empty());
+    assert(ScriptNameText(std::string(129, 'a')).empty());
+    // A slice's colour: truncated as the game converts it, clamped, NaN as 0.
+    assert(SliceColor(1.0f, 0.0f, 0.0f, 1.0f) == 0xFFFF0000u);
+    assert(SliceColor(0.85f, 0.15f, 0.11f, 1.0f) == 0xFFD8261Cu);
+    assert(SliceColor(2.0f, -1.0f, std::nanf(""), 0.5f) == 0x7FFF0000u);
+    assert(SliceColorText(0xFFD8261Cu) == "#d8261cff" && SliceColorText(0x00000000u) == "#00000000");
 }
 
 static void TestWorldParsing() {
@@ -6721,6 +6781,7 @@ int main(int argc, char** argv) {
     TestUiServiceHoveredChain();
     TestUiServiceDefinitionFile();
     TestUiSprites();
+    TestUiDrawnPictures();
     TestUiStructureClimb();
     TestUiDrawnWindows();
     TestLiveDefinitionCache();

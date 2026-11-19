@@ -127,6 +127,30 @@ struct UiLayout : UiStructureLayout {
     unsigned country_tag = U32(sym::country_own_tag.kind) - (U32(sym::player_country.player_kind) - U32(sym::player_country.player));
     static_assert(sym::country_own_tag.countries == sym::player_country.countries);
 
+    // What the game's code draws in place of the sprite's own picture (docs/design.md, "Sprites and
+    // frames"): the texture file an instant sprite (a modifier icon) was given, the rebel type a
+    // shield shows, and the slices of a pie chart. Each is read only from a node of that class.
+    unsigned instant_sprite_vtable = Value(sym::instant_sprite_vtable, "vtable");  // RVA
+    unsigned instant_sprite_file = U32(sym::instant_sprite_file.file);              // node: a string, "" = its sprite's
+    unsigned shield_custom = U32(sym::shield_custom_value.custom);  // shield node: int32, -(r+1) shows rebel type r
+    unsigned country_count = U32(sym::shield_custom_value.count);   // country db: int32, the number of countries
+    static_assert(sym::shield_custom_value.tag_index == sym::shield_tag_index.tag_index);
+    unsigned rebel_types_rva = Value(sym::rebel_types, "instance");  // pointer to the rebel type database
+    unsigned rebel_list = U32(sym::rebel_types.list);                // db: RebelType*[], {begin, end}
+    unsigned rebel_list_end = U32(sym::rebel_types.list_end);
+    unsigned rebel_name = U32(sym::rebel_type_tag.tag);     // rebel type: its name (a string), its flag's file name
+    unsigned rebel_index = U32(sym::rebel_type_tag.index);  // rebel type: int32, its place in the list
+    unsigned pie_chart_vtable = Value(sym::pie_chart_vtable, "vtable");  // RVA
+    unsigned pie_slices = U32(sym::pie_slices.begin);  // node: the slices, {begin, end}
+    unsigned pie_slices_end = U32(sym::pie_slices.end);
+    unsigned slice_stride = U32(sym::pie_slice.stride);
+    // slice: the percent, an int32 at +0 (not in symbols.toml: the render compares it without a
+    // displacement), and the colour's floats
+    unsigned slice_red = U32(sym::pie_slice.red);
+    unsigned slice_green = U32(sym::pie_slice.green);
+    unsigned slice_blue = U32(sym::pie_slice.blue);
+    unsigned slice_alpha = U32(sym::pie_slice.alpha);
+
     UiLayout() {
         registry_begin = U32(sym::widget_registry.begin);
         registry_end = U32(sym::widget_registry.end);
@@ -239,6 +263,7 @@ struct UiLayout : UiStructureLayout {
         l.node_frame_getter_rva = RvaOf(sym::node_super_state);
         l.node_children_getter_rva = RvaOf(sym::node_draws_children);
         Require(Value(sym::player_country, "countries_db") == l.countries_db_rva, "the country database");
+        Require(Value(sym::shield_custom_value, "countries_db") == l.countries_db_rva, "the country database");
         l.widget_name_slot_rva = RvaOf(sym::widget_name_slot);
         l.window_name_slot_rva = RvaOf(sym::window_name_slot);
         l.container_name_slot_rva = RvaOf(sym::container_name_slot);

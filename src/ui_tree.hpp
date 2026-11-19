@@ -30,6 +30,13 @@ struct UiRect {
     int h = 0;
 };
 
+// One slice a pie chart draws: its share of the circle in percent (the game's own, which sum to
+// 100) and its colour as 0xAARRGGBB.
+struct UiSlice {
+    std::int32_t percent = 0;
+    std::uint32_t color = 0;
+};
+
 struct UiWidget {
     std::string name;  // the .gui name, case kept
     UiType type = UiType::Other;
@@ -54,6 +61,12 @@ struct UiWidget {
     std::string sprite;
     std::int32_t frame = 0;
     std::string flag;
+    // What the game's code draws there instead of the sprite's own picture: the texture file an
+    // instant sprite was given ("" when it draws its sprite's), the rebel type a shield shows ("" when
+    // none) and the slices a pie chart draws (empty when it is not one).
+    std::string texture;
+    std::string rebels;
+    std::vector<UiSlice> slices;
     // How a click under the pointer reaches it or passes it (CheckCover); not reported.
     UiClickInput click_input = UiClickInput::Takes;
     bool clickable = false;        // Button: the left or right click byte is set
@@ -88,6 +101,20 @@ std::string UiScaleMember(const UiTree& tree);
 // int16, the kind byte and the valid byte) as text, when it is a valid tag of the country
 // with index `index`: "" otherwise, so a shield's stale index names no country.
 std::string CountryTagText(const char (&tag)[8], std::int32_t index);
+
+// The rebel type a shield shows, from what the shield's custom value setter stores: a custom value
+// -(r+1) for rebel type r puts the shield at the country index count + r, after the last country.
+// -1 when the shield shows no rebels or the two disagree (a shield its code has set again since).
+std::int32_t ShieldRebelType(std::int32_t custom, std::int32_t tag_index, std::int32_t country_count);
+
+// A name from the game's script files as text, when it is one (letters, digits and _): "" otherwise,
+// so a rebel type read from freed memory names nothing.
+std::string ScriptNameText(const std::string& name);
+
+// A slice's colour as the game draws it: each of red, green, blue and alpha (floats from 0 to 1)
+// times 255, truncated, packed as 0xAARRGGBB; and as "#rrggbbaa" for an answer.
+std::uint32_t SliceColor(float red, float green, float blue, float alpha);
+std::string SliceColorText(std::uint32_t color);
 
 struct UiSelector {
     enum class Axis { Top, Child, Descendant };

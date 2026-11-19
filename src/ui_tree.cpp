@@ -499,8 +499,8 @@ std::string ParseUiRequest(std::string_view argument, UiRequest& out) {
 
 namespace {
 
-// path, type, visible, rect, click_point, and text / enabled / checked / sprite / frame / flag / stale
-// where they apply.
+// path, type, visible, rect, click_point, and text / enabled / checked / sprite / frame / flag /
+// texture / rebels / slices / stale where they apply.
 std::string WidgetMembers(const UiView& view, int widget) {
     const UiWidget& w = view.tree().widgets[widget];
     const UiRect& r = w.rect;
@@ -516,6 +516,17 @@ std::string WidgetMembers(const UiView& view, int widget) {
         out += ",\"sprite\":\"" + JsonEscape(w.sprite) + "\"";
         if (w.frame > 0) out += ",\"frame\":" + Num(w.frame);
         if (!w.flag.empty()) out += ",\"flag\":\"" + JsonEscape(w.flag) + "\"";
+        if (!w.texture.empty()) out += ",\"texture\":\"" + JsonEscape(w.texture) + "\"";
+        if (!w.rebels.empty()) out += ",\"rebels\":\"" + JsonEscape(w.rebels) + "\"";
+        if (!w.slices.empty()) {
+            out += ",\"slices\":[";
+            for (std::size_t i = 0; i < w.slices.size(); ++i) {
+                if (i > 0) out += ",";
+                out += "{\"percent\":" + Num(w.slices[i].percent) + ",\"color\":\"" + SliceColorText(w.slices[i].color) +
+                       "\"}";
+            }
+            out += "]";
+        }
     }
     if (w.stale) out += ",\"stale\":true";
     return out;
@@ -582,6 +593,38 @@ std::string CountryTagText(const char (&tag)[8], std::int32_t index) {
         if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))) return {};
     }
     return std::string(tag, 3);
+}
+
+std::int32_t ShieldRebelType(std::int32_t custom, std::int32_t tag_index, std::int32_t country_count) {
+    constexpr std::int32_t kMaxRebelTypes = 0x10000;
+    if (custom >= 0 || custom < -kMaxRebelTypes || country_count < 0 || country_count > 0x7FFF) return -1;
+    const std::int32_t rebel = -custom - 1;
+    return tag_index == country_count + rebel ? rebel : -1;
+}
+
+std::string ScriptNameText(const std::string& name) {
+    if (name.empty() || name.size() > 128) return {};
+    for (const char c : name) {
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')) return {};
+    }
+    return name;
+}
+
+std::uint32_t SliceColor(float red, float green, float blue, float alpha) {
+    const auto byte = [](float v) -> std::uint32_t {
+        const float scaled = v * 255.0f;
+        if (!(scaled > 0)) return 0;  // also NaN
+        return scaled >= 255.0f ? 255u : static_cast<std::uint32_t>(scaled);
+    };
+    return byte(alpha) << 24 | byte(red) << 16 | byte(green) << 8 | byte(blue);
+}
+
+std::string SliceColorText(std::uint32_t color) {
+    char text[10];
+    std::snprintf(text, sizeof text, "#%02x%02x%02x%02x", static_cast<unsigned>((color >> 16) & 0xFF),
+                  static_cast<unsigned>((color >> 8) & 0xFF), static_cast<unsigned>(color & 0xFF),
+                  static_cast<unsigned>(color >> 24));
+    return text;
 }
 
 namespace {
