@@ -560,7 +560,13 @@ prefer names and `[n]`. Edit boxes have their `text` too, and check boxes
 sprite they draw (the `.gui`'s, the size variant the game took, or one the
 game's code set: a province's terrain picture, a building's icon), and `frame`,
 that sprite's frame from 1 (a religion's icon is a frame); a shield (`maskedShieldType`) has `flag` too, the
-tag of the country whose flag it shows (docs/design.md, "Sprites and frames").
+tag of the country whose flag it shows, or `rebels`, the rebel type whose flag it shows
+(`anti_tax_rebels`: the game draws `gfx/flags/<name>.tga`). A sprite the game's code gave a texture
+file of its own (a modifier icon, whose sprite stays `GFX_idea_unknown`) has `texture`, that file as
+the game names it (`gfx/interface/ideas_EU4/local_unrest.dds`), and a pie chart (`PieChartType`) has
+`slices`, `[{"percent":46,"color":"#b0516fff"},…]` in its order, counter-clockwise from the right,
+around the `rect`'s bottom-left corner with the `rect`'s width and height as its radii
+(docs/design.md, "Sprites and frames").
 `click_point` is the centre of `rect` and can be passed to `click`.
 The game lays out its interface in its own coordinates, client pixels divided
 by the GUI scale (`game_ui_scale` in the game's settings); Tongs multiplies

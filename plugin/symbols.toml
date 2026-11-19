@@ -1269,6 +1269,124 @@ bytes = "48 8B 15 FF 6D BC 01 49 8B 46 20 48 C1 E8 20 48 0F BF C8 48 8B 82 18 01
 rva = 0x75A94A
 bytes = "48 8B 15 FF 6D BC 01 49 8B 46 20 48 C1 E8 20 48 0F BF C8 48 8B 82 18 01 00 00 48 8B 14 C8 83 BA 44 13 00 00 00 75 0A 80 7A 26 07"
 
+# What the game's code draws in place of a sprite (docs/design.md, "Sprites and frames"): the texture
+# file of an instant sprite, the rebels on a shield and the slices of a pie chart; what tongs.ui gives
+# as texture, rebels and slices.
+[symbol.instant_sprite_vtable]
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "the render node a modifier icon draws (CInstantSprite; its constructor stores the vtable)"
+
+[symbol.instant_sprite_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x1558889
+bytes = "48 8D 05 78 B3 83 00 48 89 03"
+
+[symbol.instant_sprite_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x154F7A9
+bytes = "48 8D 05 20 C8 82 00 48 89 03"
+
+[symbol.instant_sprite_vtable.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x154F7A9
+bytes = "48 8D 05 20 C8 82 00 48 89 03"
+
+[symbol.instant_sprite_file]
+bytes = "48 8B 84 24 80 00 00 00 48 89 83 F0 01 00 00 48 8D B3 F8 01 00 00 48 83 7F 18 10"
+memory = "code"
+values.file = { at = 18, size = 4 }
+note = "the instant sprite's constructor: the texture file it was given (a string at +0x1F8), which it loads instead of its sprite's own when set"
+build."eu4-1.37.5-steam-win64" = { rva = 0x15588EF }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x154F80F }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x154F80F }
+
+[symbol.pie_chart_vtable]
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "the render node of a PieChartType sprite (its constructor stores the vtable)"
+
+[symbol.pie_chart_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x158DBF0
+bytes = "48 8D 05 C9 9D 80 00 48 89 07"
+
+[symbol.pie_chart_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x1584710
+bytes = "48 8D 05 69 B6 7F 00 48 89 07"
+
+[symbol.pie_chart_vtable.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x1584710
+bytes = "48 8D 05 69 B6 7F 00 48 89 07"
+
+[symbol.pie_slices]
+bytes = "48 8B 99 C0 01 00 00 4C 8B B1 C8 01 00 00 4C 2B F3 49 C1 FE 03 48 B9 B7 6D DB B6 6D DB B6 6D"
+memory = "code"
+values.begin = { at = 3, size = 4 }
+values.end = { at = 10, size = 4 }
+note = "the pie chart's render: its slices, a vector {begin, end} at +0x1C0 (the multiplier divides by 7, the stride 0x38 over 8)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x158E269 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1584D89 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1584D89 }
+
+[symbol.pie_slice]
+bytes = "4C 8B EB 48 8B C3 48 83 C3 38 48 89 5C 24 58 83 38 01 0F 8C ?? ?? ?? ?? F3 0F 10 40 20 F3 41 0F 59 C7 F3 4C 0F 2C C8 F3 0F 10 48 1C F3 41 0F 59 CF F3 4C 0F 2C C1 F3 0F 10 40 18 F3 41 0F 59 C7 F3 48 0F 2C D0 F3 0F 10 48 24"
+memory = "code"
+values.stride = { at = 9, size = 1 }
+values.blue = { at = 28, size = 1 }
+values.green = { at = 43, size = 1 }
+values.red = { at = 58, size = 1 }
+values.alpha = { at = 73, size = 1 }
+note = "the pie chart's render, per slice: the size in percent at +0, the colour's floats red, green, blue and alpha (times 255, truncated: the colour it draws)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x158E330 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1584E50 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1584E50 }
+
+[symbol.rebel_types]
+memory = "code"
+values.instance = { at = 3, rip_relative = 7 }
+values.list = { at = 74, size = 1 }
+values.list_end = { at = 78, size = 1 }
+note = "the rebel type database's AccessInstance: the instance (a global pointer) and its array of rebel types {begin, end} at +0x10"
+
+[symbol.rebel_types.build."eu4-1.37.5-steam-win64"]
+rva = 0xA929FA
+bytes = "48 8B 05 B7 93 99 01 48 85 C0 75 74 8D 48 28 E8 C6 08 FA 00 48 8B D8 48 89 44 24 30 33 FF 89 38 C7 40 04 FF 01 00 00 B9 F8 0F 00 00 E8 E5 08 FA 00 48 89 43 08 44 8B 43 04 49 C1 E0 03 33 D2 48 8B C8 E8 BF 33 FA 00 48 89 7B 10 48 89 7B 18"
+
+[symbol.rebel_types.build."eu4-1.37.5.2-gog-win64"]
+rva = 0xA9158A
+bytes = "48 8B 05 9F E6 97 01 48 85 C0 75 74 8D 48 28 E8 B6 B9 F8 00 48 8B D8 48 89 44 24 30 33 FF 89 38 C7 40 04 FF 01 00 00 B9 F8 0F 00 00 E8 D5 B9 F8 00 48 89 43 08 44 8B 43 04 49 C1 E0 03 33 D2 48 8B C8 E8 AF E4 F8 00 48 89 7B 10 48 89 7B 18"
+
+[symbol.rebel_types.build."eu4-1.37.5.0-gog-win64"]
+rva = 0xA9158A
+bytes = "48 8B 05 9F E6 97 01 48 85 C0 75 74 8D 48 28 E8 B6 B9 F8 00 48 8B D8 48 89 44 24 30 33 FF 89 38 C7 40 04 FF 01 00 00 B9 F8 0F 00 00 E8 D5 B9 F8 00 48 89 43 08 44 8B 43 04 49 C1 E0 03 33 D2 48 8B C8 E8 AF E4 F8 00 48 89 7B 10 48 89 7B 18"
+
+[symbol.rebel_type_tag]
+bytes = "44 89 49 10 45 33 FF 4C 89 79 18 4C 89 79 28 4C 89 79 30 0F 10 02 0F 11 41 18 0F 10 4A 10 0F 11 49 28 4C 89 7A 10 48 C7 42 18 0F 00 00 00 44 88 3A 44 89 41 38"
+memory = "code"
+values.tag = { at = 25, size = 1 }
+values.index = { at = 52, size = 1 }
+note = "a rebel type's constructor: its name (a string at +0x18) and its index in the database at +0x38"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA90DB1 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA8F941 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xA8F941 }
+
+[symbol.shield_custom_value]
+memory = "code"
+values.custom = { at = 12, size = 4 }
+values.countries_db = { at = 28, rip_relative = 32 }
+values.count = { at = 64, size = 4 }
+values.tag_index = { at = 85, size = 4 }
+note = "CShieldObject::SetCustomValue: a negative value -(r+1) shows rebel type r, at country index count - value - 1 (count at db+0x100)"
+
+[symbol.shield_custom_value.build."eu4-1.37.5-steam-win64"]
+rva = 0x13A9440
+bytes = "48 89 5C 24 08 57 48 83 EC 20 89 91 48 02 00 00 8B FA 48 8B D9 85 D2 79 4B 48 8B 05 70 44 F9 00 48 85 C0 75 19 B9 00 08 00 00 E8 65 9E 68 00 48 8B C8 E8 29 7E ED FE 48 89 05 52 44 F9 00 8B 80 00 01 00 00 2B C7 48 C7 83 40 02 00 00 00 00 00 00 FF C8 89 83 28 02 00 00"
+
+[symbol.shield_custom_value.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x13A35A0
+bytes = "48 89 5C 24 08 57 48 83 EC 20 89 91 48 02 00 00 8B FA 48 8B D9 85 D2 79 4B 48 8B 05 90 E1 F7 00 48 85 C0 75 19 B9 00 08 00 00 E8 85 99 67 00 48 8B C8 E8 79 DC ED FE 48 89 05 72 E1 F7 00 8B 80 00 01 00 00 2B C7 48 C7 83 40 02 00 00 00 00 00 00 FF C8 89 83 28 02 00 00"
+
+[symbol.shield_custom_value.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x13A35A0
+bytes = "48 89 5C 24 08 57 48 83 EC 20 89 91 48 02 00 00 8B FA 48 8B D9 85 D2 79 4B 48 8B 05 90 E1 F7 00 48 85 C0 75 19 B9 00 08 00 00 E8 85 99 67 00 48 8B C8 E8 79 DC ED FE 48 89 05 72 E1 F7 00 8B 80 00 01 00 00 2B C7 48 C7 83 40 02 00 00 00 00 00 00 FF C8 89 83 28 02 00 00"
+
 [symbol.listbox_shown_extent]
 bytes = """
 48 8B 84 24 98 00 00 00 48 89 86 F0 01 00 00 E9 33 01 00 00 41 3B EF 7C 91 8B 8E 8C 02 00 00 41

@@ -1213,13 +1213,40 @@ vtable slot is checked first, like every slot Tongs calls:
   the read of `anvil-game`'s `country_exists`): the country's own tag, three
   letters or digits with its index beside it. A tag that does not check out
   (no country, a stale index) gives no `flag`.
+- **`texture`**: for a node that is an instant sprite (the render node of a
+  modifier icon; its vtable, `instant_sprite_vtable`), the texture file the
+  game's code gave it, a string at `+0x1F8` (`instant_sprite_file`) that the
+  node loads in place of its sprite's own texture when it is set. The
+  province view's modifier icons keep the object type `GFX_idea_unknown` and
+  draw the modifier's picture this way. The file is the game's relative path
+  (`gfx/interface/ideas_EU4/local_unrest.dds`); empty (left out) when the node
+  draws its sprite's texture.
+- **`rebels`**: for a shield with no `flag`, the rebel type it shows. The
+  shield's custom value setter (`shield_custom_value`) takes a negative value
+  -(r+1) for rebel type r, stores it at `+0x248` and puts the shield at the
+  country index count + r, after the last country (the count at `db+0x100` of
+  the country database). Tongs takes r only when the two agree, then the type
+  at r in the rebel type database (`rebel_types`: a global pointer, the array
+  `{begin, end}` at `+0x10`) when that type carries index r (`+0x38`,
+  `rebel_type_tag`), and gives its name (a string at `+0x18`) when it is a
+  script name (letters, digits and `_`). The name is also its flag's file
+  name: the game draws `gfx/flags/<name>.tga`, `REB.tga` when there is none.
+- **`slices`**: for a node that is a pie chart (`C2dPieChart`, the render
+  node of a `PieChartType` sprite; `pie_chart_vtable`), the slices its render
+  draws, in its order: a vector `{begin, end}` at `+0x1C0` (`pie_slices`) of
+  `0x38`-byte entries, each with its size in percent (an int at `+0`, which
+  the game scales so that they sum to 100) and its colour as four floats from
+  0 to 1 (`pie_slice`: red, green, blue and alpha at `+0x18` to `+0x24`), which
+  the render turns into bytes by times 255, truncated. The render draws one
+  triangle per percent, a hundredth of the circle each, so a slice under 1
+  percent draws nothing and Tongs leaves it out. A chart that reads only in
+  part gives no slices.
 
-`tongs.ui` gives them as `sprite`, `flag` and `frame` at the end of
-`TongsUiWidget` (ADR 0002), `NULL` and 0 for other widgets and for stale
-ones. Not read: the slices of a pie chart (`C2dPieChart`, the trade node's
-colour in the province view), and the flags the game makes (a colonial
-nation's, `CMaskedSpriteType::RenderCustomFlag`), whose shields still give the
-tag.
+`tongs.ui` gives them as `sprite`, `flag` and `frame`, then `texture`,
+`rebels` and `slices` (with `slice_count`), at the end of `TongsUiWidget`
+(ADR 0002), `NULL` and 0 for other widgets and for stale ones. Not read: the
+flags the game makes (a colonial nation's,
+`CMaskedSpriteType::RenderCustomFlag`), whose shields still give the tag.
 
 Checked in the game on 19.11.2026 (Steam, the province view of Kaluga in the
 Russia save of 1719): `religion_icon` gave `GFX_icon_religion_small` frame 4
@@ -1227,12 +1254,29 @@ Russia save of 1719): `religion_icon` gave `GFX_icon_religion_small` frame 4
 shields `GFX_shield_small` with `flag` `RUS`, the third modifier
 `GFX_hostile_attrition`, the locked slot `GFX_locked_building_slot` and the
 selected tab frame 2; Etch's snapshot drew them as the game did. Seen and left:
-the likely rebels' shield gives no `flag` (the game draws the rebels' picture
-into it); two modifier icons give `GFX_idea_unknown` while the game draws
-another picture (a texture set on the node, not read); and check boxes give
-their `sprite` but no `frame`. The five built buildings
+check boxes give their `sprite` but no `frame`. The five built buildings
 (`building_progress_entry[1..5]`) came with the right sprites but hidden
-while the game drew them; the next section fixes that.
+while the game drew them; "Windows the game never shows" below fixes that.
+
+`texture`, `rebels` and `slices`, checked in the game the same day (Steam, the
+same save, the Tongs test build of the change, `ui find` on the pipe): the
+modifier icons `provinceview/modifiers/province_modifier_item[1]` and `[2]` of
+Kaluga (296) gave `GFX_idea_unknown` with `texture`
+`gfx/interface/ideas_EU4/local_unrest.dds` and
+`gfx/interface/ideas_EU4/winter_severe.dds`, the pictures the game drew;
+`province_window/likely_rebel_shield` gave no `flag` and `rebels`
+`anti_tax_rebels`, whose red flag the game drew; `province_window/trade_pie`
+gave one slice, 100 percent `#a53a3aff`, the red disc of the trade node's
+colour. The trade node window's
+`TradeCompanyNodeInterface/income_sharing_power` (rect 35×35) gave five
+slices, 1, 46, 1, 2 and 50 percent, and the game drew them counter-clockwise
+from the right (3 o'clock): the 46 percent slice over the upper half, the 50
+percent slice over the lower one, the three small ones at the left. Its
+centre is the rect's bottom-left corner and its radii the rect's width and
+height: the rect covers only the circle's upper right quarter, and the game
+draws the whole circle around that corner. The reads passed
+`anvil check plugin` on the three builds (Steam 1.37.5, GOG 1.37.5.2 and
+1.37.5.0).
 
 ### Windows the game never shows (2026-11-19)
 

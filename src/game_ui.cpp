@@ -253,7 +253,58 @@ private:
             tongs::Read(node + l_.node_frame, frame) && frame > 0) {
             w.frame = frame;
         }
-        if (vtable == base_ + l_.shield_node_vtable) w.flag = ShieldCountry(node);
+        if (vtable == base_ + l_.shield_node_vtable) {
+            w.flag = ShieldCountry(node);
+            if (w.flag.empty()) w.rebels = ShieldRebels(node);
+        } else if (vtable == base_ + l_.instant_sprite_vtable) {
+            std::string file;
+            if (ReadString(node + l_.instant_sprite_file, file) && !file.empty()) w.texture = GameTextToUtf8(file);
+        } else if (vtable == base_ + l_.pie_chart_vtable) {
+            PieSlices(node, w.slices);
+        }
+    }
+
+    // The rebel type a shield node shows, "" when none (ShieldRebelType): its name, which also
+    // names its flag (gfx/flags/<name>.tga). The type must carry the same index, as a country's tag.
+    std::string ShieldRebels(std::uintptr_t node) const {
+        std::int32_t custom = 0, index = -1, count = -1, own = -1;
+        std::uintptr_t db = 0, types = 0, begin = 0, end = 0, type = 0;
+        if (!tongs::Read(node + l_.shield_custom, custom) || custom >= 0 || !tongs::Read(node + l_.shield_tag_index, index) ||
+            !tongs::Read(base_ + l_.countries_db_rva, db) || db == 0 || !tongs::Read(db + l_.country_count, count)) {
+            return {};
+        }
+        const std::int32_t rebel = ShieldRebelType(custom, index, count);
+        std::string name;
+        if (rebel < 0 || !tongs::Read(base_ + l_.rebel_types_rva, types) || types == 0 ||
+            !tongs::Read(types + l_.rebel_list, begin) || !tongs::Read(types + l_.rebel_list_end, end) || begin == 0 ||
+            end <= begin || static_cast<std::uintptr_t>(rebel) >= (end - begin) / 8 ||
+            !tongs::Read(begin + static_cast<std::uintptr_t>(rebel) * 8, type) || type == 0 ||
+            !tongs::Read(type + l_.rebel_index, own) || own != rebel || !ReadString(type + l_.rebel_name, name)) {
+            return {};
+        }
+        return ScriptNameText(name);
+    }
+
+    // The slices a pie chart node draws, in its order: those of at least 1 percent (the game draws
+    // no other). Empty when any read fails, so a half-read chart gives none.
+    void PieSlices(std::uintptr_t node, std::vector<UiSlice>& out) const {
+        constexpr std::uintptr_t kMaxSlices = 4096;
+        std::uintptr_t begin = 0, end = 0;
+        if (!tongs::Read(node + l_.pie_slices, begin) || !tongs::Read(node + l_.pie_slices_end, end) || begin == 0 ||
+            end < begin || (end - begin) % l_.slice_stride != 0 || (end - begin) / l_.slice_stride > kMaxSlices) {
+            return;
+        }
+        for (std::uintptr_t slice = begin; slice < end; slice += l_.slice_stride) {
+            std::int32_t percent = 0;
+            float red = 0, green = 0, blue = 0, alpha = 0;
+            if (!tongs::Read(slice, percent) || !tongs::Read(slice + l_.slice_red, red) ||
+                !tongs::Read(slice + l_.slice_green, green) || !tongs::Read(slice + l_.slice_blue, blue) ||
+                !tongs::Read(slice + l_.slice_alpha, alpha) || percent > 100) {
+                out.clear();
+                return;
+            }
+            if (percent >= 1) out.push_back({percent, SliceColor(red, green, blue, alpha)});
+        }
     }
 
     // The tag of the country a shield node shows, "" when its index names no valid country:

@@ -994,10 +994,12 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
         selector: Selector, all: All = False, stale: Stale = False, limit: Limit = None
     ) -> CallToolResult:
         """Widgets matching a selector: count, truncated and matches, each with path, type, visible,
-        rect and click_point in client pixels, and text / enabled / stale / sprite / frame / flag
-        where they apply (the .gfx sprite a button, icon or check box draws, its frame from 1 and a
-        shield's country tag); ui_scale is the game's GUI scale the rects were converted by (null
-        when it could not be read)."""
+        rect and click_point in client pixels, and text / enabled / stale / sprite / frame / flag /
+        rebels / texture / slices where they apply (the .gfx sprite a button, icon or check box
+        draws, its frame from 1, a shield's country tag or rebel type, the texture file the game's
+        code gave a sprite, and a pie chart's slices as {percent, color "#rrggbbaa"},
+        counter-clockwise from the right); ui_scale is the game's GUI scale the rects were converted
+        by (null when it could not be read)."""
         _check(selector)
         return await call(_line("ui find", selector, "all" if all else None, "stale" if stale else None, limit=limit))
 

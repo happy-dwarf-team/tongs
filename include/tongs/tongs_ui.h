@@ -92,6 +92,12 @@ typedef enum TongsUiType { /* the pipe's `type` */
     TONGS_UI_OTHER = 8
 } TongsUiType;
 
+/* One slice a pie chart draws (TongsUiWidget's slices). */
+typedef struct TongsUiSlice {
+    int32_t percent; /* its share of the circle, in percent: the game's own, which sum to 100 */
+    uint32_t color;  /* 0xAARRGGBB, as the game draws it */
+} TongsUiSlice;
+
 typedef struct TongsUiWidget {
     uint32_t size;  /* sizeof(TongsUiWidget) as known by Tongs */
     uint32_t type;  /* TongsUiType */
@@ -119,6 +125,16 @@ typedef struct TongsUiWidget {
     int32_t frame;               /* the frame of `sprite` the widget draws, from 1 as the .gui's `frame` (an iconType
                                   * without one draws 1); what the game's code set, as for the religion icon; 0 when
                                   * `sprite` is NULL */
+    /* What the game's code draws there instead of the sprite's own picture; check each with TONGS_UI_WIDGET_HAS
+     * (added after `frame`), and each is NULL (0 slices) when `sprite` is. */
+    const char *texture;         /* a sprite the game's code gave its own texture file (a modifier icon): that file, as
+                                  * the game names it (UTF-8); NULL when it draws its sprite's own texture */
+    const char *rebels;          /* a shield that shows rebels instead of a country: the rebel type's name
+                                  * ("nationalist_rebels"), whose flag the game draws from gfx/flags/<name>.tga
+                                  * (REB.tga when there is none); NULL otherwise */
+    const TongsUiSlice *slices;  /* a PieChartType sprite: the slices it draws, in its order, counter-clockwise from
+                                  * the right (each of at least 1 percent); NULL when it is not one */
+    uint32_t slice_count;        /* the number of `slices` */
 } TongsUiWidget;
 
 /* Nonzero when `widget` (a const TongsUiWidget*) carries `field`. */
