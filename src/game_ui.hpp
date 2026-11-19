@@ -106,6 +106,27 @@ struct UiLayout : UiStructureLayout {
     unsigned masked_shield_size = U32(sym::masked_shield_size.width);       // two int32
     static_assert(sym::masked_shield_size.height == sym::masked_shield_size.width + 4);
 
+    // What a button's, icon's or check box's render node draws (docs/design.md, "Sprites and
+    // frames"): its object type, whose name is the sprite's, read through slot 0x278 only when
+    // the slot is node_object_type; its frame through slot 0xB0 only when that is
+    // node_super_state; and, when the node is a shield, the country whose flag it shows.
+    unsigned node_type_slot = U32(sym::icon_sprite_name.type_slot);
+    unsigned node_type = U32(sym::node_object_type.type);         // node: the object type (the sprite)
+    unsigned object_type_name = U32(sym::icon_sprite_name.name);  // object type: its name (a string)
+    unsigned node_frame_slot = U32(sym::icon_frame.frame_slot);
+    unsigned node_frame = U32(sym::node_super_state.frame);       // node: int32, from 1 as a .gui's `frame`
+    static_assert(sym::icon_sprite_name.node == sym::icon_render_node.node && sym::icon_frame.node == sym::icon_render_node.node);
+    std::uint32_t node_type_getter_rva = 0;   // RvaOf(sym::node_object_type), set when loading
+    std::uint32_t node_frame_getter_rva = 0;  // RvaOf(sym::node_super_state), set when loading
+    unsigned shield_node_vtable = Value(sym::shield_object_vtable, "vtable");  // RVA
+    unsigned shield_tag_index = U32(sym::shield_tag_index.tag_index);           // shield node: int32 country index
+    unsigned countries_db_rva = Value(sym::country_own_tag, "countries_db");    // pointer to the country database
+    unsigned countries = U32(sym::country_own_tag.countries);                   // db: Country*[], by country index
+    // country: its own tag, 8 bytes (three characters and a NUL, the index, the kind, the valid byte); the
+    // kind byte sits 6 into a tag, as in the player's tags (game_world.hpp).
+    unsigned country_tag = U32(sym::country_own_tag.kind) - (U32(sym::player_country.player_kind) - U32(sym::player_country.player));
+    static_assert(sym::country_own_tag.countries == sym::player_country.countries);
+
     UiLayout() {
         registry_begin = U32(sym::widget_registry.begin);
         registry_end = U32(sym::widget_registry.end);
@@ -210,6 +231,9 @@ struct UiLayout : UiStructureLayout {
                     Value(sym::scrollbar_definition_map, "map_vtable") == map_vtable,
                 "the definition maps' vtable");
         l.sprite_node_size_rva = RvaOf(sym::sprite_node_size);
+        l.node_type_getter_rva = RvaOf(sym::node_object_type);
+        l.node_frame_getter_rva = RvaOf(sym::node_super_state);
+        Require(Value(sym::player_country, "countries_db") == l.countries_db_rva, "the country database");
         l.widget_name_slot_rva = RvaOf(sym::widget_name_slot);
         l.window_name_slot_rva = RvaOf(sym::window_name_slot);
         l.container_name_slot_rva = RvaOf(sym::container_name_slot);

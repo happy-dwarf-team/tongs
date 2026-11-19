@@ -4212,6 +4212,49 @@ static void TestUiServiceDefinitionFile() {
     assert(ParseUiRequest("find //icon", r).empty() && !Contains(UiAnswer(t, r, found), "topbar.gui"));
 }
 
+// sprite, frame and flag: what a widget's render node draws, in the service and the pipe's answers;
+// never for a stale widget, as its definition file.
+static void TestUiSprites() {
+    UiTree t = StaleTree();
+    for (const int i : {3, 19, 22}) {  // speed_controls/button_speedup, the stale icon, the live icon
+        t.widgets[i].sprite = "GFX_icon_religion_small";
+        t.widgets[i].frame = 3;
+    }
+    t.widgets[22].flag = "RUS";
+    UiSelector sel;
+    assert(ParseUiSelector("speed_controls/button_speedup", sel).empty());
+    SeenVisits seen;
+    assert(VisitUiFind(t, sel, 0, 0, &SeenVisits::Visit, &seen) == 1 && seen.widgets.size() == 2);
+    assert(seen.widgets[0].raw.sprite == nullptr && seen.widgets[0].raw.frame == 0);  // the window has none
+    assert(std::string(seen.widgets[1].raw.sprite) == "GFX_icon_religion_small" && seen.widgets[1].raw.frame == 3 &&
+           seen.widgets[1].raw.flag == nullptr);
+    assert(ParseUiSelector("//icon", sel).empty());
+    seen = {};
+    assert(VisitUiFind(t, sel, TONGS_UI_STALE, 0, &SeenVisits::Visit, &seen) == 2 && seen.widgets.size() == 4);
+    assert(seen.widgets[1].path == "[3]/icon" && seen.widgets[1].raw.sprite == nullptr && seen.widgets[1].raw.frame == 0);
+    assert(seen.widgets[3].path == "hotkey_assign_parent/icon" && std::string(seen.widgets[3].raw.flag) == "RUS" &&
+           seen.widgets[3].raw.frame == 3);
+    // The pipe: the live icon with all three, the stale one with none, a widget without a sprite with none.
+    UiRequest r;
+    bool found = false;
+    assert(ParseUiRequest("find //icon stale", r).empty());
+    const std::string out = UiAnswer(t, r, found);
+    assert(Contains(out, "\"path\":\"hotkey_assign_parent/icon\"") &&
+           Contains(out, "\"sprite\":\"GFX_icon_religion_small\",\"frame\":3,\"flag\":\"RUS\""));
+    assert(Contains(out, "\"path\":\"[3]/icon\"") && out.find("\"sprite\"") == out.rfind("\"sprite\""));
+    assert(ParseUiRequest("find speed_controls", r).empty() && !Contains(UiAnswer(t, r, found), "\"sprite\""));
+    // A country's own tag as text: three characters, a NUL, its own index, valid.
+    const char rus[8] = {'R', 'U', 'S', '\0', 0x2C, 0x01, 0, 1};
+    assert(CountryTagText(rus, 300) == "RUS");
+    assert(CountryTagText(rus, 299).empty());  // another country's index: a stale shield
+    const char invalid[8] = {'R', 'U', 'S', '\0', 0x2C, 0x01, 0, 0};
+    assert(CountryTagText(invalid, 300).empty());
+    const char junk[8] = {'r', 'u', 's', '\0', 0x2C, 0x01, 0, 1};
+    assert(CountryTagText(junk, 300).empty());
+    const char colony[8] = {'C', '0', '1', '\0', 0x00, 0x02, 0, 1};
+    assert(CountryTagText(colony, 512) == "C01");
+}
+
 static void TestWorldParsing() {
     WorldRequest r;
     assert(!ParseWorldRequest("province", "295", r).failed() && r.kind == WorldRequest::Kind::Province && r.id == 295);
@@ -6633,6 +6676,7 @@ int main(int argc, char** argv) {
     TestUiServiceCalls();
     TestUiServiceHoveredChain();
     TestUiServiceDefinitionFile();
+    TestUiSprites();
     TestUiStructureClimb();
     TestLiveDefinitionCache();
     TestChildrenBounds();

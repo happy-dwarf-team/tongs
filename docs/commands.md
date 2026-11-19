@@ -17,7 +17,7 @@ connection can instead carry notifications (see [Notifications](#notifications))
 | `threads` | worker threads in each of the game's two pools, the `threads` option, process and main-thread CPU masks, ideal CPU and priority of the main thread, number of threads |
 | `screenshot [NAME]` | writes a PNG of the game window to `anvil/data/tongs/screenshots/` (keeps the newest 100) and answers with its `path`, size and capture `method` (`present`: the game's own frame, only under Wine and Proton, where it comes first; `print_window`; `screen`), and under Wine `present_error` when the frame at Present gave none (for one, while Anvil suspends Tongs); works while the window is covered |
 | `frames [timeout=S]` | read on the game's main thread after a frame of its main loop: frames per second (`outer_per_s`, and `nested_per_s` for frames drawn inside a game update or a save load), counts and the longest gap between main-loop frames since the previous `frames`, and the main thread's `thread_id`; with `queued_ms`, `run_ms`, the game's `frame` counter and the fields of `state` read on that frame, so its `session` says which session the frame belongs to. Waits up to 10 s (`timeout=` up to 600) for a frame; while a save loads none comes, and the answer is `main thread busy` |
-| `ui find SEL [all] [stale] [limit=N]` | widgets that match the selector `SEL` (see [Widgets](#widgets)): `count`, `truncated` and up to 50 `matches` (`limit=` up to 5000), each with `path`, `type`, `visible`, `rect` and `click_point` in client pixels, and `text` / `enabled` / `stale` where they apply; `ui_scale` is the game's GUI scale (`game_ui_scale`) the rects were converted by. Read on the main thread, like `frames` |
+| `ui find SEL [all] [stale] [limit=N]` | widgets that match the selector `SEL` (see [Widgets](#widgets)): `count`, `truncated` and up to 50 `matches` (`limit=` up to 5000), each with `path`, `type`, `visible`, `rect` and `click_point` in client pixels, and `text` / `enabled` / `stale` / `sprite` / `frame` / `flag` where they apply; `ui_scale` is the game's GUI scale (`game_ui_scale`) the rects were converted by. Read on the main thread, like `frames` |
 | `ui tree [SEL] [depth=N] [limit=N] [all]` | the widget tree from the top-level windows, or from the matches of `SEL`, as nested `widgets` (up to 200, `limit=` up to 5000); `depth=N` gives deeper levels only as `children_count` |
 | `event list [timeout=S]` | the open events, topmost first (see [Events](#events)), read on the main thread |
 | `province ID [timeout=S]` | one province by ID: name, owner, controller, cores, development, land and wasteland, its flags and variables (see [World reads](#world-reads)) |
@@ -556,7 +556,12 @@ Every widget in an answer has a `path` that finds it again, with `[n]`
 where siblings share a name. `text` is what the game displays, in UTF-8
 without its colour codes, so text filters depend on the game's language;
 prefer names and `[n]`. Edit boxes have their `text` too, and check boxes
-`checked`. `click_point` is the centre of `rect` and can be passed to `click`.
+`checked`. Buttons, icons and check boxes have `sprite`, the `.gfx` name of the
+sprite they draw (the `.gui`'s, the size variant the game took, or one the
+game's code set: a province's terrain picture, a building's icon), and `frame`,
+that sprite's frame from 1 (a religion's icon is a frame); a shield (`maskedShieldType`) has `flag` too, the
+tag of the country whose flag it shows (docs/design.md, "Sprites and frames").
+`click_point` is the centre of `rect` and can be passed to `click`.
 The game lays out its interface in its own coordinates, client pixels divided
 by the GUI scale (`game_ui_scale` in the game's settings); Tongs multiplies
 them by the scale, so `rect` and `click_point` are client pixels at any

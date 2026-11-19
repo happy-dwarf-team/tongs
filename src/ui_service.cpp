@@ -39,6 +39,11 @@ bool Visit(const UiView& view, int widget, int parent, std::uint32_t extra, std:
     // A stale widget's own definition may be live, but the window it is in was built from a freed one.
     out.definition_file = w.has_definition_file && !w.stale ? w.definition_file.c_str() : nullptr;
     out.definition_line = w.has_definition_file && !w.stale ? w.definition_line : 0;
+    // The pipe's rule: a stale widget gives no sprite, as it gives no definition file.
+    const bool sprite = !w.sprite.empty() && !w.stale;
+    out.sprite = sprite ? w.sprite.c_str() : nullptr;
+    out.flag = sprite && !w.flag.empty() ? w.flag.c_str() : nullptr;
+    out.frame = sprite ? w.frame : 0;
     return visit(context, &out) != 0;
 }
 
