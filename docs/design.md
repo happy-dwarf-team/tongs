@@ -1188,6 +1188,51 @@ though a press there works, so `click` at its `click_point` is the way. A
 `ui click` on the battle popup's OK was refused as `covered` once, with a map
 tooltip drawn next to it (not confirmed: the game was closing).
 
+### Sprites and frames (2026-11-19)
+
+What a button, icon or check box draws, which the game's code often sets in
+place of the `.gui`'s sprite and frame (a province's religion icon, its
+terrain picture, a building's icon, the owner's shield). Etch's live
+snapshot draws its preview from it (etch, `docs/spec/after-v2.md`). Read from
+the widget's render node, the one its size comes from (button `+0x290`, icon
+`+0x168`, check box as a button), a `CGraphicalObject`, through getters whose
+vtable slot is checked first, like every slot Tongs calls:
+
+- **`sprite`**: the node's object type (slot `0x278`, `mov rax,[rcx+0x28]`,
+  Steam `0x98780`), whose `_Name` (a `CString` at `+0x10`) is the sprite's
+  `.gfx` name. `symbols.toml`: `icon_sprite_name` (the slot and the name's
+  offset, from `CGuiIcon`'s own read of it), `node_object_type`.
+- **`frame`**: the node's `_nSuperState` (slot `0xB0`, `mov eax,[rcx+0x64]`,
+  Steam `0x1535CF0`), which `SetFrame` writes; it counts from 1, as `frame =`
+  in a `.gui` does. `icon_frame`, `node_super_state`. 0 (left out) when it is
+  not above 0.
+- **`flag`**: for a node that is a `CShieldObject` (its vtable,
+  `shield_object_vtable`), the country index at `_TagIndex` (`+0x228`,
+  `shield_tag_index`), looked up in the country database (`country_own_tag`,
+  the read of `anvil-game`'s `country_exists`): the country's own tag, three
+  letters or digits with its index beside it. A tag that does not check out
+  (no country, a stale index) gives no `flag`.
+
+`tongs.ui` gives them as `sprite`, `flag` and `frame` at the end of
+`TongsUiWidget` (ADR 0002), `NULL` and 0 for other widgets and for stale
+ones. Not read: the slices of a pie chart (`C2dPieChart`, the trade node's
+colour in the province view), and the flags the game makes (a colonial
+nation's, `CMaskedSpriteType::RenderCustomFlag`), whose shields still give the
+tag.
+
+Checked in the game on 19.11.2026 (Steam, the province view of Kaluga in the
+Russia save of 1719): `religion_icon` gave `GFX_icon_religion_small` frame 4
+(Orthodox), `province_terrain` `GFX_combat_terrain_woods`, the trade and core
+shields `GFX_shield_small` with `flag` `RUS`, the third modifier
+`GFX_hostile_attrition`, the locked slot `GFX_locked_building_slot` and the
+selected tab frame 2; Etch's snapshot drew them as the game did. Seen and left:
+the likely rebels' shield gives no `flag` (the game draws the rebels' picture
+into it); two modifier icons give `GFX_idea_unknown` while the game draws
+another picture (a texture set on the node, not read); check boxes give their
+`sprite` but no `frame`; and the five built buildings
+(`building_progress_entry[1..5]`) are reported hidden with the right sprites
+while the game draws them.
+
 ### Text encoding (2026-11-09)
 
 The game keeps its text as Windows-1252 bytes. A mod can put UTF-8 there

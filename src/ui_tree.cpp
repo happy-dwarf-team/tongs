@@ -499,7 +499,8 @@ std::string ParseUiRequest(std::string_view argument, UiRequest& out) {
 
 namespace {
 
-// path, type, visible, rect, click_point, and text / enabled / checked / stale where they apply.
+// path, type, visible, rect, click_point, and text / enabled / checked / sprite / frame / flag / stale
+// where they apply.
 std::string WidgetMembers(const UiView& view, int widget) {
     const UiWidget& w = view.tree().widgets[widget];
     const UiRect& r = w.rect;
@@ -510,6 +511,12 @@ std::string WidgetMembers(const UiView& view, int widget) {
     if (w.has_text) out += ",\"text\":\"" + JsonEscape(w.text) + "\"";
     if (w.has_enabled) out += std::string(",\"enabled\":") + (w.enabled ? "true" : "false");
     if (w.has_checked) out += std::string(",\"checked\":") + (w.checked ? "true" : "false");
+    // A stale widget's node may already draw something else: no sprite, as no definition file.
+    if (!w.sprite.empty() && !w.stale) {
+        out += ",\"sprite\":\"" + JsonEscape(w.sprite) + "\"";
+        if (w.frame > 0) out += ",\"frame\":" + Num(w.frame);
+        if (!w.flag.empty()) out += ",\"flag\":\"" + JsonEscape(w.flag) + "\"";
+    }
     if (w.stale) out += ",\"stale\":true";
     return out;
 }
@@ -565,6 +572,16 @@ std::string UiScaleMember(const UiTree& tree) {
     char text[32];
     std::snprintf(text, sizeof text, "%.4g", static_cast<double>(tree.ui_scale));
     return std::string(",\"ui_scale\":") + text;
+}
+
+std::string CountryTagText(const char (&tag)[8], std::int32_t index) {
+    const auto own = static_cast<std::int16_t>(static_cast<std::uint8_t>(tag[4]) | (static_cast<std::uint8_t>(tag[5]) << 8));
+    if (tag[3] != '\0' || tag[7] == 0 || own != index) return {};
+    for (int i = 0; i < 3; ++i) {
+        const char c = tag[i];
+        if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))) return {};
+    }
+    return std::string(tag, 3);
 }
 
 namespace {

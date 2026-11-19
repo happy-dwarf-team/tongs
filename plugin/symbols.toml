@@ -1147,6 +1147,109 @@ build."eu4-1.37.5-steam-win64" = { rva = 0x1233DC0 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x122E110 }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x122E110 }
 
+# The sprite a render node draws, its frame and a shield's country (docs/design.md,
+# "Sprites and frames"): what tongs.ui gives as sprite, frame and flag.
+[symbol.icon_sprite_name]
+bytes = """
+40 53 48 83 EC 20 48 8B D9 48 8B 89 68 01 00 00 48 85 C9 74 28 48 8B 01 FF 90 78 02 00 00 48 85
+C0 74 1A 48 8B 8B 68 01 00 00 48 8B 01 FF 90 78 02 00 00 48 83 C0 10
+"""
+memory = "code"
+values.node = { at = 12, size = 4 }
+values.type_slot = { at = 26, size = 4 }
+values.name = { at = 54, size = 1 }
+note = "CIcon::GetSpriteName: the render node at +0x168, its slot 0x278 (the object type), the type's name (a string) at +0x10"
+build."eu4-1.37.5-steam-win64" = { rva = 0x15862E0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x157CE00 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x157CE00 }
+
+[symbol.icon_frame]
+bytes = "48 8B 89 68 01 00 00 48 8B 01 48 FF A0 B0 00 00 00"
+memory = "code"
+values.node = { at = 3, size = 4 }
+values.frame_slot = { at = 13, size = 4 }
+note = "CIcon::GetFrame: the render node's slot 0xB0 (CIcon::SetFrame passes the .gui frame to its slot 0xA8)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x15722D0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1568DF0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1568DF0 }
+
+[symbol.node_object_type]
+bytes = "48 8B 41 28 C3"
+memory = "code"
+values.type = { at = 3, size = 1 }
+note = "render node slot 0x278 of the sprite classes (shared by identical code folding): the object type at +0x28"
+build."eu4-1.37.5-steam-win64" = { rva = 0x98780 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x987B0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x987B0 }
+
+[symbol.node_super_state]
+bytes = "8B 41 64 C3"
+memory = "code"
+values.frame = { at = 2, size = 1 }
+note = "render node slot 0xB0 of the sprite classes (shared by identical code folding): the frame at +0x64, as slot 0xA8 stores it"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1535CF0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x152CBF0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x152CBF0 }
+
+[symbol.shield_object_vtable]
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "the render node of a widget showing a country's flag on a maskedShieldType (its constructor stores the vtable)"
+
+[symbol.shield_object_vtable.build."eu4-1.37.5-steam-win64"]
+rva = 0x13A8E26
+bytes = "48 8D 05 1B 5A 9D 00 48 89 06"
+
+[symbol.shield_object_vtable.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x13A2F86
+bytes = "48 8D 05 2B 3F 9C 00 48 89 06"
+
+[symbol.shield_object_vtable.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x13A2F86
+bytes = "48 8D 05 2B 3F 9C 00 48 89 06"
+
+[symbol.shield_object_type_slot]
+memory = "read"
+note = "slot 0x278 of the shield node's vtable: node_object_type"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1D7EAC0, points_to = 0x98780 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1D67130, points_to = 0x987B0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1D67130, points_to = 0x987B0 }
+
+[symbol.shield_object_frame_slot]
+memory = "read"
+note = "slot 0xB0 of the shield node's vtable: node_super_state"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1D7E8F8, points_to = 0x1535CF0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1D66F68, points_to = 0x152CBF0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1D66F68, points_to = 0x152CBF0 }
+
+[symbol.shield_tag_index]
+bytes = "8B B1 28 02 00 00 48 8B F9 48 8B 99 18 02 00 00"
+memory = "code"
+values.tag_index = { at = 2, size = 4 }
+note = "the shield node's render: the country index of its tag at +0x228 (the constructor's movsx of the tag's index)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x13A90BC }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x13A321C }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x13A321C }
+
+[symbol.country_own_tag]
+memory = "code"
+values.countries_db = { at = 3, rip_relative = 7 }
+values.countries = { at = 22, size = 4 }
+values.kind = { at = 41, size = 1 }
+note = "AI loop (as anvil-game's country_exists): the country by index at (db+0x118)[i], the kind byte of its own tag at +0x26, so the tag at +0x20"
+
+[symbol.country_own_tag.build."eu4-1.37.5-steam-win64"]
+rva = 0x75B78A
+bytes = "48 8B 15 3F 21 BE 01 49 8B 46 20 48 C1 E8 20 48 0F BF C8 48 8B 82 18 01 00 00 48 8B 14 C8 83 BA 44 13 00 00 00 75 0A 80 7A 26 07"
+
+[symbol.country_own_tag.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x75A94A
+bytes = "48 8B 15 FF 6D BC 01 49 8B 46 20 48 C1 E8 20 48 0F BF C8 48 8B 82 18 01 00 00 48 8B 14 C8 83 BA 44 13 00 00 00 75 0A 80 7A 26 07"
+
+[symbol.country_own_tag.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x75A94A
+bytes = "48 8B 15 FF 6D BC 01 49 8B 46 20 48 C1 E8 20 48 0F BF C8 48 8B 82 18 01 00 00 48 8B 14 C8 83 BA 44 13 00 00 00 75 0A 80 7A 26 07"
+
 [symbol.listbox_shown_extent]
 bytes = """
 48 8B 84 24 98 00 00 00 48 89 86 F0 01 00 00 E9 33 01 00 00 41 3B EF 7C 91 8B 8E 8C 02 00 00 41

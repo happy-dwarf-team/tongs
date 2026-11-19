@@ -119,6 +119,7 @@ private:
                           !tongs::Read(e.pointer + l_.click_right, right) || left != 0 || right != 0;
         }
         DrawnSize(e, w);
+        DrawnSprite(e, w);
         std::string text;
         // A button without a label has an empty string; a text or edit box shows even an empty one.
         if (e.kind->text != 0 && ReadString(e.pointer + e.kind->text, text) &&
@@ -228,6 +229,47 @@ private:
         }
         r.w = static_cast<int>(static_cast<float>(size[0]) * scale);
         r.h = static_cast<int>(static_cast<float>(size[1]) * scale);
+    }
+
+    // What a button's, icon's or check box's render node draws: the name of its sprite
+    // (the node's object type), its frame and, on a shield, its country's tag. Each is read
+    // only through a slot that holds the known getter, so a node of another class gives none.
+    void DrawnSprite(const UiEntry& e, UiWidget& w) const {
+        if ((w.type != UiType::Button && w.type != UiType::Icon && w.type != UiType::Checkbox) || e.kind->node == 0 ||
+            l_.node_type_getter_rva == 0) {
+            return;
+        }
+        std::uintptr_t node = 0, vtable = 0, function = 0, type = 0;
+        std::string name;
+        if (!tongs::Read(e.pointer + e.kind->node, node) || node == 0 || !tongs::Read(node, vtable) ||
+            !tongs::Read(vtable + l_.node_type_slot, function) || function != base_ + l_.node_type_getter_rva ||
+            !tongs::Read(node + l_.node_type, type) || type == 0 || !ReadString(type + l_.object_type_name, name) ||
+            name.empty()) {
+            return;
+        }
+        w.sprite = GameTextToUtf8(name);
+        std::int32_t frame = 0;
+        if (tongs::Read(vtable + l_.node_frame_slot, function) && function == base_ + l_.node_frame_getter_rva &&
+            tongs::Read(node + l_.node_frame, frame) && frame > 0) {
+            w.frame = frame;
+        }
+        if (vtable == base_ + l_.shield_node_vtable) w.flag = ShieldCountry(node);
+    }
+
+    // The tag of the country a shield node shows, "" when its index names no valid country:
+    // the country's own tag must carry the same index, so a stale index reads nothing.
+    std::string ShieldCountry(std::uintptr_t node) const {
+        constexpr std::int32_t kMaxCountries = 0x7FFF;  // the tag's index is an int16
+        std::int32_t index = -1;
+        std::uintptr_t db = 0, countries = 0, country = 0;
+        char tag[8] = {};
+        if (!tongs::Read(node + l_.shield_tag_index, index) || index < 0 || index > kMaxCountries ||
+            !tongs::Read(base_ + l_.countries_db_rva, db) || db == 0 || !tongs::Read(db + l_.countries, countries) ||
+            countries == 0 || !tongs::Read(countries + static_cast<std::uintptr_t>(index) * 8, country) || country == 0 ||
+            !ReadRaw(country + l_.country_tag, tag, sizeof tag)) {
+            return {};
+        }
+        return CountryTagText(tag, index);
     }
 
     const UiLayout& l_;

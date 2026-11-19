@@ -46,6 +46,12 @@ struct UiWidget {
     bool has_definition_file = false;  // only when the widget's definition is live
     std::string definition_file;       // the game path of the defining .gui file, UTF-8; tongs.ui only
     std::uint32_t definition_line = 0;  // the line of its opening `{` in that file, 0 when unknown; tongs.ui only
+    // Buttons, icons and check boxes: the sprite their render node draws, by its .gfx name
+    // ("" when unknown), its frame (from 1 as a .gui's `frame`, 0 when unknown) and, on a
+    // shield, the tag of the country whose flag it shows ("" when none).
+    std::string sprite;
+    std::int32_t frame = 0;
+    std::string flag;
     // How a click under the pointer reaches it or passes it (CheckCover); not reported.
     UiClickInput click_input = UiClickInput::Takes;
     bool clickable = false;        // Button: the left or right click byte is set
@@ -75,6 +81,11 @@ UiRect ScaleRect(const UiRect& r, float scale);
 
 // `,"ui_scale":1.2` for an answer, or `,"ui_scale":null` when it was not read.
 std::string UiScaleMember(const UiTree& tree);
+
+// A country's own tag as the game keeps it (three characters and a NUL, its index as an
+// int16, the kind byte and the valid byte) as text, when it is a valid tag of the country
+// with index `index`: "" otherwise, so a shield's stale index names no country.
+std::string CountryTagText(const char (&tag)[8], std::int32_t index);
 
 struct UiSelector {
     enum class Axis { Top, Child, Descendant };
