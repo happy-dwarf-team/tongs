@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.37.0](https://github.com/happy-dwarf-team/tongs/compare/v0.36.0...v0.37.0) (2026-11-19)
+
+
+### Features
+
+* **mcp:** refuse unknown arguments and check the game with expect_pid ([#232](https://github.com/happy-dwarf-team/tongs/issues/232)) ([0f26bef](https://github.com/happy-dwarf-team/tongs/commit/0f26bef71098db1d046ba48bae057a213193cfed))
+* **ui:** the sprite, frame and flag a widget draws, in ui find and tongs.ui ([#237](https://github.com/happy-dwarf-team/tongs/issues/237)) ([884e1a5](https://github.com/happy-dwarf-team/tongs/commit/884e1a56a4e0871907ae6246d8ab23764f8ee1ff))
+* **ui:** the texture, rebels and pie slices a widget draws, in ui find and tongs.ui ([#239](https://github.com/happy-dwarf-team/tongs/issues/239)) ([8762747](https://github.com/happy-dwarf-team/tongs/commit/876274711aac0a4e2cae647d36891612763cb611))
+
+
+### Bug Fixes
+
+* **console:** refuse province IDs and country tags the game would use unchecked ([#229](https://github.com/happy-dwarf-team/tongs/issues/229)) ([28e7d93](https://github.com/happy-dwarf-team/tongs/commit/28e7d93334e6d527ff15ca3fac912173be025eb6))
+* let no exception leave the pipe's, the save load's and the poll threads ([#228](https://github.com/happy-dwarf-team/tongs/issues/228)) ([026aac1](https://github.com/happy-dwarf-team/tongs/commit/026aac1bd077ff2f47bec00720c2cd451f416450))
+* **plugin:** let the Paradox launcher see the Workshop item as made for 1.37 ([#235](https://github.com/happy-dwarf-team/tongs/issues/235)) ([e9e8e0e](https://github.com/happy-dwarf-team/tongs/commit/e9e8e0ef7707aaee1ca916171b6b860f7b5b5d64))
+* **save:** a menu load knows the achievements notice in any mod or build ([#234](https://github.com/happy-dwarf-team/tongs/issues/234)) ([72e859b](https://github.com/happy-dwarf-team/tongs/commit/72e859b932cd21d45334d3970b47e001d06bf5c6))
+* **state:** say "no game loaded" in the main menu instead of "unexpected vtable" ([#227](https://github.com/happy-dwarf-team/tongs/issues/227)) ([32683c4](https://github.com/happy-dwarf-team/tongs/commit/32683c4096428121ed8bb1f625fe6c70db078574))
+* **ui:** report windows the game draws without showing them as visible ([#238](https://github.com/happy-dwarf-team/tongs/issues/238)) ([3ce34ec](https://github.com/happy-dwarf-team/tongs/commit/3ce34ec2a5949f2d7ba193a70dab0b9c2364bfc5))
+
+
+### Build
+
+* **mcp:** bump pytest from 9.1.1 to 9.2.0 in /mcp in the mcp group ([#224](https://github.com/happy-dwarf-team/tongs/issues/224)) ([06388df](https://github.com/happy-dwarf-team/tongs/commit/06388df6a0ec33f682bb299877f3ce15fceadddc))
+
 ## [0.36.0](https://github.com/happy-dwarf-team/tongs/compare/v0.35.0...v0.36.0) (2026-11-15)
 
 
