@@ -820,7 +820,9 @@ when Tongs called the game's loader. A run with it is a marked run.
   achievements notice, "Achievements can no longer be earned" (the game's
   `SAVEGAME_WARNING_ACHIEVEMENTS_DISABLED_TITLE`, "Vanilla achievements can
   no longer be earned" in Anbennar): seen with Anbennar, and with vanilla
-  saves under a test mod and on the GOG build. While it waits, Tongs reads
+  saves under a test mod and on the GOG build, where `dismiss=achievements`
+  closes it too ([design](design.md#the-menu-and-the-achievements-notice-on-gog-2026-11-21-240)).
+  While it waits, Tongs reads
   the widget tree about every 0.5 s and takes any shown `DefaultConfirm` with
   a shown `AgreeButton` as holding the load, whatever mod or build. Its
   `Title` says which it is: a title that contains the achievements notice's,

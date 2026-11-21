@@ -3715,9 +3715,37 @@ Anvil 1.7.0 from its release, Tongs and Bellows from their branches,
 | speed buttons | `speed 5` in 3 presses through the buttons while paused |
 | run | `run_until 1720.1.3 speed=5 events=first`: 292 days in 23.8 s, `paused_ms` 0, `inputs` 0; the top bar's `DateText` "4 January 1720" |
 
-Not checked on GOG: game calls (`console`, `save load`), key and mouse input
-other than clicks and speed buttons, events (none opened in the run),
-notifications and screenshots of other windows than the whole game.
+Not checked on GOG then: game calls (`console`, `save load`), key and mouse
+input other than clicks and speed buttons, events (none opened in the run),
+notifications and screenshots of other windows than the whole game. The menu
+load with the achievements notice was checked later (below).
+
+### The menu and the achievements notice on GOG (2026-11-21, #240)
+
+The lab's Hamweard run of 2026-11-19 on GOG 1.37.5.2 had to work around two
+things: Tongs answered no session at the main menu, and
+`save load NAME dismiss=achievements` did not close the `DefaultConfirm`
+notice that held each load from the menu (`not_loaded` after 120 s). That run
+used Tongs 0.35.0, from before #234. Tongs alone, on the same build:
+
+A copy of the GOG game (folders as junctions, without Steam's environment,
+`eu4-1.37.5.2-gog-win64`, SHA-256 verified by Anvil), Anvil 1.25.0 from its
+release, Tongs from `main` (0.37.0 and #238–#239), `input = true` and the
+game calls module, a private vanilla profile with the lab's vanilla 1444
+save; driven through the MCP server.
+
+| Check | Seen |
+| --- | --- |
+| main menu after the start | `ready in_game=false`: `in_game: false`, "no game loaded (main menu, nation selection or loading: the session object is another class)", no `session`, as on Steam: outside a game `session` is absent on every build ([Sessions](commands.md#sessions-and-the-ready-wait)) |
+| `save load lab_vanilla_1444 dismiss=achievements` from the menu | `anvil.log`: `clicked Ok on the achievements notice`, then `loaded in 7690 ms`; the answer `dismissed: "achievements_notice"`, `dismiss_clicks` 1, `session` 1, 1444.11.11, TUR, paused |
+| "Exit to Menu", Ok, the campaign summary's `Quit` | the game restarts itself in a new process (the launcher: `restarted game PID … (parent …)`), and the next `ready` answered `process_mismatch` with the new `pid`: the menu after a return is another process, whose first game is session 1 again |
+
+So both were the older Tongs: up to 0.36 only Anbennar's title of the notice
+was recognised (#234 recognises the game's own title in any mod or build), and
+0.36 and older answered "session object has an unexpected vtable" at the menu,
+which read like a GOG fault but is the menu state of every build. A driver
+that goes back to the menu without a menu-patch plugin waits for the new
+`pid`, then for session 1 of it.
 
 ## Units (0.31.0)
 
