@@ -35,7 +35,7 @@ struct SaveLayout {
     std::uint32_t hide_rva = 0;         // RvaOf(sym::hide_ingame_windows): void (session)
     std::uint32_t assign_rva = 0;       // RvaOf(sym::string_assign)
     std::uint32_t string_free_rva = 0;  // RvaOf(sym::string_free)
-    // Loading from the main menu: root+session holds CFrontEnd there, whose application
+    // Loading from the main menu: root+session holds the frontend there, whose application
     // keeps the Continue save; the menu continues it while the flag is set.
     std::uint32_t frontend_application = Value(sym::frontend_application, "application");
     std::uint32_t continue_flag_rva = Value(sym::continue_requested, "flag");
@@ -74,10 +74,10 @@ std::string ReadSaveHead(const std::string& path, std::string& bytes);
 LoadCall CallLoad(std::uintptr_t image_base, const SaveLayout& layout, const std::string& name);
 
 // Main thread only, in the main menu: makes "save games/NAME.eu4" the menu's
-// Continue save (CEU4Application::UpdateContinueSave, which reads its header) and
+// Continue save (the Continue save update, which reads its header) and
 // sets the flag that makes the main menu continue it on its next frame, as a start
 // with continue= does. `result` 0: posted; 4: root+session is not the main menu's
-// CFrontEnd (nothing called). The load itself runs on the frames after.
+// frontend (nothing called). The load itself runs on the frames after.
 LoadCall CallMenuLoad(std::uintptr_t image_base, const SaveLayout& layout, const std::string& name);
 
 // Any thread: the menu's continue flag (set: the menu has not taken the load yet);

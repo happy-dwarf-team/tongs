@@ -240,8 +240,8 @@ them from it as `values`, so Anvil skips the plugin when any of it differs.
 `out_of_sync` is the flag of the session's out-of-sync handler: a pointer at
 `session+0x4D8` (GOG `+0x4C8`), which may be null, then handler`+0x08`. A client
 sets it at its first checksum mismatch; the host compares no checksums, so it
-never has it. `paused_oos` is the game-speed object's `+0x19`. `CGameState::_bOutofsynch`
-in GOG's `eu4.pdb` looks like the place, but the code only clears it. Both fields
+never has it. `paused_oos` is the game-speed object's `+0x19`. The game state's
+out-of-sync flag in GOG's `eu4.pdb` looks like the place, but the code only clears it. Both fields
 were matched between GOG and Steam and read as `false` in a single-player game;
 `true` has not been seen, because a real desync takes two computers.
 
@@ -896,12 +896,12 @@ this section describes what holds.
     which is why the tree is read only on the main thread.
   - `mgr+0x130` is the topmost widget under the pointer, and `mgr+0x140` the
     keyboard focus (not read in 0.5.0).
-  - `mgr+0x210` is the text input target: `CEditBox::GiveFocus` (`0x1535250`)
+  - `mgr+0x210` is the text input target: the edit box's focus call (`0x1535250`)
     stores the edit box's text input interface there (box `+0x1D0`) and starts
-    SDL text input, `CEditBox::RemoveFocus` (`0x15353F0`) clears it when it is
+    SDL text input, its focus removal (`0x15353F0`) clears it when it is
     that box. The game hands `SDL_TEXTINPUT` only to this target, so `text`
     reads it first (symbol `edit_focus`, the offset checked in the bytes of
-    `RemoveFocus`) and answers `no_text_field` when it is 0; before 0.34 the
+    the focus removal) and answers `no_text_field` when it is 0; before 0.34 the
     characters went nowhere and the answer was `ok`. Lab, 13.11.2026 (Steam):
     0 with no window open; set with the console open (`text` reached its
     input line) and in the save dialog's name field; 0 again after the console
@@ -1196,20 +1196,20 @@ place of the `.gui`'s sprite and frame (a province's religion icon, its
 terrain picture, a building's icon, the owner's shield). Etch's live
 snapshot draws its preview from it (etch, `docs/spec/after-v2.md`). Read from
 the widget's render node, the one its size comes from (button `+0x290`, icon
-`+0x168`, check box as a button), a `CGraphicalObject`, through getters whose
+`+0x168`, check box as a button), a graphical object, through getters whose
 vtable slot is checked first, like every slot Tongs calls:
 
 - **`sprite`**: the node's object type (slot `0x278`, `mov rax,[rcx+0x28]`,
-  Steam `0x98780`), whose `_Name` (a `CString` at `+0x10`) is the sprite's
+  Steam `0x98780`), whose name (a string at `+0x10`) is the sprite's
   `.gfx` name. `symbols.toml`: `icon_sprite_name` (the slot and the name's
-  offset, from `CGuiIcon`'s own read of it), `node_object_type`.
-- **`frame`**: the node's `_nSuperState` (slot `0xB0`, `mov eax,[rcx+0x64]`,
-  Steam `0x1535CF0`), which `SetFrame` writes; it counts from 1, as `frame =`
+  offset, from the icon's own read of it), `node_object_type`.
+- **`frame`**: the node's super state (slot `0xB0`, `mov eax,[rcx+0x64]`,
+  Steam `0x1535CF0`), which the icon's frame setter writes; it counts from 1, as `frame =`
   in a `.gui` does. `icon_frame`, `node_super_state`. 0 (left out) when it is
   not above 0.
-- **`flag`**: for a node that is a `CShieldObject` (its vtable,
-  `shield_object_vtable`), the country index at `_TagIndex` (`+0x228`,
-  `shield_tag_index`), looked up in the country database (`country_own_tag`,
+- **`flag`**: for a node that is a shield object (its vtable,
+  `shield_object_vtable`), the country index at `+0x228`
+  (`shield_tag_index`), looked up in the country database (`country_own_tag`,
   the read of `anvil-game`'s `country_exists`): the country's own tag, three
   letters or digits with its index beside it. A tag that does not check out
   (no country, a stale index) gives no `flag`.
@@ -1246,7 +1246,7 @@ vtable slot is checked first, like every slot Tongs calls:
 `rebels` and `slices` (with `slice_count`), at the end of `TongsUiWidget`
 (ADR 0002), `NULL` and 0 for other widgets and for stale ones. Not read: the
 flags the game makes (a colonial nation's,
-`CMaskedSpriteType::RenderCustomFlag`), whose shields still give the tag.
+drawn as a masked sprite's custom flag), whose shields still give the tag.
 
 Checked in the game on 19.11.2026 (Steam, the province view of Kaluga in the
 Russia save of 1719): `religion_icon` gave `GFX_icon_religion_small` frame 4
@@ -2038,27 +2038,27 @@ over its `button`, `IronmanSaveSelectDialog/show_local_label` over
 `click` at the same point worked. Static findings in `eu4.exe` 1.37.5 (Steam;
 the same bytes in the GOG build):
 
-- `CGraphics::NotifyMouseOverCollisions` (`0x14DEFD0`, `mouse_collisions`)
+- The graphics object's mouse-over update (`0x14DEFD0`, `mouse_collisions`)
   rebuilds the widgets under the pointer, topmost first, in an array
   `{begin, end}` at `graphics+0x30` of 16-byte entries with the widget at
   `+8` (`hover_order`); the graphics object is `mgr+0xC0` (`gui_graphics`).
   It calls every one's hover callback, last to first, so each sets its own
   `+0x8F` and the first stays in `mgr+0x130`.
-- `CGui::HandleMouseEvent` hands a mouse event to those widgets in that
+- The GUI's mouse event handler hands a mouse event to those widgets in that
   order, each shown one through its slot `0x10` (`GuiProcessInput`, then the
-  class's `ProcessInput` in slot `0x48`), and stops at the first that marks
+  class's input handler in slot `0x48`), and stops at the first that marks
   the event handled. So the topmost widget is only the first to be asked.
-- What marks a left click handled, by `ProcessInput`:
-  - windows (`CFixedWindow`, `CContainerWindow`), text boxes, list boxes,
+- What marks a left click handled, by the input handler:
+  - windows (fixed and container windows), text boxes, list boxes,
     grid and overlapping boxes and scroll bars only the wheel, or every event
     when the byte that every widget's slot `0x18` returns (`+0x8C`,
     `takes_all_input`) is set;
-  - buttons, icons and scroll bar tracks (`CButton::ProcessInput`) ignore
+  - buttons, icons and scroll bar tracks (the button's input handler) ignore
     mouse events unless their left or right click byte (`+0x160`, `+0x161`,
     `button_clickable`) is set, and then act on them;
   - check boxes, edit boxes and scroll bar sliders act on it; Tongs counts
     every class it has not checked as one that takes the click.
-- After each widget's update `CGui::HandelInput` copies `+0x8F` to `+0xAA`
+- After each widget's update the GUI's input pass copies `+0x8F` to `+0xAA`
   and clears `+0x8F` (`hover_last_frame`): `+0xAA` is the game's own answer,
   read after the frame, whether the widget was under the pointer.
 
@@ -2073,7 +2073,7 @@ list (`read_under_pointer` unset) the old rule holds. The answer names the
 widgets passed in `through`.
 
 Not settled: the game may also set the event's handled flag in a widget's
-gesture recogniser or its slot `0x140` object before `ProcessInput`; Tongs
+gesture recogniser or its slot `0x140` object before the input handler; Tongs
 does not read those. A modal state (`mgr+0x1A`) gives events only to widgets
 with `takes_all_input`; Tongs does not read it either.
 
@@ -2115,9 +2115,9 @@ not a game call: it works in ironman and needs `input = true` but not
   - Filled event windows are also listed as `{event, scope, window}` at
     `+0x498`.
 - **Controller fields:** window `+0x38`, event `+0x48`, the pending event's
-  id `+0x120` (from `CEventWindow::OptionSelected`, symbol `option_window`),
+  id `+0x120` (from the option choice, symbol `option_window`),
   "waiting for a choice" `+0x124`, option buttons `+0x208`. The controller is
-  the game's `CEventWindow`.
+  the game's event window.
 - **Event.** The script id as written in the file (e.g. `flavor_xxx.1`) is
   the `std::string` at `event+0x20`. The numeric id at `+0x14` is assigned at
   load and is not reported.
@@ -3543,22 +3543,21 @@ with `continue=` takes. Read from the code (Ghidra with the names of the GOG
 
 - `continue=NAME` makes `SDL_main` (`0x8757E0`) set a byte (`0x233FE9C`,
   `continue_requested`) and a string, `"save games/" + NAME`;
-  `CEU4Application::InitGame` passes that string to `SetNewContinueSave`
+  the game's start passes that string to the Continue save setter
   (`0x2111C0`), which reads the save's header into the application's Continue
   save (`+0x5D8`).
-- The main menu's state updates every frame (`CFrontEndState::Update`,
-  `0x10EFF90`) and first calls `CheckContinueGame` (`0x10EDB80`): while the
-  byte is set it clears it and calls `TryContinue` (`0x10EDA80`), what the
-  Continue button calls, which checks the Continue save and starts the load
-  (`TryContinueGame`, `ContinueGame`).
-- `ContinueGame` reaches the application through the frontend:
+- The main menu's state updates every frame (`0x10EFF90`) and first
+  calls the Continue check (`0x10EDB80`): while the
+  byte is set it clears it and calls `0x10EDA80`, what the
+  Continue button calls, which checks the Continue save and starts the load.
+- The load reaches the application through the frontend:
   `*(frontend+0x330)` (GOG `+0x328`; `frontend_application`), and in the
-  menu the frontend (`CFrontEnd`, `frontend_vtable`) is the object at
+  menu the frontend (`frontend_vtable`) is the object at
   `root+0x1E00`, where a game keeps its session.
 - Tongs does what the start does, on the main thread after an outer frame of
   the menu: it checks the vtable at `root+0x1E00`, builds the path with the
-  game's `string_assign`, calls `UpdateContinueSave` (`0x2110C0`, which waits
-  for the application's save task and calls `SetNewContinueSave`) under
+  game's `string_assign`, calls the Continue save update (`0x2110C0`, which waits
+  for the application's save task and calls the setter) under
   `__try`, frees the string and sets the byte. On the next frame it reads the
   byte: clear means the menu took it; still set means the menu's state did
   not update (another screen of the frontend), and Tongs clears it so that no
@@ -3667,9 +3666,8 @@ older Anvil rejects the `builds` key and skips Tongs.
   two matched functions and the same number of references to it, pointer
   slots by the matched target and the neighbouring slots, and `save_extension`
   by the code that reads it. The `eu4.pdb` GOG ships names each match
-  (`CTopbarGui::RefreshSpeedControlsWindow`, `CInGameIdler::IncreaseGameSpeed`,
-  `CEventWindow::Setup`, `CProvinceViewController::ShowProvinceView`, every
-  vtable value as the class's `vftable`, …), and the instructions every
+  (the top bar's speed controls, the speed step, the event window's set-up,
+  the province view's opening, every vtable value as its class's vtable, …), and the instructions every
   symbol spans are the same apart from numbers. 85 symbols keep their bytes
   and only move; 87 get bytes per build (displacements, and the moved
   offsets below).
@@ -3692,12 +3690,12 @@ older Anvil rejects the `builds` key and skips Tongs.
   a check in the layout's `Load()` (`Require`): Tongs does not load when one
   fails, and says which in `anvil.log`.
 - **Not in symbols.toml, checked in the PDB.** The GUI core has the same
-  layout on GOG: `CFixedWindow::_TextBoxes` at `0x798` (the first of the
-  seven 0x40-byte maps) and `_SubWindows` at `0x958`, the render node's
-  `_pParent` at `0x110`, `CEditBox::_Text` at `0xF8`, `CCheckBox::_state` at
-  `0x100`, `CConsoleCmdManager::_Commands` at `0`, and a session list's head
-  8 bytes before its tail (`CEU3Idler::_Updateables` at `0x70`, its tail at
-  `0x78`; `_ActiveInWindow` at `0x488`).
+  layout on GOG: a fixed window's text boxes at `0x798` (the first of the
+  seven 0x40-byte maps) and its sub-windows at `0x958`, the render node's
+  parent at `0x110`, an edit box's text at `0xF8`, a check box's state at
+  `0x100`, the console's command list at `0`, and a session list's head
+  8 bytes before its tail (the session's updatables at `0x70`, its tail at
+  `0x78`; the active-in-window list at `0x488`).
 
 ### Live check (2026-11-02)
 
@@ -3789,27 +3787,27 @@ RVAs are the Steam build's, `plugin/symbols.toml` holds all three builds.
 - **The widget.** The GUI manager writes the topmost widget under the pointer
   once per frame (`hover_callback`, mgr+0x130); `cursor` names it by its path
   in the widget tree read on the same frame, as `ui click` names `covered_by`.
-- **The map.** `CInGameMapInput::UpdateCursor` (`0x116E910`) runs every
+- **The map.** the map input's cursor update (`0x116E910`) runs every
   frame for the map's cursor: it takes the session's graphical map
   (`*(*(session+0x330)+0x360)`, GOG `+0x328`; `map_of_session`) and calls
-  `CEU3GraphicalMap::GetSelectable` (`0x10A46C0`) with the pointer as two
+  the map's pick (`0x10A46C0`) with the pointer as two
   floats, an empty selection list, `false`, `true`. The map's click
-  (`CInGameMapInput::DoSingleSelectionAt`, `0x11706C0`) calls the same
-  function with the click point. `GetSelectable` casts the pick ray of the
-  camera (`CCamera::CalcPickRay`) through the point and returns the unit it meets
+  (`0x11706C0`) calls the same
+  function with the click point. The pick casts the camera's pick ray
+  through the point and returns the unit it meets
   there, or the province, as the selectable object the
   selection list keeps: slot 1 of its vtable answers the kind as a constant
   (0 army, 1 navy, 2 province; anvil-game reads the same slot of the
   selection's objects). An army or navy is the unit object itself, with its
   id at +0x20 and its country's tag at +0xD0 (`unit_id`, `unit_country`, as
-  Anvil declares them). `CEU3GraphicalMap::GetProvinceIDFromMouse`
+  Anvil declares them). The map's province under the mouse
   (`0x10A3DD0`) gives the province under the point through the same ray: the
   height intersection with the terrain, then the province bitmap of the map
   (`map+0x30`: ids as int16 at `+0x10`, width `+0x28`, height `+0x2C`); -1 off
   the map or without a session (`root+0x1E00`). Both only read: the camera,
   the terrain heights, the bitmap and the units' map positions.
 - **Guards.** Tongs checks that the object at the map path has the vtable of
-  `CEU3GraphicalMap` (`graphical_map_vtable`) and calls both functions under
+  the graphical map (`graphical_map_vtable`) and calls both functions under
   `__try`. A unit is reported only when anvil-game.world's `units` of its tag
   list its id, so a misread object cannot pass for a unit.
 
@@ -3977,18 +3975,18 @@ query `0x14E5E50` ran.
 
 ## Key chords
 
-The game keeps its own record of the keys held: `CPdxKeyBoard::Refresh`
+The game keeps its own record of the keys held: the keyboard's refresh
 (`0x162DB20`) sets a key code's entry in a map when its `SDL_KEYDOWN` comes
-and clears it at `SDL_KEYUP`, and `IsShiftDown`, `IsControlDown` and
-`IsAltDown` (`0x162DB70`, `0x162DBB0`, `0x162DC30`) ask it for the left or
+and clears it at `SDL_KEYUP`, and its three
+queries (`0x162DB70`, `0x162DBB0`, `0x162DC30`) ask it for the left or
 right key. For every `SDL_KEYDOWN` the event loop builds the key event with
-`CKeyEvent::SetModifierKeys` (`0x155FCB0`): a mask of Ctrl 1, Alt 2, Shift 4
+the key event's modifier set-up (`0x155FCB0`): a mask of Ctrl 1, Alt 2, Shift 4
 and the OS key 8, from that record, not from the event's `mod` and not from
 SDL's own keyboard state (which `SDL_PushEvent` does not change). So a chord
 is queued as a player types it, the modifier keys down first; Tongs also sets
 `mod` in each event, as SDL would.
 
-Text fields hand their keys to `CTextBuffer::HandleKeyEvent` (`0x15366C0`),
+Text fields hand their keys to the text buffer's key handler (`0x15366C0`),
 which compares the mask exactly: Backspace and Ctrl+Backspace (the word),
 Delete, Return, the four arrows, Home and End (mask 0, and with Shift: both
 select to the start or the end), Ctrl+C or Ctrl+Insert (copy), Ctrl+V or
@@ -3997,8 +3995,8 @@ field's listeners. There is no Shift+arrow selection and no Ctrl+A.
 
 ### Clicks with modifier keys (2026-11-15)
 
-The game's map and its widgets ask `IsShiftDown`, `IsControlDown` and
-`IsAltDown` (above) while they handle a click, not the SDL event's state (an
+The game's map and its widgets ask the keyboard's Shift, Ctrl and
+Alt queries (above) while they handle a click, not the SDL event's state (an
 `SDL_MouseButtonEvent` has no modifier field). So `mods=` of `click` and
 `ui click` queues the modifier keys' `SDL_KEYDOWN` (Ctrl, Alt, Shift, each
 event's `mod` the keys down after it, as for a chord), waits 50 ms (a few

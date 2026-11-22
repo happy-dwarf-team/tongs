@@ -16,7 +16,7 @@ enum class UiType { Window, Button, Icon, Text, Listbox, Checkbox, Editbox, Othe
 const char* UiTypeName(UiType type);
 
 // What a widget's class does with a left click the game hands it (its
-// ProcessInput; docs/design.md, "Clicks through widgets").
+// input handler; docs/design.md, "Clicks through widgets").
 enum class UiClickInput {
     Takes,   // acts on it (check and edit boxes, scroll bar sliders) or a class Tongs has not checked
     Passes,  // windows, text boxes, list boxes, scroll bars: only the wheel, or every event with takes_all_input

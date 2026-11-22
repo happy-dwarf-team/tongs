@@ -27,7 +27,7 @@ struct Calls {
 bool Call(void* map, const float* point, Calls* c, unsigned long* code) {
     __try {
         c->province_out = c->province(map, point);
-        // An empty CSelectionList, as CInGameMapInput::UpdateCursor passes one: head, tail, count.
+        // An empty CSelectionList, as the map's cursor update passes one: head, tail, count.
         alignas(8) unsigned char selection[0x20] = {};
         c->picked = c->pick(map, point, selection, 0, 1);
         c->kind = -1;
