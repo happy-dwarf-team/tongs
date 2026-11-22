@@ -394,7 +394,7 @@ bytes = "48 89 35 F5 AE E4 00"
 [symbol.edit_focus]
 memory = "code"
 values.target = { at = 19, size = 4 }
-note = "CEditBox::RemoveFocus: compares the box with the GUI manager's text input target (mgr+0x210, the edit box with the keyboard focus, 0 = none) and clears it"
+note = "the edit box's focus removal: compares the box with the GUI manager's text input target (mgr+0x210, the edit box with the keyboard focus, 0 = none) and clears it"
 
 [symbol.edit_focus.build."eu4-1.37.5-steam-win64"]
 rva = 0x15354A1
@@ -1158,7 +1158,7 @@ memory = "code"
 values.node = { at = 12, size = 4 }
 values.type_slot = { at = 26, size = 4 }
 values.name = { at = 54, size = 1 }
-note = "CIcon::GetSpriteName: the render node at +0x168, its slot 0x278 (the object type), the type's name (a string) at +0x10"
+note = "the icon's sprite name read: the render node at +0x168, its slot 0x278 (the object type), the type's name (a string) at +0x10"
 build."eu4-1.37.5-steam-win64" = { rva = 0x15862E0 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x157CE00 }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x157CE00 }
@@ -1168,7 +1168,7 @@ bytes = "48 8B 89 68 01 00 00 48 8B 01 48 FF A0 B0 00 00 00"
 memory = "code"
 values.node = { at = 3, size = 4 }
 values.frame_slot = { at = 13, size = 4 }
-note = "CIcon::GetFrame: the render node's slot 0xB0 (CIcon::SetFrame passes the .gui frame to its slot 0xA8)"
+note = "the icon's frame read: the render node's slot 0xB0 (the frame setter passes the .gui frame to its slot 0xA8)"
 build."eu4-1.37.5-steam-win64" = { rva = 0x15722D0 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x1568DF0 }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x1568DF0 }
@@ -1275,7 +1275,7 @@ bytes = "48 8B 15 FF 6D BC 01 49 8B 46 20 48 C1 E8 20 48 0F BF C8 48 8B 82 18 01
 [symbol.instant_sprite_vtable]
 memory = "code"
 values.vtable = { at = 3, rip_relative = 7 }
-note = "the render node a modifier icon draws (CInstantSprite; its constructor stores the vtable)"
+note = "the render node a modifier icon draws (an instant sprite; its constructor stores the vtable)"
 
 [symbol.instant_sprite_vtable.build."eu4-1.37.5-steam-win64"]
 rva = 0x1558889
@@ -1373,7 +1373,7 @@ values.custom = { at = 12, size = 4 }
 values.countries_db = { at = 28, rip_relative = 32 }
 values.count = { at = 64, size = 4 }
 values.tag_index = { at = 85, size = 4 }
-note = "CShieldObject::SetCustomValue: a negative value -(r+1) shows rebel type r, at country index count - value - 1 (count at db+0x100)"
+note = "the shield's custom value: a negative value -(r+1) shows rebel type r, at country index count - value - 1 (count at db+0x100)"
 
 [symbol.shield_custom_value.build."eu4-1.37.5-steam-win64"]
 rva = 0x13A9440
@@ -1764,7 +1764,7 @@ build."eu4-1.37.5.0-gog-win64" = { rva = 0x14D8B6A }
 bytes = "48 89 5C 24 10 56 48 83 EC 20 48 8D 71 30 48 8B D9 48 8B CE"
 memory = "code"
 values.list = { at = 13, size = 1 }
-note = "CGraphics::NotifyMouseOverCollisions: rebuilds the owners under the pointer, topmost first, in the array {begin, end} at graphics+list"
+note = "the graphics object's mouse-over update: rebuilds the owners under the pointer, topmost first, in the array {begin, end} at graphics+list"
 build."eu4-1.37.5-steam-win64" = { rva = 0x14DEFD0 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x14D8B40 }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x14D8B40 }
@@ -1773,7 +1773,7 @@ build."eu4-1.37.5.0-gog-win64" = { rva = 0x14D8B40 }
 bytes = "48 8B 8E C0 00 00 00 E8 AA 54 FF FF"
 memory = "code"
 values.graphics = { at = 3, size = 4 }
-note = "CGui::HandelInput: the graphics object at manager+graphics gets the mouse-over notification"
+note = "the GUI's input pass: the graphics object at manager+graphics gets the mouse-over notification"
 build."eu4-1.37.5-steam-win64" = { rva = 0x14E9B1A }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x14E368A }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x14E368A }
@@ -1796,7 +1796,7 @@ build."eu4-1.37.5.0-gog-win64" = { rva = 0x14D30C8 }
 bytes = "FF 50 40 0F B6 83 8F 00 00 00 88 83 AA 00 00 00 C6 83 8F 00 00 00 00"
 memory = "code"
 values.last_frame = { at = 12, size = 4 }
-note = "CGui::HandelInput, after each widget's update: +last_frame = +0x8F (the pointer was over it this frame), then +0x8F = 0"
+note = "the GUI's input pass, after each widget's update: +last_frame = +0x8F (the pointer was over it this frame), then +0x8F = 0"
 build."eu4-1.37.5-steam-win64" = { rva = 0x14E9E77 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x14E39E7 }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x14E39E7 }
@@ -1815,7 +1815,7 @@ bytes = "38 8F 8F 00 00 00 0F 84 F1 02 00 00 0F B6 8F 60 01 00 00 84 C9 75 0C 38
 memory = "code"
 values.left = { at = 15, size = 4 }
 values.right = { at = 25, size = 4 }
-note = "CButton::ProcessInput (buttons and icons): a mouse event is ignored unless the left or right click byte is set"
+note = "the button's input handler (buttons and icons): a mouse event is ignored unless the left or right click byte is set"
 build."eu4-1.37.5-steam-win64" = { rva = 0x1592CBF }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x15897DF }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x15897DF }
@@ -1899,7 +1899,7 @@ bytes = "48 8D 05 A6 98 C8 00 48 89 03 48 8D 05 84 98 C8 00 48 89 43 08 C7 43 30
 bytes = "48 8B 4E 40 48 8B 01 FF 90 80 00 00 00 48 8B F8 B9 40 01 00 00 E8 ?? ?? ?? ?? 48 89 45 70 4C 8D 46 50 8B 8E 20 01 00 00"
 memory = "code"
 values.pending = { at = 36, size = 4 }
-note = "CEventWindow::OptionSelected (the controller is the event window): the command takes the pending event's id at +0x120"
+note = "the event window's option choice (the controller is the event window): the command takes the pending event's id at +0x120"
 build."eu4-1.37.5-steam-win64" = { rva = 0x10BC4AD }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x10BACAD }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x10BACAD }
@@ -2633,7 +2633,7 @@ build."eu4-1.37.5.0-gog-win64" = { rva = 0x82A240 }
 
 [symbol.frontend_vtable]
 memory = "read"
-note = "CFrontEnd's vtable: the object at root+0x1E00 while the game shows its main menu (in game: the session)"
+note = "the frontend's vtable: the object at root+0x1E00 while the game shows its main menu (in game: the session)"
 build."eu4-1.37.5-steam-win64" = { rva = 0x1D5A8C8, points_to = 0x10D2C00 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x1D43318, points_to = 0x10D1400 }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x1D43318, points_to = 0x10D1400 }
@@ -2641,7 +2641,7 @@ build."eu4-1.37.5.0-gog-win64" = { rva = 0x1D43318, points_to = 0x10D1400 }
 [symbol.frontend_application]
 memory = "code"
 values.application = { at = 11, size = 4 }
-note = "CFrontEndState::ContinueGame: GetContinueSave(*(frontend+0x330)), the application object that keeps the Continue save"
+note = "the menu's Continue load: the Continue save of *(frontend+0x330), the application object that keeps the Continue save"
 
 [symbol.frontend_application.build."eu4-1.37.5-steam-win64"]
 rva = 0x10EF432
@@ -2660,7 +2660,7 @@ bytes = "48 8B 41 08 48 8D 55 80 48 8B 88 28 03 00 00"
 bytes = "48 89 5C 24 08 57 48 83 EC 20 48 8B D9 48 8B FA 48 8B 89 D0 05 00 00"
 memory = "code"
 signature = "void (void* application, void* path)"
-note = "CEU4Application::UpdateContinueSave(const std::string&): waits for the application's save task, then SetNewContinueSave reads the save's header into the Continue save; InitGame calls SetNewContinueSave with the path of continue= (\"save games/\" + NAME)"
+note = "the application's Continue save update (a std::string path): waits for the application's save task, then the setter reads the save's header into the Continue save; the game's start calls the setter with the path of continue= (\"save games/\" + NAME)"
 build."eu4-1.37.5-steam-win64" = { rva = 0x2110C0 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x211080 }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x211080 }
@@ -2669,7 +2669,7 @@ build."eu4-1.37.5.0-gog-win64" = { rva = 0x211080 }
 # push rbx; sub rsp,20h; cmp byte [flag],0; mov rbx,rcx; je +11h; mov byte [flag],0
 memory = "code"
 values.flag = { at = 8, rip_relative = 13 }
-note = "CFrontEndState::CheckContinueGame, from the main menu's Update every frame: while the byte is set it clears it and continues the Continue save (TryContinue); SDL_main sets it for continue="
+note = "the main menu's Continue check, from its update every frame: while the byte is set it clears it and continues the Continue save; SDL_main sets it for continue="
 
 [symbol.continue_requested.build."eu4-1.37.5-steam-win64"]
 rva = 0x10EDB80
@@ -2804,7 +2804,7 @@ build."eu4-1.37.5.0-gog-win64" = { rva = 0x6EBE10 }
 memory = "code"
 values.graphical_map = { at = 3, size = 4 }
 values.map = { at = 26, size = 4 }
-note = "CInGameMapInput::UpdateCursor: the graphical map is *(*(session+0x330)+0x360), passed to GetSelectable with the pointer as two floats"
+note = "the map input's cursor update: the graphical map is *(*(session+0x330)+0x360), passed to the map's pick with the pointer as two floats"
 
 [symbol.map_of_session.build."eu4-1.37.5-steam-win64"]
 rva = 0x116EA39
@@ -2820,7 +2820,7 @@ bytes = "48 8B 88 28 03 00 00 C6 44 24 20 01 45 33 C9 4C 8D 45 A7 48 8D 55 77 48
 
 [symbol.graphical_map_vtable]
 memory = "read"
-note = "CEU3GraphicalMap's vtable: the object at the map path, checked before the calls below"
+note = "the graphical map's vtable: the object at the map path, checked before the calls below"
 build."eu4-1.37.5-steam-win64" = { rva = 0x1D57E38, points_to = 0x10A3840 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x1D40928, points_to = 0x10A2040 }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x1D40928, points_to = 0x10A2040 }
@@ -2830,7 +2830,7 @@ build."eu4-1.37.5.0-gog-win64" = { rva = 0x1D40928, points_to = 0x10A2040 }
 bytes = "40 53 48 83 EC 30 48 8B 05 ?? ?? ?? ?? 48 8B D9 48 83 B8 00 1E 00 00 00 74 50"
 memory = "code"
 signature = "int32_t (void* map, const float* point)"
-note = "CEU3GraphicalMap::GetProvinceIDFromMouse: the province of the map's province bitmap where the pick ray through the client point meets the terrain; -1 off the map or without a session"
+note = "the map's province under the mouse: the province of the map's province bitmap where the pick ray through the client point meets the terrain; -1 off the map or without a session"
 build."eu4-1.37.5-steam-win64" = { rva = 0x10A3DD0 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x10A25D0 }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x10A25D0 }
@@ -2840,7 +2840,7 @@ build."eu4-1.37.5.0-gog-win64" = { rva = 0x10A25D0 }
 bytes = "48 8B C4 44 88 48 20 4C 89 40 18 48 89 50 10 55 53 56 57 41 54 41 55"
 memory = "code"
 signature = "void* (void* map, const float* point, void* selection, uint8_t a, uint8_t b)"
-note = "CEU3GraphicalMap::GetSelectable: the unit or province the map picks at the client point, as UpdateCursor asks it (an empty selection, false, true)"
+note = "the map's pick: the unit or province the map picks at the client point, as the cursor update asks it (an empty selection, false, true)"
 build."eu4-1.37.5-steam-win64" = { rva = 0x10A46C0 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x10A2EC0 }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x10A2EC0 }

@@ -2,7 +2,7 @@
 # symbols.toml. Commit it with symbols.toml.
 format = 2
 tool = "anvil 1.23.0"
-symbols_sha256 = "243DDA9D14426790F17D9B362DC1CBBBB80EE37197BEB65FF9BC164534DE58FF"
+symbols_sha256 = "67B64854E7FAB0865A35913D6462223DBE03949EE96B2FCD1B4C246EBD090082"
 
 [[check]]
 build = "eu4-1.37.5-steam-win64"

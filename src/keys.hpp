@@ -25,7 +25,7 @@ inline constexpr std::uint16_t kModAlt = 0x0100;    // KMOD_LALT
 
 // A key with the modifier keys held while it is pressed: `ctrl+a`,
 // `shift+left`, `ctrl+shift+end`. The game keeps its own record of the keys
-// held, from the SDL_KEYDOWN and SDL_KEYUP it handles (CPdxKeyBoard), and asks
+// held, from the SDL_KEYDOWN and SDL_KEYUP it handles, and asks
 // it for Shift, Ctrl and Alt; so a chord is queued as a player types it: the
 // modifier keys down, the key, the modifier keys up (docs/design.md, "Key
 // chords").
