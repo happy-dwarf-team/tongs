@@ -44,7 +44,7 @@ jobs:
   # dispatch, so it posts nothing.
   notify-discord:
     if: github.event_name == 'release'
-    uses: happy-dwarf-team/.github/.github/workflows/discord-release.yml@d5db96e09ee8035b0bb9aabfdd4f280cc1dbc45e # main
+    uses: happy-dwarf-team/.github/.github/workflows/discord-release.yml@9bbd8588a2c3c34d49d14bde1a8c08e57349ca11 # main
     permissions: {}
     with:
       tag: ${{ github.event.release.tag_name }}
