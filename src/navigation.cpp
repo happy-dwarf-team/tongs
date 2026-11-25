@@ -48,10 +48,18 @@ bool CameraReached(const CameraRaw& c, float x, float z, float tolerance) {
     return dx <= tolerance && std::fabs(c.z - z) <= tolerance;
 }
 
-std::string CameraMembers(float target_x, float target_z, bool settled, bool locked) {
+bool TargetMovedOn(const CameraRaw& now, const CameraRaw& set) {
+    CameraRaw target = now;
+    target.x = now.target_x;
+    target.z = now.target_z;
+    return !CameraReached(target, set.target_x, set.target_z);
+}
+
+std::string CameraMembers(float target_x, float target_z, bool settled, bool locked, bool moved_on) {
     std::string out = std::string(",\"camera\":{\"settled\":") + (settled ? "true" : "false");
     out += ",\"target\":{\"x\":" + Number(target_x) + ",\"z\":" + Number(target_z) + "}";
     if (locked) out += ",\"locked\":true";
+    if (moved_on) out += ",\"moved_on\":true";
     return out + "}";
 }
 

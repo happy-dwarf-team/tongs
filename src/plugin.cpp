@@ -225,10 +225,11 @@ struct Tongs : anvil::Plugin {
                 host.warn("{}; screenshot uses only PrintWindow and the screen copy", error);
             }
         }
-        handlers.take_screenshot = [folder = data_dir / "screenshots"](std::string_view name) {
+        handlers.take_screenshot = [folder = data_dir / "screenshots"](std::string_view name,
+                                                                       const tongs::ScreenshotRegion& region) {
             // Anvil takes Tongs' hooks out while it suspends it, so the Present hook would never answer.
             const bool suspended = g_suspended.load(std::memory_order_acquire);
-            return tongs::TakeScreenshot(folder, name,
+            return tongs::TakeScreenshot(folder, name, region,
                                          suspended ? "Anvil suspended Tongs in this ironman or multiplayer game, so "
                                                      "its Present hook does not run"
                                                    : "");

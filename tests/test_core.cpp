@@ -1505,8 +1505,10 @@ static void TestScreenshot() {
     shot.height = 1080;
     shot.bytes = 12345;
     shot.method = "print_window";
-    h.take_screenshot = [&](std::string_view name) {
+    ScreenshotRegion asked_region;
+    h.take_screenshot = [&](std::string_view name, const ScreenshotRegion& region) {
         asked = std::string(name);
+        asked_region = region;
         return shot;
     };
     std::string out = HandleRequest("screenshot menu", h);
@@ -1520,11 +1522,37 @@ static void TestScreenshot() {
     shot.blank = false;
     shot.present_error.clear();
     HandleRequest("screenshot", h);
-    assert(asked.empty());
+    assert(asked.empty() && asked_region.whole());
+    assert(!Contains(out, "\"region\""));
     for (const char* bad : {"screenshot ../x", "screenshot a b", "screenshot a.png",
                             "screenshot 0123456789012345678901234567890123456789012345678"}) {
         assert(Contains(HandleRequest(bad, h), "optional name"));
     }
+
+    // region=X,Y,W,H, with or without a name, in either order: cut by the handler, answered with the window.
+    shot.width = 300;
+    shot.height = 200;
+    shot.window_width = 2560;
+    shot.window_height = 1440;
+    out = HandleRequest("screenshot top region=10,20,300,200", h);
+    assert(asked == "top" && asked_region.x == 10 && asked_region.y == 20 && asked_region.w == 300 && asked_region.h == 200);
+    assert(Contains(out, "\"width\":300,\"height\":200,\"region\":{\"x\":10,\"y\":20,\"w\":300,\"h\":200},"
+                         "\"window\":{\"width\":2560,\"height\":1440},\"bytes\":"));
+    HandleRequest("screenshot region=0,0,1,1", h);
+    assert(asked.empty() && asked_region.w == 1 && asked_region.h == 1);
+    HandleRequest("screenshot region=5,6,7,8 later", h);
+    assert(asked == "later" && asked_region.x == 5);
+    for (const char* bad : {"screenshot region=1,2,3", "screenshot region=1,2,3,4,5", "screenshot region=-1,0,5,5",
+                            "screenshot region=0,0,0,5", "screenshot region=0,0,5,0", "screenshot region=a,0,5,5",
+                            "screenshot region=", "screenshot region=0,0,5,5 region=0,0,5,5", "screenshot region=0,0,5,5,"}) {
+        assert(Contains(HandleRequest(bad, h), "optional region=X,Y,W,H"));
+    }
+    assert(RegionError({0, 0, 2560, 1440}, 2560, 1440).empty());
+    assert(RegionError({2559, 1439, 1, 1}, 2560, 1440).empty());
+    assert(Contains(RegionError({2000, 0, 561, 10}, 2560, 1440), "does not lie inside the 2560x1440 client area"));
+    assert(!RegionError({0, 1440, 1, 1}, 2560, 1440).empty());
+    assert(!RegionError({0, 0, 2147483647, 1}, 2560, 1440).empty());
+    shot.window_width = shot.window_height = 0;
     shot.ok = false;
     shot.error = "the game window is minimized";
     assert(Contains(HandleRequest("screenshot", h), "minimized"));
@@ -5273,15 +5301,76 @@ static void TestNavigationCommands() {
     assert(Contains(out, "{\"ok\":true,\"command\":\"province open\",\"province\":295,\"view\":\"provinceview\",\"covered_by\":null,\"camera\":{\"settled\":true"));
     assert(Contains(out, "\"client_calls_total\":2") && calls == 2 && last_open);
 
-    // The game moves the target on (the pointer at the screen edge): the call's target is waited for.
+    // The game moves the target on (the pointer at the screen edge): the call's target is answered,
+    // at once rather than at the timeout, with moved_on.
     h.read_camera = [&](CameraRaw& out) {
         out = camera;
         out.target_x += static_cast<float>(10 * camera_reads++);  // the first read is the call's
         out.x = out.target_x;
         return WorldFailure{};
     };
+    std::uint64_t t0 = SteadyMs();
+    out = HandleRequest("province goto 1252 timeout=5", h);
+    assert(Contains(out, "\"ok\":true") &&
+           Contains(out, "\"camera\":{\"settled\":false,\"target\":{\"x\":100,\"z\":200},\"moved_on\":true}"));
+    assert(SteadyMs() - t0 < 3000);
+    // A target that stays while the camera is still on its way is waited for: not moved_on.
+    h.read_camera = [&](CameraRaw& out) {
+        out = camera;
+        out.x = out.target_x - 500.f;
+        ++camera_reads;
+        return WorldFailure{};
+    };
     out = HandleRequest("province goto 1252 timeout=1", h);
-    assert(Contains(out, "\"ok\":true") && Contains(out, "\"camera\":{\"settled\":false,\"target\":{\"x\":100,\"z\":200}}"));
+    assert(Contains(out, "\"camera\":{\"settled\":false,\"target\":{\"x\":100,\"z\":200}}"));
+    assert(!Contains(out, "pointer_parked"));  // no virtual pointer to park without the hook
+
+    // With the pointer hook and no client holding the pointer, the call parks it at the client
+    // area's centre before calling, and keeps it held; a client's pointer stays where it is.
+    std::vector<std::string> pointer;
+    bool held = false;
+    WindowSnapshot window;
+    window.found = true;
+    window.width = 2560;
+    window.height = 1440;
+    h.read_window = [&window] { return window; };
+    h.cursor_held = [&held] { return held; };
+    h.set_cursor = [&](int x, int y) { pointer.push_back("set " + std::to_string(x) + "," + std::to_string(y)); };
+    h.release_cursor = [&] { pointer.push_back("release"); };
+    h.read_camera = [&](CameraRaw& out) {
+        if (++camera_reads >= 2) {
+            camera.x = camera.target_x;
+            camera.z = camera.target_z;
+        }
+        out = camera;
+        return WorldFailure{};
+    };
+    const auto call_navigation = h.call_navigation;
+    h.call_navigation = [&](bool open, const NavigationFacts& f, unsigned long& code) {
+        pointer.push_back("call");
+        return call_navigation(open, f, code);
+    };
+    out = HandleRequest("province goto 1252", h);
+    assert(Contains(out, "\"settled\":true") && Contains(out, "\"pointer_parked\":{\"x\":1280,\"y\":720}"));
+    assert(pointer.size() == 2 && pointer[0] == "set 1280,720" && pointer[1] == "call");
+    pointer.clear();
+    held = true;
+    out = HandleRequest("province goto 1252", h);
+    assert(!Contains(out, "pointer_parked") && pointer.size() == 1 && pointer[0] == "call");
+    pointer.clear();
+    held = false;
+    window.minimized = true;  // nothing to park on; goto itself refuses only for open
+    out = HandleRequest("province goto 1252", h);
+    assert(!Contains(out, "pointer_parked"));
+    window.minimized = false;
+    assert(Contains(HandleRequest("release", h), "\"ok\":true"));  // hands back the parked pointer
+    assert(pointer.size() == 2 && pointer[1] == "release");
+    h.call_navigation = call_navigation;
+    h.read_window = {};
+    h.cursor_held = {};
+    h.set_cursor = {};
+    h.release_cursor = {};
+    calls -= 4;  // the calls above are not the refusals' business below
     h.read_camera = [&](CameraRaw& out) {
         if (++camera_reads >= 2) {
             camera.x = camera.target_x;
@@ -5736,7 +5825,8 @@ static void TestFindConfirmNotice() {
     // The game's own title (vanilla saves with a mod, the GOG build, 17.11.2026) and its other languages.
     for (const char* title : {"Achievements can no longer be earned", "ACHIEVEMENTS CAN NO LONGER BE EARNED!",
                               "Les succ\xC3\xA8s ne peuvent plus \xC3\xAAtre remport\xC3\xA9s",
-                              "Errungenschaften k\xC3\xB6nnen nicht mehr erspielt werden", "Ya no se pueden ganar logros."}) {
+                              "Errungenschaften k\xC3\xB6nnen nicht mehr erspielt werden", "Ya no se pueden ganar logros.",
+                              "Anbennar achievements can be earned while not in Ironman"}) {
         assert(FindConfirmNotice(AchievementsNoticeTree(title)).kind == NoticeKind::Achievements);
     }
     // DefaultConfirm is the game's generic confirm window: another title is found, as another notice.

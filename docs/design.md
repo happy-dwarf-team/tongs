@@ -3424,12 +3424,22 @@ contract of tongs#101; they are the "Navigation" symbols of
   commands keep the target read right after the call, wait until the current
   position is within `kCameraTolerance` of it (on a wrapping map, x around
   the wrap: `camera_to_province` holds the map's width, `[0x233FED8]+0x28`),
-  and answer that target.
+  and answer that target. When the game's target has left it by more than
+  the tolerance (`TargetMovedOn`), the wait ends at once with `moved_on`.
+- **The pointer is parked for the camera.** The edge scroll follows the GUI
+  pointer (`gui_cursor`, game_cursor.hpp), and the real one often stands
+  outside the window on another screen: the lab saw 0 of 12 calls settle
+  with the real mouse there and 12 of 12 with Tongs' pointer in the window
+  (14.11.2026), and agents' calls answered `settled: false` after 10 s in
+  9 of 25 calls (21–25.11.2026). So, in the call's job before the call and
+  unless `cursor_held` says a client holds the virtual pointer, the command
+  sets it at the client area's centre with a motion event and holds it there
+  afterwards (`pointer_parked`), until `release` or a move of the real mouse.
 - **`covered_by`** is `ui click`'s hover check at the view window's centre:
   the virtual pointer and a mouse motion event there, then the hovered widget
   on a later frame. The pointer then goes back where the last mouse command
-  left it, or to the real mouse. The move is part of the client call and not
-  counted as input.
+  or the park left it, or to the real mouse. Both moves are part of the
+  client call and not counted as input.
 - **Faults.** The calls run under SEH; a fault answers `faulted` and refuses
   every later navigation call until the game exits (`navigation_tripped`),
   as game calls do after a fault.

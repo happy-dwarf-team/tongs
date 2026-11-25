@@ -279,9 +279,10 @@ class Clock:
         self.now += seconds
 
 
-def scripted(*states, frames=None):
-    """call() answering `state` with each of `states` in turn (the last one repeats) and
-    `frames` with the state of the moment and frame 5, or with `frames`."""
+def scripted(*states, frames=None, ui=None):
+    """call() answering `state` with each of `states` in turn (the last one repeats),
+    `frames` with the state of the moment and frame 5, or with `frames`, and `ui find SEL` with
+    ui(SEL) (default: not_found, no confirm window)."""
     queue = list(states)
     current = {}
 
@@ -292,9 +293,85 @@ def scripted(*states, frames=None):
             return dict(current)
         if line.startswith("frames"):
             return frames or {"ok": True, "command": "frames", "frame": 5, **current}
+        if line.startswith("ui find "):
+            answer = ui(line[len("ui find "):]) if ui else None
+            return answer or {"ok": False, "error": "not_found", "command": "ui find"}
         raise AssertionError(line)
 
     return call
+
+
+def shown(*texts, visible=True):
+    """A `ui find` answer with one match per text."""
+    matches = [{"path": "DefaultConfirm/x", "visible": visible, **({"text": t} if t else {})} for t in texts]
+    return {"ok": True, "command": "ui find", "count": len(matches), "matches": matches}
+
+
+MENU = {"ok": True, "in_game": False, "reason": "no game loaded (session is null)"}
+ANBENNAR = "Anbennar achievements can be earned while not in Ironman"
+
+
+def notice(title, since=0.0, clock=None):
+    """ui() of a DefaultConfirm window with `title`, shown from clock time `since`."""
+    def ui(selector):
+        if clock is not None and clock() < since:
+            return None
+        return shown("") if selector == "DefaultConfirm/AgreeButton" else shown(title)
+
+    return ui
+
+
+@pytest.mark.parametrize(
+    ("title", "kind"),
+    [(ANBENNAR, "achievements_notice"), ("Achievements can no longer be earned", "achievements_notice"),
+     ("Old Savegame", "confirm_dialog"), ("", "confirm_dialog")],
+)
+def test_ready_answers_blocked_behind_a_confirm_window(title, kind):
+    clock = Clock()
+    call = scripted(MENU, ui=notice(title, since=1.0, clock=clock))
+    with pytest.raises(ReadyError) as e:
+        wait_ready(call, session=1, clock=clock, sleep=clock.sleep)
+    answer = e.value.answer
+    assert answer["error"] == "blocked" and answer["blocked_by"] == kind and answer["notice_title"] == title
+    assert answer["unmet"] == "in_game" and "DefaultConfirm/AgreeButton" in answer["detail"]
+    assert 3000 <= answer["waited_ms"] <= 3700  # seen from 1 s, answered READY_NOTICE_S later, not at the timeout
+
+
+def test_ready_waits_through_a_notice_that_closes():
+    clock = Clock()
+    states = [MENU] * 12 + [{**STATE, "session": 1}]  # the notice is closed after about a second
+    call = scripted(*states, ui=lambda sel: shown("") if clock() < 1.0 else None)
+    result = wait_ready(call, session=1, clock=clock, sleep=clock.sleep)
+    assert result["session"] == 1
+
+
+def test_ready_ignores_a_hidden_confirm_window_and_the_menu_wait():
+    clock = Clock()
+    call = scripted(MENU, ui=lambda sel: shown("", visible=False))
+    with pytest.raises(ReadyError) as e:
+        wait_ready(call, session=1, timeout=5, clock=clock, sleep=clock.sleep)
+    assert e.value.error == "timeout"
+
+    asked = []
+    call = scripted({**STATE, "session": 1}, ui=lambda sel: asked.append(sel))
+    with pytest.raises(ReadyError) as e:
+        wait_ready(call, in_game=False, timeout=5, clock=clock, sleep=clock.sleep)
+    assert e.value.error == "timeout" and asked == []  # waiting for the menu: no look for a notice
+
+
+def test_ready_timeout_on_in_game_says_which_way_it_waited():
+    clock = Clock()
+    with pytest.raises(ReadyError) as e:
+        wait_ready(scripted({**STATE, "session": 1}), in_game=False, timeout=1, clock=clock, sleep=clock.sleep)
+    assert e.value.answer["unmet"] == "in_game"
+    assert e.value.answer["detail"] == (
+        "not ready within 1 s: in_game: waiting for the main menu; the game is in a campaign"
+    )
+    with pytest.raises(ReadyError) as e:
+        wait_ready(scripted(MENU), session=1, timeout=1, clock=clock, sleep=clock.sleep)
+    assert e.value.answer["detail"] == (
+        "not ready within 1 s: in_game: waiting for a campaign; the game is not in one (no game loaded (session is null))"
+    )
 
 
 def test_ready_waits_through_menu_loading_and_the_old_session():

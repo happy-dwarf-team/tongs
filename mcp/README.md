@@ -124,9 +124,9 @@ npx @modelcontextprotocol/inspector uv run --frozen --directory C:\path\to\tongs
 | --- | --- | --- |
 | `tongs_state`, `tongs_window`, `tongs_threads` | `state`, `window`, `threads` | read only |
 | `tongs_journal` | `journal` | the command journal's file and line count; read only |
-| `tongs_ready` | `state`, `frames`, then `speed N` with `speed` | waits until the game is ready after a start or a load, without a fixed sleep; input only with `speed` |
+| `tongs_ready` | `state`, `frames`, `ui find DefaultConfirm/…` while it waits for a game, then `speed N` with `speed` | waits until the game is ready after a start or a load, without a fixed sleep; `blocked` when the game's confirm window holds the load; input only with `speed` |
 | `tongs_frames` | `frames [timeout=S]` | read on the main thread |
-| `tongs_screenshot` | `screenshot [NAME]` | answers with `path`; `image=true` attaches the PNG when small enough |
+| `tongs_screenshot` | `screenshot [NAME] [region=X,Y,W,H]` | answers with `path`; `region` {x, y, w, h} cuts that part at native resolution, never scaled; `image=true` attaches the PNG when small enough |
 | `tongs_wait_until` | `wait_until DATE [timeout=S] [max_pause=S]` | long; progress (below) |
 | `tongs_run_until` | `run_until DATE [speed=N] [timeout=S] [max_pause=S] [events=first\|stop]` | input; long; progress |
 | `tongs_cancel` | `cancel` | ends every wait in progress |
@@ -169,7 +169,8 @@ npx @modelcontextprotocol/inspector uv run --frozen --directory C:\path\to\tongs
   `expect_pid` / `expect_start_ms`, and `speed` to prove input by setting it.
   It opens a connection per request, so it also waits for the pipe of a game
   still starting. A failure is an error answer with `error`, `unmet` and the
-  last `state`.
+  last `state`; `blocked` (with `blocked_by` and `notice_title`) when the
+  game's `DefaultConfirm` window has held the load for 2 s.
 - **Annotations** declare what a tool does beyond answering. `readOnlyHint`:
   the reads (`state`, `window`, `threads`, `frames`, `ui find`, `ui tree`,
   `event list`). `destructiveHint`: the tools that act as the player
@@ -247,7 +248,14 @@ longer:
 also attached as image content when it is at most `TONGS_MCP_MAX_IMAGE_BYTES`
 bytes (default 3 000 000; set the variable in the server's environment);
 otherwise a second text block says why it was left out. A 3440×1440 window
-gives about 8 MB, so on large screens read the file at `path` instead.
+gives about 8 MB, so on large screens read the file at `path` instead, or
+take only the part you need: `region` {x, y, w, h} in client pixels (the
+rects of `tongs_ui_find` and `tongs_window` use the same) writes just that
+part, cut at the window's native resolution and never scaled, and the answer
+adds `region` and `window` (the client area's size). A region outside the
+client area is refused and nothing is written. Like the tools that act on the
+game, it takes `expect_pid` / `expect_start_ms`, so the picture is of your
+game.
 
 ## Development
 

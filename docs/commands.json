@@ -4,7 +4,7 @@
     {"name": "state", "type": "read", "main_thread": false, "usage": "state"},
     {"name": "window", "type": "read", "main_thread": false, "usage": "window"},
     {"name": "threads", "type": "read", "main_thread": false, "usage": "threads"},
-    {"name": "screenshot", "type": "read", "main_thread": false, "usage": "screenshot [NAME]"},
+    {"name": "screenshot", "type": "read", "main_thread": false, "usage": "screenshot [NAME] [region=X,Y,W,H]"},
     {"name": "frames", "type": "read", "main_thread": true, "usage": "frames [timeout=S]"},
     {"name": "ui find", "type": "read", "main_thread": true, "usage": "ui find SEL [all] [stale] [limit=N]"},
     {"name": "ui tree", "type": "read", "main_thread": true, "usage": "ui tree [SEL] [depth=N] [limit=N] [all]"},
