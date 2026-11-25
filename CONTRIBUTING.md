@@ -30,13 +30,20 @@ removed, a config key renamed, a different Anvil requirement) take `!` and a
 `BREAKING CHANGE:` paragraph; before 1.0.0 they bump the minor version.
 
 A change to the addresses or code patterns the plugin relies on updates
-`plugin/symbols.toml` (an address, its bytes and the offsets in them as
-`values`; the code takes every number from there) and
-[docs/design.md](docs/design.md), and says how it was checked in the game.
-Run `anvil check plugin --exe <eu4.exe>` (or build `tongs-check` with
-`-DEU4_EXE=<eu4.exe>`) to verify the symbols against the game and rewrite
+`plugin/symbols.toml` (an address, the digest of its bytes and the offsets in
+them as `values`, each with `is` when every build has the same number; the
+code takes every number from there) and [docs/design.md](docs/design.md), and
+says how it was checked in the game. Run `anvil check plugin --exe <eu4.exe>`
+(or build `tongs-check` with `-DEU4_EXE=<eu4.exe>`) with the `eu4.exe` of each
+build in `builds` to verify the symbols against the game and rewrite
 `plugin/symbols.lock`, and commit the lock with the change: CI cannot read the
 game and fails when the lock does not match `symbols.toml`.
+
+**Game code and names.** This repository holds no code of eu4.exe and no names from its debug symbols.
+`symbols.toml` verifies each address with `sha256` and `size`, not with the game's bytes; write `bytes` while you
+work and run Anvil's `tools/symbols-to-digest.py` before you commit. Name the game's functions, classes and
+fields by their address and what they do, unless eu4.exe itself shows the name (its RTTI or its own log and
+assert texts). Our own symbol keys, addresses, offsets and signatures are fine.
 
 ## Versions and releases
 

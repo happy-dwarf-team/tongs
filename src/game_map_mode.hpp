@@ -1,4 +1,4 @@
-// Map modes in the game (map_mode): SetCurrentMapMode, and anvil-map's service.
+// Map modes in the game (map_mode): the session's map mode change, and anvil-map's service.
 #pragma once
 
 #include <cstdint>
@@ -21,7 +21,7 @@ constexpr const char* kMapModesService = "anvil-map.modes";
 // The number of the plugin mode with `id`, or -1. Any thread.
 std::int32_t PluginMapModeNumber(const MapModesService* service, std::string_view id);
 
-// SetCurrentMapMode(session, number, false, false) on the main thread; false with the
+// set_current_map_mode(session, number, false, false) on the main thread; false with the
 // exception code when it faulted.
 bool CallSetMapMode(std::uintptr_t base, std::uintptr_t session, std::int32_t number, unsigned long& fault_code);
 

@@ -20,7 +20,7 @@ const char* UiTypeName(UiType type);
 enum class UiClickInput {
     Takes,   // acts on it (check and edit boxes, scroll bar sliders) or a class Tongs has not checked
     Passes,  // windows, text boxes, list boxes, scroll bars: only the wheel, or every event with takes_all_input
-    Button,  // buttons and icons (CButton): acts on it when `clickable`
+    Button,  // buttons and icons (the game's button class): acts on it when `clickable`
 };
 
 struct UiRect {

@@ -24,8 +24,8 @@ consteval std::uint32_t U32(std::uint64_t value) {
     return static_cast<std::uint32_t>(value);
 }
 
-// A value that the game's code holds as a signed 8-bit displacement, e.g. the
-// -8 of `mov rax, [rcx-8]`.
+// A value that the game's code holds as a signed 8-bit displacement, e.g. -8 for
+// the field 8 bytes before the address an object pointer holds.
 consteval std::int32_t S8(std::uint64_t value) {
     if (value > 0xFFu) throw "a symbols.toml value is not one byte";
     return static_cast<std::int8_t>(static_cast<std::uint8_t>(value));

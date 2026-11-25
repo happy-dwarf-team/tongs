@@ -248,7 +248,7 @@ struct Handlers {
     // of raising it.
     GameCallPolicy game_calls;
     // Map modes (map_mode): the plugin mode of a number (anvil-map's mode_id; any thread),
-    // the number of a plugin mode's id (-1: none), and the game's SetCurrentMapMode on the
+    // the number of a plugin mode's id (-1: none), and the game's set_current_map_mode on the
     // main thread, false with the exception code when it faulted. All optional.
     std::function<const char*(std::int32_t number)> map_mode_id;
     std::function<std::int32_t(std::string_view id)> map_mode_number;

@@ -2184,7 +2184,7 @@ std::string MapModeAct(const Handlers& h, const std::string& mode, int timeout_m
                        const RefusalAnswer& fail);
 
 // map_mode MODE [timeout=S]: a client call (ADR 0003) that shows a map mode as the minimap's
-// button does (SetCurrentMapMode(mode, false, false) on the main thread). It changes only
+// button does (set_current_map_mode(mode, false, false) on the main thread). It changes only
 // what the map shows.
 std::string MapModeCommand(const Request& r) {
     const Handlers& h = r.handlers;
