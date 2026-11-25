@@ -20,16 +20,16 @@ notes on the `research/*` branches; the implementation moves them into
 
 | Decision | Where it lives |
 | --- | --- |
-| Where provinces, countries and the player live | [#95](https://github.com/happy-dwarf-team/tongs/issues/95) ([research](https://github.com/happy-dwarf-team/tongs/blob/research/world-objects/docs/research/world-objects.md)) |
-| Which game functions open a province and move the camera | [#96](https://github.com/happy-dwarf-team/tongs/issues/96) ([research](https://github.com/happy-dwarf-team/tongs/blob/research/province-navigation/docs/research/province-navigation.md)) |
-| How the game loads a save | [#97](https://github.com/happy-dwarf-team/tongs/issues/97) ([research](https://github.com/happy-dwarf-team/tongs/blob/research/save-load/docs/research/save-load.md)) |
-| What today's game drivers repeat | [#98](https://github.com/happy-dwarf-team/tongs/issues/98) ([research](https://github.com/happy-dwarf-team/tongs/blob/research/game-drivers/docs/research/game-drivers.md)) |
+| Where provinces, countries and the player live | [#95](https://github.com/happy-dwarf-team/tongs/issues/95) (research on `research/world-objects`, now in the team's private archive) |
+| Which game functions open a province and move the camera | [#96](https://github.com/happy-dwarf-team/tongs/issues/96) (research on `research/province-navigation`, now in the team's private archive) |
+| How the game loads a save | [#97](https://github.com/happy-dwarf-team/tongs/issues/97) (research on `research/save-load`, now in the team's private archive) |
+| What today's game drivers repeat | [#98](https://github.com/happy-dwarf-team/tongs/issues/98) (research on `research/game-drivers`, now in the team's private archive) |
 | Client calls beside input and game calls | [#99](https://github.com/happy-dwarf-team/tongs/issues/99), [ADR 0003](../adr/0003-client-calls.md) |
 | World-read commands | [#100](https://github.com/happy-dwarf-team/tongs/issues/100) |
 | `province open` and `province goto` | [#101](https://github.com/happy-dwarf-team/tongs/issues/101) |
 | `save load` | [#102](https://github.com/happy-dwarf-team/tongs/issues/102) |
 | Where the client and the runner live | [#103](https://github.com/happy-dwarf-team/tongs/issues/103) |
-| What a scenario looks like | [#104](https://github.com/happy-dwarf-team/tongs/issues/104) ([prototype](https://github.com/happy-dwarf-team/tongs/tree/prototype/scenario/prototype/scenario)) |
+| What a scenario looks like | [#104](https://github.com/happy-dwarf-team/tongs/issues/104) (prototype on `prototype/scenario`, now in the team's private archive) |
 | The fields read in a running game | [#107](https://github.com/happy-dwarf-team/tongs/issues/107) |
 | A load by file name, tried in the game | [#106](https://github.com/happy-dwarf-team/tongs/issues/106) |
 | The ready wait | [#109](https://github.com/happy-dwarf-team/tongs/issues/109) |
