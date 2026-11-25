@@ -239,8 +239,9 @@ campaign" or "waiting for a campaign; the game is not in one" with the state's
 
 While it waits for a game, the main menu can hold the load behind the game's
 confirm window, `DefaultConfirm` (for one, the achievements notice of a start
-with `continue=` with a mod, whose wording varies: Anbennar's "Anbennar
-achievements can be earned while not in Ironman", lab, 25.11.2026). So every
+with `continue=` under a mod: Anbennar's "Vanilla achievements can no longer be
+earned" held such starts until the waits timed out at 400 s and 600 s, lab,
+25.11.2026). So every
 0.5 s, while `in_game` is the unmet condition, the wait asks `frames timeout=1`
 and then `ui find DefaultConfirm/AgreeButton`; a visible `AgreeButton` for 2 s
 ends the wait at once with `blocked`, `blocked_by` (`"achievements_notice"`
@@ -502,9 +503,11 @@ multiplayer they follow input: Anvil's allow lists apply.
   client area's centre, with a motion event, and keeps holding it there as
   `move` would: the answer then has `pointer_parked: {"x": …, "y": …}`, and
   `release` hands the pointer back. The park is part of the client call, not
-  counted as input. A pointer a client holds at an edge still scrolls: once
-  the game's target leaves the call's, the answer comes at once with
-  `settled: false` and `moved_on: true` instead of at the timeout. `target`
+  counted as input. If the game moves the target on all the same (the real
+  mouse takes the pointer back during the wait, a `release` from another
+  connection, a scroll key), the answer comes at once, as soon as the game's
+  target has left the call's, with `settled: false` and `moved_on: true`,
+  instead of at the timeout. `target`
   is always the target the call set. With the
   camera locked (`debug_lockcamera`, or while the in-game menu is open),
   `goto` refuses `camera_locked`; `open` still opens and answers

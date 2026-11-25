@@ -780,7 +780,7 @@ async def test_ready_timeout_names_the_unmet_condition():
 
 
 async def test_ready_answers_blocked_behind_the_achievements_notice():
-    title = "Anbennar achievements can be earned while not in Ironman"
+    title = "Vanilla achievements can no longer be earned"
 
     def handler(line):
         if line == "state":

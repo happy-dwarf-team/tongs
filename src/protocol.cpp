@@ -1972,10 +1972,10 @@ struct Parked {
     int y = 0;
 };
 
-// The game edge-scrolls the map for a pointer at a screen edge or outside the window (on
-// another screen, say), paused or not, and the camera's target then moves on from the one a
-// navigation call set: lab runs of 14.11.2026 settled 0 of 12 calls with the real mouse there
-// and 12 of 12 with Tongs' pointer in the window. So unless a client holds Tongs' pointer
+// The game scrolls the map for a real pointer outside the window (on another screen, say),
+// paused or not, and the camera's target then moves on from the one a navigation call set:
+// lab runs settled 0 of 12 calls with the real mouse there and 12 of 12 after a `move` into
+// the window (14.11.2026), 7 of 7 with this park (25.11.2026). So unless a client holds Tongs' pointer
 // (a mouse command, until `release` or a move of the real mouse), the call parks it at the
 // client area's centre with a motion event and keeps holding it there, as `move` would. Not
 // counted as input: it is part of the client call, as `covered_by`'s hover check is.
@@ -1986,7 +1986,7 @@ Parked ParkPointer(const Handlers& h) {
     if (!w.found || w.minimized || w.width <= 0 || w.height <= 0) return {};
     const int x = w.width / 2, y = w.height / 2;
     h.set_cursor(x, y);
-    h.send_input({MoveTo(x, y)});  // the hook alone moves the GUI pointer; the event only tells SDL
+    h.send_input({MoveTo(x, y)});  // the motion event as `move` sends it: SDL's mouse state follows
     Hold({true, x, y});
     return {true, x, y};
 }

@@ -780,7 +780,7 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
         Answers with state, session, frame, waited_ms, and with `speed` the speed answer and
         input_proven. Fails at once on process_mismatch, unexpected_session and left_game. While it
         waits for a game, the game's confirm window (DefaultConfirm, e.g. the achievements notice
-        of a start with continue=, whatever its wording) open for 2 s answers `blocked` at once,
+        of a start with continue= under a mod, whatever its text) open for 2 s answers `blocked` at once,
         with blocked_by ("achievements_notice" or "confirm_dialog") and notice_title: click
         DefaultConfirm/AgreeButton (tongs_ui_click), then call tongs_ready again. A timeout names
         the first unmet condition (pipe, in_game, session, frames, paused, speed; for in_game
@@ -1187,11 +1187,12 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
     async def tongs_province_goto(province_id: ProvinceId, timeout: WorldTimeout = None) -> CallToolResult:
         """Moves the camera to a province (any valid ID, sea and terra incognita included), nothing
         else; answers camera {settled, target} once it arrives or at the timeout (still ok).
-        A pointer at a screen edge or outside the window makes the game scroll the map, paused or
-        not, so unless a mouse tool holds Tongs' pointer the call parks it at the window's centre
-        and keeps it there (pointer_parked {x, y}; tongs_release hands it back). When the game
-        moves the target on anyway (a held pointer at an edge), the answer comes at once with
-        settled false and moved_on true. camera_locked while debug_lockcamera is on."""
+        A real pointer outside the window (another screen) makes the game scroll the map, paused
+        or not, so unless a mouse tool holds Tongs' pointer the call parks it at the window's
+        centre and keeps it there (pointer_parked {x, y}; tongs_release hands it back). When the
+        game moves the target on anyway (the real mouse moved meanwhile, a release), the answer
+        comes at once with settled false and moved_on true. camera_locked while debug_lockcamera
+        is on."""
         return await call(_line("province goto", province_id, timeout=timeout))
 
     @tool("map_mode", "client_call")

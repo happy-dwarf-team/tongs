@@ -987,8 +987,6 @@ bool IsAchievementsNoticeTitle(std::string_view title) {
         "les succ\xC3\xA8s ne peuvent plus \xC3\xAAtre remport\xC3\xA9s",
         "errungenschaften k\xC3\xB6nnen nicht mehr erspielt werden",
         "ya no se pueden ganar logros",
-        // Anbennar's later wording (lab, 25.11.2026, on a start with continue=)
-        "achievements can be earned while not in ironman",
     };
     std::string lower(title);
     for (char& c : lower) {

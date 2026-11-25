@@ -632,9 +632,9 @@ READY_FRAMES_S = 10  # timeout= of each `frames` (at most)
 # open for READY_NOTICE_S answers `blocked`, as `save load` does.
 READY_NOTICE_LOOK_S = 0.5
 READY_NOTICE_S = 2.0
-# Words of the achievements notice's title in the game's languages and in mods' variants
-# ("Achievements can no longer be earned", Anbennar's "Anbennar achievements can be earned while
-# not in Ironman"); only for blocked_by: the notice is found by its widgets, whatever its title.
+# Words of the achievements notice's title in the game's languages and in mods' wordings
+# ("Achievements can no longer be earned", Anbennar's "Vanilla achievements can no longer be
+# earned"); only for blocked_by: the notice is found by its widgets, whatever its title.
 ACHIEVEMENT_WORDS = ("achievement", "succès", "errungenschaft", "logro")
 
 

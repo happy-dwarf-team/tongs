@@ -5825,8 +5825,7 @@ static void TestFindConfirmNotice() {
     // The game's own title (vanilla saves with a mod, the GOG build, 17.11.2026) and its other languages.
     for (const char* title : {"Achievements can no longer be earned", "ACHIEVEMENTS CAN NO LONGER BE EARNED!",
                               "Les succ\xC3\xA8s ne peuvent plus \xC3\xAAtre remport\xC3\xA9s",
-                              "Errungenschaften k\xC3\xB6nnen nicht mehr erspielt werden", "Ya no se pueden ganar logros.",
-                              "Anbennar achievements can be earned while not in Ironman"}) {
+                              "Errungenschaften k\xC3\xB6nnen nicht mehr erspielt werden", "Ya no se pueden ganar logros."}) {
         assert(FindConfirmNotice(AchievementsNoticeTree(title)).kind == NoticeKind::Achievements);
     }
     // DefaultConfirm is the game's generic confirm window: another title is found, as another notice.

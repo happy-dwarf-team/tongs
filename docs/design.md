@@ -3426,15 +3426,25 @@ contract of tongs#101; they are the "Navigation" symbols of
   the wrap: `camera_to_province` holds the map's width, `[0x233FED8]+0x28`),
   and answer that target. When the game's target has left it by more than
   the tolerance (`TargetMovedOn`), the wait ends at once with `moved_on`.
-- **The pointer is parked for the camera.** The edge scroll follows the GUI
-  pointer (`gui_cursor`, game_cursor.hpp), and the real one often stands
-  outside the window on another screen: the lab saw 0 of 12 calls settle
-  with the real mouse there and 12 of 12 with Tongs' pointer in the window
-  (14.11.2026), and agents' calls answered `settled: false` after 10 s in
-  9 of 25 calls (21–25.11.2026). So, in the call's job before the call and
-  unless `cursor_held` says a client holds the virtual pointer, the command
-  sets it at the client area's centre with a motion event and holds it there
-  afterwards (`pointer_parked`), until `release` or a move of the real mouse.
+- **The pointer is parked for the camera.** With the real pointer outside
+  the window (on another screen) the game scrolls the map, paused or not:
+  the lab saw 0 of 12 calls settle with the real mouse there and 12 of 12
+  after a `move` into the window (14.11.2026), and agents' calls answered
+  `settled: false` after 10 s in 9 of 25 calls (21–25.11.2026). So, in the
+  call's job before the call and unless `cursor_held` says a client holds
+  the virtual pointer, the command sets it at the client area's centre with
+  a motion event, as `move` does, and holds it there afterwards
+  (`pointer_parked`), until `release` or a move of the real mouse. Which of
+  the two the edge scroll reads, the GUI pointer or SDL's mouse state, was
+  not isolated. A virtual pointer `move`d to the window's edge (0, 720 and
+  1720, 1439 of 3440×1440) did not scroll the map, so `moved_on` was not
+  seen in the game.
+
+  Check (25.11.2026, Steam 1.37.5, the Russia save of 1719.3.17 with
+  `continue=`, paused, the real pointer on the other screen): `main` answered
+  `settled: false` after 10.0 s for `goto` 151, 295, 1, 667, 2018 and
+  `open` 295 (7 of 7, with a `move` to 2, 2 too); this change settled all 7
+  in 0.86–1.6 s, parking the pointer at 1720, 720 on the first call.
 - **`covered_by`** is `ui click`'s hover check at the view window's centre:
   the virtual pointer and a mouse motion event there, then the hovered widget
   on a later frame. The pointer then goes back where the last mouse command

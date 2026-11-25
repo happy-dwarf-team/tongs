@@ -313,9 +313,8 @@ std::string GameTextToUtf8(std::string_view text, bool colour_codes = false);
 // (lab, 14.11.2026), and with vanilla saves under a test mod and on the GOG build
 // (17.11.2026). Which warning it is shows only in its `Title`: the achievements notice is the
 // game's SAVEGAME_WARNING_ACHIEVEMENTS_DISABLED_TITLE ("Achievements can no longer be
-// earned", Anbennar: "Vanilla achievements can no longer be earned", later "Anbennar
-// achievements can be earned while not in Ironman"). The title is data: it is only
-// compared and quoted.
+// earned", Anbennar: "Vanilla achievements can no longer be earned"). The title is data:
+// it is only compared and quoted.
 enum class NoticeKind {
     None,          // no DefaultConfirm is open
     Achievements,  // its title is the achievements notice's, in one of the game's languages
@@ -330,7 +329,7 @@ struct UiNotice {
 };
 
 // Whether `title` is the achievements notice's: it contains the game's title in English
-// (Anbennar's two wordings included), French, German or Spanish, ignoring ASCII case.
+// (Anbennar's wording included), French, German or Spanish, ignoring ASCII case.
 bool IsAchievementsNoticeTitle(std::string_view title);
 
 // The first shown, not stale top-level `DefaultConfirm` with a shown `AgreeButton` button,

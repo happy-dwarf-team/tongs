@@ -308,7 +308,7 @@ def shown(*texts, visible=True):
 
 
 MENU = {"ok": True, "in_game": False, "reason": "no game loaded (session is null)"}
-ANBENNAR = "Anbennar achievements can be earned while not in Ironman"
+ANBENNAR = "Vanilla achievements can no longer be earned"
 
 
 def notice(title, since=0.0, clock=None):
