@@ -33,7 +33,7 @@ struct WorldLayout {
 
     std::uint32_t session = U32(sym::session_of_root.session);    // root: the session
     std::uint32_t holder = Value(sym::selection_holder, "holder");      // session: the selection object
-    std::uint32_t selected = 0x00;  // selection: the province, the `mov [rbx],rsi` of selected_province
+    std::uint32_t selected = 0x00;  // selection: the province, which selected_province stores at selection+0
     std::uint32_t view = U32(sym::selection_view.view);            // selection: the province view
     std::uint32_t view_province = U32(sym::province_view_province.shown);  // view: the province it shows
     std::uint32_t view_window = U32(sym::view_window.window);              // view: its window's full object

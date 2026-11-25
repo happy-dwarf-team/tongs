@@ -1,6 +1,6 @@
 // The game's map modes by name (map_mode command): the 54 the minimap's tabs
-// offer, named after EU4's own enum (EPdxMapColorUpdateMode in GOG's eu4.pdb,
-// without MAPMODE_, lower case).
+// offer, named as eu4.exe's own MAPMODE_ texts name them (without MAPMODE_,
+// lower case).
 #pragma once
 
 #include <cstdint>

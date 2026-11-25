@@ -226,7 +226,7 @@ then the date is 1 January of year 1, hour 0, for a moment. Tongs answers
 `in_game: false` for both: "no game loaded (session is null)" and "save still
 loading (date not set)". In the main menu, in the nation selection and for a
 few seconds of a load, the pointer at `root + 0x1E00` holds another class than
-the in-game session (`CInGameIdler`, vtable `0x1CB8460`, GOG `0x1CA1088`):
+the in-game session (whose vtable is `0x1CB8460`, GOG `0x1CA1088`):
 "no game loaded (main menu, nation selection or loading: the session object is
 another class)". Tongs before 0.37 answered "session object has an unexpected
 vtable" there, which read like a wrong address on GOG; it was the same menu
@@ -283,8 +283,7 @@ which the game selects nothing. Tongs takes the offset from that symbol's
 bytes (its value `map_mode`), so no new symbol is needed. The number is a
 value of the game's own map mode enum. `map_mode MODE` (below) knows the
 names of the 54 modes on the minimap's four tabs, in the game's own words
-(`EPdxMapColorUpdateMode` in GOG's `eu4.pdb`, without `MAPMODE_`, in lower
-case).
+(eu4.exe's own `MAPMODE_` texts, without `MAPMODE_`, in lower case).
 
 **Plugin modes.** Anvil's standard plugin `anvil-map` lends plugin map modes
 numbers of the same enum (80–83 first, then debug modes such as 50 and 57;
@@ -298,7 +297,7 @@ by the id, never by the number, which may change between starts.
 
 **`map_mode MODE`** is a client call (ADR 0003, `input = true`, counted in
 `client_calls`) that shows a mode as the minimap's button does:
-`CEU3Idler::SetCurrentMapMode(mode, false, false)` (symbol
+the game session's map mode change, `(session, mode, false, false)` (symbol
 `set_current_map_mode`, Steam `0x6EC450`, GOG `0x6EBE10`) on the main thread
 after an outer frame. The game's two direct calls, the console's `mapmode`
 (`0x8220EF`) and one among the minimap's functions (`0x1253546`), both pass
@@ -356,7 +355,7 @@ game (below). RVAs relative to `eu4.exe`; `plugin/symbols.toml` checks the code.
 
 - `eu4.exe` links SDL 2.0.4 statically (source paths
   `SDL2-2.0.4\src\...`) with its dynamic API: each `SDL_*` function is a
-  `jmp [slot]` into a table of 553 pointers at `0x1FB0000` (size `0x1148`),
+  jump through its slot of a table of 553 pointers at `0x1FB0000` (size `0x1148`),
   which `SDL_DYNAPI_entry` (`0x17320F0`) fills in the order of
   `src/dynapi/SDL_dynapi_procs.h`. Slot 80 is `SDL_PeepEvents` (`0x17467A0`,
   the only user of "The event system has been shut down"), slot 88
@@ -594,8 +593,7 @@ the window rectangle, without focus through `SDL_GetMouseState` (dynapi slot
 209), i.e. SDL's own mouse state, which `SDL_PushEvent` does not update. The
 other `GetCursorPos` calls in the executable are inside SDL.
 
-With `input = true` Tongs hooks `0x14E5E50` (Anvil `hook_function`, prologue
-`48 89 5C 24 10 55 56 57 48 83 EC 40`; symbol `gui_cursor` since Anvil 1.0). `move`, `click` and `scroll X Y` set
+With `input = true` Tongs hooks `0x14E5E50` (Anvil `hook_function`, a 12-byte prologue; symbol `gui_cursor` since Anvil 1.0). `move`, `click` and `scroll X Y` set
 a virtual pointer in client coordinates; while it is set, the hook writes it
 to the result instead of calling the game's code. It is dropped by `release`
 or as soon as the real cursor is somewhere else than when the pointer was
@@ -649,10 +647,9 @@ Direct3D 9 runs on Vulkan there (DXVK), so GDI's `PrintWindow` has no frame to
 draw, and the screen copy reads the X root window, which XWayland leaves
 black.
 
-The game itself always has the frame. `GfxPresentDX9` (Steam RVA `0x16D4DB0`,
-named from the eu4.pdb GOG ships) shows each frame with one call of
-`IDirect3DDevice9::Present` through vtable slot 17:
-`mov rax,[rcx]; call [rax+0x88]`, with `rcx` the device, followed by the check
+The game itself always has the frame. Its frame presentation (Steam RVA
+`0x16D4DB0`) shows each frame with one call of `IDirect3DDevice9::Present`
+through vtable slot 17 (`+0x88`), with `rcx` the device, followed by the check
 for `S_PRESENT_OCCLUDED` (`0x08760878`). symbols.toml `present_call` is that
 call (Steam `0x16D4DCE`, GOG `0x16BEC1E`, verified with `anvil check --exe`
 against all three builds), and Tongs puts a mid hook on it. The hook reads one
@@ -741,9 +738,8 @@ outer frame. Static findings:
   outer frame, nor during start-up before "Running application...".
 - The frame counter `app+0x320` is incremented at `0x14C2A23`.
 
-Tongs hooks `0x14C25A0` with `hook_function`. The 26-byte prologue is
-`48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 70`,
-with nothing RIP-relative in it. The detour calls the original, then runs the
+Tongs hooks `0x14C25A0` with `hook_function`. Its 26-byte prologue has
+nothing RIP-relative in it. The detour calls the original, then runs the
 queue only when all three hold:
 
 - `outer` is non-zero;
@@ -1199,11 +1195,11 @@ the widget's render node, the one its size comes from (button `+0x290`, icon
 `+0x168`, check box as a button), a graphical object, through getters whose
 vtable slot is checked first, like every slot Tongs calls:
 
-- **`sprite`**: the node's object type (slot `0x278`, `mov rax,[rcx+0x28]`,
+- **`sprite`**: the node's object type (slot `0x278`, a getter of the node's `+0x28`,
   Steam `0x98780`), whose name (a string at `+0x10`) is the sprite's
   `.gfx` name. `symbols.toml`: `icon_sprite_name` (the slot and the name's
   offset, from the icon's own read of it), `node_object_type`.
-- **`frame`**: the node's super state (slot `0xB0`, `mov eax,[rcx+0x64]`,
+- **`frame`**: the node's super state (slot `0xB0`, a getter of the node's 32-bit `+0x64`,
   Steam `0x1535CF0`), which the icon's frame setter writes; it counts from 1, as `frame =`
   in a `.gui` does. `icon_frame`, `node_super_state`. 0 (left out) when it is
   not above 0.
@@ -1231,7 +1227,7 @@ vtable slot is checked first, like every slot Tongs calls:
   `rebel_type_tag`), and gives its name (a string at `+0x18`) when it is a
   script name (letters, digits and `_`). The name is also its flag's file
   name: the game draws `gfx/flags/<name>.tga`, `REB.tga` when there is none.
-- **`slices`**: for a node that is a pie chart (`C2dPieChart`, the render
+- **`slices`**: for a node that is a pie chart (the render
   node of a `PieChartType` sprite; `pie_chart_vtable`), the slices its render
   draws, in its order: a vector `{begin, end}` at `+0x1C0` (`pie_slices`) of
   `0x38`-byte entries, each with its size in percent (an int at `+0`, which
@@ -1406,7 +1402,7 @@ read as it is lay short of the widget and `ui click` hovered the wrong place
 and answered `covered` (lab test, 7.11.2026).
 
 Both tree readers read the scale from the GUI manager's graphics object
-(`mgr+0xC0`, the object `NotifyMouseOverCollisions` runs on) and multiply
+(`mgr+0xC0`, the object the GUI's mouse-over pass runs on) and multiply
 every rect by it as it is read, edges rounded (`ScaleRect`), before scroll
 bars take their buttons' bounds and `FitRects` compares the rects with the
 client area. So `rect`, `click_point`, the hover check of `ui click` and
@@ -1769,7 +1765,7 @@ holds the contract; the release zip carries it in `tongs/include/tongs/`
   called: every widget kind but windows and containers has the slot `0xA0`
   thunk `0xFBF480` (`widget_name_slot`), which jumps to the definition's
   slot `0x40`, and every definition class's slot `0x40` is `0x9A920`
-  (`type_name_slot`, `lea rax, [rcx+0x10]`): the name is the `std::string`
+  (`type_name_slot`, which returns its object's address plus `0x10`): the name is the `std::string`
   at `definition+0x10`. Windows and containers return their own name first
   (`window_name_slot`, `container_name_slot`). A slot Tongs does not know
   gives no name on this path.
@@ -1804,7 +1800,7 @@ holds the contract; the release zip carries it in `tongs/include/tongs/`
   reader's stream name to `definition+0x30` (Etch research
   `research/pick-mode`, claims 2–4), and the game's own `guibounds` label
   reads it there (`guibounds_definition_file`, `0x6EC056`: the definition
-  at `+0xB0`, then `add rdx, 0x30` and the `std::string`'s buffer). It is
+  at `+0xB0`, then its `+0x30` and the `std::string`'s buffer). It is
   the name `reload` matches, not the mod folder that supplied the file.
   Both reads take it only from a live definition (the registry walk, or the
   cache on the cheap path); the adapter gives NULL for every stale widget,
@@ -1819,8 +1815,8 @@ holds the contract; the release zip carries it in `tongs/include/tongs/`
   `speed_controls.gui` reports 86; `iconType =` on 2135 with `{` on 2136
   reports 2136). The type factory copies the reader's line counter to
   `definition+0xA0`, and `guibounds` prints it as `Line: %i`
-  (`guibounds_definition_line`, `0x6EC271`: `mov rax,[rax+0xB0]` then
-  `mov r15d,[rax+0xA0]`). It follows `definition_file`'s rule: read with the
+  (`guibounds_definition_line`, `0x6EC271`: the definition at `+0xB0`, then
+  its 32-bit `+0xA0`). It follows `definition_file`'s rule: read with the
   file from a live definition only, 0 for a stale widget and when unknown.
   Appended to `TongsUiWidget` within version 1, so a consumer checks it with
   `TONGS_UI_WIDGET_HAS(widget, definition_line)`.
@@ -2045,7 +2041,7 @@ the same bytes in the GOG build):
   It calls every one's hover callback, last to first, so each sets its own
   `+0x8F` and the first stays in `mgr+0x130`.
 - The GUI's mouse event handler hands a mouse event to those widgets in that
-  order, each shown one through its slot `0x10` (`GuiProcessInput`, then the
+  order, each shown one through its slot `0x10` (the common input step, then the
   class's input handler in slot `0x48`), and stops at the first that marks
   the event handled. So the topmost widget is only the first to be asked.
 - What marks a left click handled, by the input handler:
@@ -2135,7 +2131,7 @@ not a game call: it works in ironman and needs `input = true` but not
   handler directly would skip it.
 - **Through Anvil (eu4-engine-lab#139).** With `anvil-game.commands` version 2
   (Anvil 1.17), `run_until events=first` hands the pending id and the option
-  index to the service, which calls `OptionSelected` for an enabled button only
+  index to the service, which calls the event window's option choice for an enabled button only
   (eu4-engine-lab#126). Tongs keeps no address of its own for that: the struct
   is copied into `src/game_commands.hpp`, since Tongs builds against an older
   SDK. A choice through it counts as an input (the activity gate counts what
@@ -2887,12 +2883,20 @@ Anvil 1.0.
 ### Symbols
 
 `plugin/symbols.toml` declares every address Tongs uses, and the offsets the
-code reads from them as `values` (the number inside the declared bytes, or
+code reads from them as `values` (the number inside the symbol's bytes, or
 for `rip_relative` the RVA an instruction addresses). Anvil verifies each
 symbol before it loads `tongs.dll` (bytes, memory kind, pointer targets,
 values); `anvil gen` writes them into `symbols.gen.hpp`, and the layouts in
 `src/game_*.hpp` take their numbers from there (`sym::root_and_date.date`),
 not from a second copy in the code.
+
+After 0.37.0 (Anvil ADR 0003) a symbol states the SHA-256 and the size of its
+bytes (`sha256`, `size`, and `any` for the offsets not compared) instead of
+the bytes, so the repository holds no code of `eu4.exe`. Each value that is
+the same in every build states its number with `is`, which Anvil checks and
+`anvil gen` writes as the constant; a value without `is` is read when the
+game loads. Anvil's `tools/symbols-to-digest.py` converted the file, and the
+generated `symbols.gen.hpp` kept every constant (only its comments changed).
 
 - 89 of the 93 `[[expect]]` entries became symbols with the same bytes (8
   of them longer by a few bytes, because `anvil check` requires whole
@@ -3672,7 +3676,7 @@ older Anvil rejects the `builds` key and skips Tongs.
   and only move; 87 get bytes per build (displacements, and the moved
   offsets below).
 - **What moved.** Addresses: all 51 `rip_relative` values. Offsets: only in
-  the game session (`CInGameIdler`), 0x10 bytes lower from the game-speed
+  the game session, 0x10 bytes lower from the game-speed
   object on: the speed object `+0x418` → `+0x408`, the top bar's blocker
   `+0x12F0` → `+0x12E0`, the event window list `+0x4A0`/`+0x4A8` →
   `+0x490`/`+0x498`, the selection holder `+0x1220` → `+0x1210`, the camera

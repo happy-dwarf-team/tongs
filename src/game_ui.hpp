@@ -25,7 +25,7 @@ struct UiLayout : UiStructureLayout {
     unsigned slot_name = U32(sym::listbox_find_child.name_slot);  // returns const std::string*
     unsigned button_state = U32(sym::button_state.state);
     unsigned hovered = U32(sym::hover_callback.hovered);          // mgr: the topmost widget under the GUI pointer, written once per frame
-    unsigned text_target = U32(sym::edit_focus.target);           // mgr: the edit box with the keyboard focus (CEditBox+0x1D0), 0 = none
+    unsigned text_target = U32(sym::edit_focus.target);           // mgr: the edit box with the keyboard focus (edit box+0x1D0), 0 = none
     // How a click under the pointer goes (docs/design.md, "Clicks through widgets").
     unsigned graphics = U32(sym::gui_graphics.graphics);          // mgr: the graphics object
     unsigned gui_scale = U32(sym::gui_scale.scale);               // graphics: the GUI scale (float)
@@ -34,7 +34,7 @@ struct UiLayout : UiStructureLayout {
     unsigned under_pointer_owner = U32(sym::hover_order.owner);        // the widget in an entry
     unsigned pointer_over = U32(sym::hover_last_frame.last_frame);     // byte: under the pointer on the last frame
     unsigned takes_all_input = U32(sym::takes_all_input.flag);         // byte: consumes every mouse event
-    unsigned click_left = U32(sym::button_clickable.left);             // CButton bytes: reacts to a left
+    unsigned click_left = U32(sym::button_clickable.left);             // button bytes: reacts to a left
     unsigned click_right = U32(sym::button_clickable.right);           // or a right click
 
     // Stale widgets (ui_definitions.hpp): the type registry, the definition

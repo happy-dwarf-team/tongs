@@ -15,7 +15,7 @@ struct FramePixels {
 };
 
 // The game draws through Direct3D 9 and shows each frame with one call of
-// IDirect3DDevice9::Present, in GfxPresentDX9 (docs/design.md, "Screenshots").
+// IDirect3DDevice9::Present, in its frame presentation (docs/design.md, "Screenshots").
 // HookPresent puts a mid hook on that call (symbols.toml `present_call`), where
 // the back buffer holds the finished frame and rcx the device. The hook does
 // nothing until CapturePresentedFrame asks for a frame.
