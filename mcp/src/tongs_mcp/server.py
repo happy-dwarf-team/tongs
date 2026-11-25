@@ -33,7 +33,7 @@ import anyio.to_thread
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import CallToolResult, ImageContent, TextContent, ToolAnnotations
-from pydantic import Field, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from .tongs import (
     INSTANCE_ENV,
@@ -239,6 +239,16 @@ def instructions(tools: dict[str, ToolCommands], pipe: str | None = None) -> str
     return INSTRUCTIONS.format(pipe=pipe or pipe_path(), **listed)
 
 
+class Region(BaseModel):
+    """A part of the game window's client area, in client pixels."""
+
+    model_config = ConfigDict(extra="forbid")
+    x: Annotated[int, Field(ge=0, description="Left edge.")]
+    y: Annotated[int, Field(ge=0, description="Top edge.")]
+    w: Annotated[int, Field(ge=1, description="Width.")]
+    h: Annotated[int, Field(ge=1, description="Height.")]
+
+
 Timeout = Annotated[
     int | None, Field(ge=1, le=600, description="Seconds to wait for a main-loop frame (plugin default 10).")
 ]
@@ -425,9 +435,10 @@ _expect_value = TypeAdapter(Annotated[int | None, Field(ge=1)])
 
 def expects_process(kind: CommandType, effect: Effect | None) -> bool:
     """Whether a tool takes expect_pid / expect_start_ms: every tool that acts on the game (inputs,
-    client calls, game calls, tongs_raw) or on its waits (tongs_wait_until, tongs_cancel), and
-    tongs_release, which hands the game's pointer back."""
-    return kind != "read" or effect in ("waits", "control", "pointer", "raw")
+    client calls, game calls, tongs_raw) or on its waits (tongs_wait_until, tongs_cancel),
+    tongs_release, which hands the game's pointer back, and tongs_screenshot, whose picture is of
+    the game that answers."""
+    return kind != "read" or effect in ("files", "waits", "control", "pointer", "raw")
 
 
 @dataclass(frozen=True)
@@ -743,7 +754,7 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
         first."""
         return await call("state")
 
-    @tool(("state", "frames", "speed"), "input")
+    @tool(("state", "frames", "ui find", "speed"), "input")
     async def tongs_ready(
         session: Annotated[
             int | None,
@@ -767,8 +778,13 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
         (from the expected process), the game is in the expected session, an outer frame of that
         session has run and the game is paused (with in_game=false: the main menu and a frame).
         Answers with state, session, frame, waited_ms, and with `speed` the speed answer and
-        input_proven. Fails at once on process_mismatch, unexpected_session and left_game; a
-        timeout names the first unmet condition (pipe, in_game, session, frames, paused, speed)
+        input_proven. Fails at once on process_mismatch, unexpected_session and left_game. While it
+        waits for a game, the game's confirm window (DefaultConfirm, e.g. the achievements notice
+        of a start with continue= under a mod, whatever its text) open for 2 s answers `blocked` at once,
+        with blocked_by ("achievements_notice" or "confirm_dialog") and notice_title: click
+        DefaultConfirm/AgreeButton (tongs_ui_click), then call tongs_ready again. A timeout names
+        the first unmet condition (pipe, in_game, session, frames, paused, speed; for in_game
+        which way it waited: for the main menu while the game is in a campaign, or the reverse)
         and carries the last state. Without `speed` it presses nothing, and the note below applies
         only with `speed`."""
         stop = threading.Event()
@@ -826,17 +842,25 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
     @tool("screenshot", "read", "files")
     async def tongs_screenshot(
         name: Annotated[
-            str | None, Field(pattern=r"^[A-Za-z0-9_.-]{1,64}$", description="Optional file name stem.")
+            str | None, Field(pattern=r"^[A-Za-z0-9_-]{1,48}$", description="Optional file name stem.")
         ] = None,
         image: Annotated[
             bool,
             Field(description=f"Also return the PNG as image content when it is at most {MAX_IMAGE_BYTES} bytes."),
         ] = False,
+        region: Annotated[
+            Region | None,
+            Field(description="Only this part of the client area, in client pixels, cut at native resolution."),
+        ] = None,
     ) -> CallToolResult:
         """Writes a PNG of the game window (works while it is covered) to the plugin's data folder and
-        answers with its `path`, size and capture method. With image=true the picture is attached
-        when small enough; otherwise read the file at `path`."""
-        text = await send(_line("screenshot", name))
+        answers with its `path`, size and capture method. `region` {x, y, w, h} (client pixels, as
+        tongs_window, tongs_ui_find rects and clicks use) cuts that part out at the window's native
+        resolution, never scaled; the answer then has `region` and `window` (the client area's size),
+        and a region outside the client area is refused with nothing written. With image=true the
+        picture is attached when small enough; otherwise read the file at `path`."""
+        cut = None if region is None else f"{region.x},{region.y},{region.w},{region.h}"
+        text = await send(_line("screenshot", name, region=cut))
         result = _answer(text)
         answer = result.structured_content or {}
         if image and not result.is_error:
@@ -1156,14 +1180,19 @@ def _build(connect: Callable[[], Connection]) -> tuple[MCPServer, dict[str, Tool
         target}. Refuses before calling: unknown_province, not_selectable (sea, lake, wasteland),
         terra_incognita, selection_blocked, needs_game_calls (opening it would make the player
         discover the owner's capital: a game call, only with the Game calls module). not_shown when the
-        frame after the call did not show it."""
+        frame after the call did not show it. The camera and the pointer as tongs_province_goto."""
         return await call(_line("province open", province_id, timeout=timeout))
 
     @tool("province goto", "client_call")
     async def tongs_province_goto(province_id: ProvinceId, timeout: WorldTimeout = None) -> CallToolResult:
         """Moves the camera to a province (any valid ID, sea and terra incognita included), nothing
         else; answers camera {settled, target} once it arrives or at the timeout (still ok).
-        camera_locked while debug_lockcamera is on."""
+        A real pointer outside the window (another screen) makes the game scroll the map, paused
+        or not, so unless a mouse tool holds Tongs' pointer the call parks it at the window's
+        centre and keeps it there (pointer_parked {x, y}; tongs_release hands it back). When the
+        game moves the target on anyway (the real mouse moved meanwhile, a release), the answer
+        comes at once with settled false and moved_on true. camera_locked while debug_lockcamera
+        is on."""
         return await call(_line("province goto", province_id, timeout=timeout))
 
     @tool("map_mode", "client_call")

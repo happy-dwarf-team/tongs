@@ -49,7 +49,13 @@ WorldFailure NavigationRefusal(bool open, const NavigationFacts& facts);
 // target the call set; on a wrapping map x is compared around the wrap.
 bool CameraReached(const CameraRaw& camera, float x, float z, float tolerance = kCameraTolerance);
 
-// `,"camera":{"settled":…,"target":{"x":…,"z":…}}`, with `"locked":true` when it is.
-std::string CameraMembers(float target_x, float target_z, bool settled, bool locked);
+// Whether the game's target in `now` has left the target `set` read right after the call
+// (beyond kCameraTolerance, x around the wrap): the game moved it on, so the current
+// position will not come to the call's target.
+bool TargetMovedOn(const CameraRaw& now, const CameraRaw& set);
+
+// `,"camera":{"settled":…,"target":{"x":…,"z":…}}`, with `"locked":true` and
+// `"moved_on":true` when they are.
+std::string CameraMembers(float target_x, float target_z, bool settled, bool locked, bool moved_on = false);
 
 }  // namespace tongs

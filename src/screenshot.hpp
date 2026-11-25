@@ -16,9 +16,11 @@ namespace tongs {
 // window is covered), then a copy from the screen. A non-empty `present_off`
 // says why the hook does not run now (Anvil suspended Tongs): the frame at
 // Present is then skipped at once, with that reason in `present_error`.
-// Any thread but the main thread may call it.
+// A `region` that is not whole is cut from the captured client area at native
+// resolution (never scaled); one that does not lie inside it (RegionError) is
+// refused and nothing is written. Any thread but the main thread may call it.
 ScreenshotResult TakeScreenshot(const std::filesystem::path& folder, std::string_view name,
-                                std::string_view present_off = {});
+                                const ScreenshotRegion& region = {}, std::string_view present_off = {});
 
 inline constexpr int kMaxScreenshots = 100;
 

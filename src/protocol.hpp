@@ -93,13 +93,24 @@ struct ThreadsSnapshot {
     int main_priority = 0;           // GetThreadPriority
 };
 
+// A part of the game window's client area, in client pixels (screenshot region=).
+struct ScreenshotRegion {
+    int x = 0;
+    int y = 0;
+    int w = 0;  // 0: the whole client area
+    int h = 0;
+    bool whole() const { return w == 0; }
+};
+
 // A PNG of the game window (screenshot.cpp).
 struct ScreenshotResult {
     bool ok = false;
     std::string error;
     std::string path;      // UTF-8, absolute
-    int width = 0;
+    int width = 0;         // of the PNG: the region's, or the client area's
     int height = 0;
+    int window_width = 0;  // of the client area the picture was cut from
+    int window_height = 0;
     std::uint64_t bytes = 0;
     std::string method;    // "present", "print_window" or "screen"
     bool blank = false;    // every pixel black: the capture probably failed
@@ -145,8 +156,9 @@ struct Handlers {
     std::function<WindowSnapshot()> read_window;
     std::function<ThreadsSnapshot()> read_threads;
     // Writes a PNG named after the argument (validated: 1-48 of A-Z a-z 0-9 _ -),
-    // or a time-stamped name when it is empty.
-    std::function<ScreenshotResult(std::string_view name)> take_screenshot;
+    // or a time-stamped name when it is empty, of the region (cut at native resolution,
+    // never scaled; refused when it does not lie inside the client area) or the whole area.
+    std::function<ScreenshotResult(std::string_view name, const ScreenshotRegion& region)> take_screenshot;
     // Queues SDL events for the game in order; returns an error text, or an
     // empty string on success. Left empty when input is disabled.
     std::function<std::string(const std::vector<InputEvent>&)> send_input;
@@ -342,6 +354,9 @@ std::string Subscribe(std::string_view line, const Handlers& handlers, std::shar
 std::string SubscribedRequest(std::string_view line, const Handlers& handlers, std::shared_ptr<Subscription>& subscription);
 
 std::string JsonEscape(std::string_view text);
+
+// Why `region` does not lie inside a width x height client area, or an empty string.
+std::string RegionError(const ScreenshotRegion& region, int width, int height);
 
 // "tongs" when `save load` made the session `session` (StateSnapshot::load), else null:
 // `loaded_by` of the entered_game notification.

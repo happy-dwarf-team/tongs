@@ -15,7 +15,7 @@ connection can instead carry notifications (see [Notifications](#notifications))
 | `state` | `in_game`; with a loaded game also `date` (`"1719.3.17"`), `date_raw`, `hour`, `speed` (1–5 as in the UI), `speed_internal` (0–4), `paused` (the game's own answer), `paused_flag` (the player pause byte), `out_of_sync` (this client's checksums differed from the host's; the host never has it), `paused_oos` (paused because a machine went out of sync), `map_mode` (the map mode shown, a value of the game's map mode enum) and `map_mode_id` (the id of the plugin mode that borrowed that number, from Anvil's `anvil-map`, or `null`; see [Map mode](design.md#map-mode)), `ironman` and `multiplayer` (the session's mode as Anvil sees it; left out until Anvil has seen a frame of the session, see [Session mode](design.md#session-mode)), `session` (see [Sessions](#sessions-and-the-ready-wait)), and `game_calls_total` and `client_calls_total` (game calls and client calls since the save was loaded); always `pid` and `process_start_ms`, which every answer that carries the state repeats, so a client can tell a restarted game apart |
 | `window` | the game window: client `width` / `height`, `screen_x` / `screen_y`, `focused`, `minimized`, `thread_id` (the game's main thread), `dpi` |
 | `threads` | worker threads in each of the game's two pools, the `threads` option, process and main-thread CPU masks, ideal CPU and priority of the main thread, number of threads |
-| `screenshot [NAME]` | writes a PNG of the game window to `anvil/data/tongs/screenshots/` (keeps the newest 100) and answers with its `path`, size and capture `method` (`present`: the game's own frame, only under Wine and Proton, where it comes first; `print_window`; `screen`), and under Wine `present_error` when the frame at Present gave none (for one, while Anvil suspends Tongs); works while the window is covered |
+| `screenshot [NAME] [region=X,Y,W,H]` | writes a PNG of the game window to `anvil/data/tongs/screenshots/` (keeps the newest 100) and answers with its `path`, size and capture `method` (`present`: the game's own frame, only under Wine and Proton, where it comes first; `print_window`; `screen`), and under Wine `present_error` when the frame at Present gave none (for one, while Anvil suspends Tongs); works while the window is covered. `region=` (client pixels, as `window`, `ui find` and `click` use them) writes only that part, cut at the window's native resolution and never scaled; the answer's `width` and `height` are then the region's, with `region` and `window` (the client area's size) beside them. A region that does not lie inside the client area is refused and nothing is written |
 | `frames [timeout=S]` | read on the game's main thread after a frame of its main loop: frames per second (`outer_per_s`, and `nested_per_s` for frames drawn inside a game update or a save load), counts and the longest gap between main-loop frames since the previous `frames`, and the main thread's `thread_id`; with `queued_ms`, `run_ms`, the game's `frame` counter and the fields of `state` read on that frame, so its `session` says which session the frame belongs to. Waits up to 10 s (`timeout=` up to 600) for a frame; while a save loads none comes, and the answer is `main thread busy` |
 | `ui find SEL [all] [stale] [limit=N]` | widgets that match the selector `SEL` (see [Widgets](#widgets)): `count`, `truncated` and up to 50 `matches` (`limit=` up to 5000), each with `path`, `type`, `visible`, `rect` and `click_point` in client pixels, and `text` / `enabled` / `stale` / `sprite` / `frame` / `flag` where they apply; `ui_scale` is the game's GUI scale (`game_ui_scale`) the rects were converted by. Read on the main thread, like `frames` |
 | `ui tree [SEL] [depth=N] [limit=N] [all]` | the widget tree from the top-level windows, or from the matches of `SEL`, as nested `widgets` (up to 200, `limit=` up to 5000); `depth=N` gives deeper levels only as `children_count` |
@@ -232,7 +232,24 @@ polling, until all of these hold at once:
 It fails at once when the process is another one, when the `session` is past
 the expected one (`unexpected_session`), or when the game leaves the session
 after reaching it (`left_game`); on a timeout it names the first condition not
-met (`pipe`, `in_game`, `session`, `frames`, `paused`, `speed`). The ready wait
+met (`pipe`, `in_game`, `session`, `frames`, `paused`, `speed`), and for
+`in_game` which way it waited: "waiting for the main menu; the game is in a
+campaign" or "waiting for a campaign; the game is not in one" with the state's
+`reason`.
+
+While it waits for a game, the main menu can hold the load behind the game's
+confirm window, `DefaultConfirm` (for one, the achievements notice of a start
+with `continue=` under a mod: Anbennar's "Vanilla achievements can no longer be
+earned" held such starts until the waits timed out at 400 s and 600 s, lab,
+25.11.2026). So every
+0.5 s, while `in_game` is the unmet condition, the wait asks `frames timeout=1`
+and then `ui find DefaultConfirm/AgreeButton`; a visible `AgreeButton` for 2 s
+ends the wait at once with `blocked`, `blocked_by` (`"achievements_notice"`
+when its `Title` names achievements in English, French, German or Spanish,
+else `"confirm_dialog"`), `notice_title` and `waited_ms`, not at the timeout.
+The window is found by its widgets, not by its text. The wait clicks nothing:
+`ui click DefaultConfirm/AgreeButton` (its Ok) lets the load go on, then wait
+again. The ready wait
 promises an outer frame, not handled input: to prove input, set the speed
 afterwards with `speed N`, whose confirmed change and `waited_ms` show the
 game handled the press (when the speed already is `N` nothing is pressed).
@@ -240,7 +257,8 @@ In the game, the first `speed` after the ready wait took 176 ms after a start
 and 31 ms after a load. A load by the player from the game's Load dialog
 leaves the in-game menu open, and the speed keys do nothing while it is: close
 it first (`ui click menu/menu_panel/menu_close_button`). `save load` leaves no
-menu. The ready wait does not look at windows.
+menu. Apart from `DefaultConfirm` before the game, the ready wait does not look
+at windows.
 The Python client and the MCP server implement it as `ready()` and
 `tongs_ready` (see [Clients](../README.md#clients)).
 
@@ -470,8 +488,8 @@ multiplayer they follow input: Anvil's allow lists apply.
   default interface, `colonisationpanel` for a province without an owner) and `covered_by` (the widget the game hovers at the
   view's centre when it is not part of the view, such as an event window, or
   `null`; Tongs moves the pointer there to ask, as `ui click` does, then
-  puts it back where the last mouse command left it, or hands it back to
-  the real mouse). Being covered is not a refusal. When the frame after the
+  puts it back where the last mouse command, or the call's own park (below),
+  left it, or hands it back to the real mouse). Being covered is not a refusal. When the frame after the
   call does not show it, the answer is `not_shown` with what it saw
   (`selected`, `view_province`, `visible`), and the call still counts.
 - **The camera** (both): the command waits until the camera's position
@@ -479,8 +497,18 @@ multiplayer they follow input: Anvil's allow lists apply.
   {"x": …, "z": …}}` (map coordinates). At the timeout it answers `ok` with
   `settled: false`. The camera glides there in about a second, but the game
   moves its target on as the player does: a pointer at the edge of the
-  screen scrolls the map, and then the camera never settles on the province
-  (`settled: false`). `target` is always the target the call set. With the
+  screen or outside the window (on another screen) scrolls the map, paused or
+  not. So unless a client holds Tongs' pointer (a mouse command, until
+  `release` or a move of the real mouse), the call first parks it at the
+  client area's centre, with a motion event, and keeps holding it there as
+  `move` would: the answer then has `pointer_parked: {"x": …, "y": …}`, and
+  `release` hands the pointer back. The park is part of the client call, not
+  counted as input. If the game moves the target on all the same (the real
+  mouse takes the pointer back during the wait, a `release` from another
+  connection, a scroll key), the answer comes at once, as soon as the game's
+  target has left the call's, with `settled: false` and `moved_on: true`,
+  instead of at the timeout. `target`
+  is always the target the call set. With the
   camera locked (`debug_lockcamera`, or while the in-game menu is open),
   `goto` refuses `camera_locked`; `open` still opens and answers
   `"locked": true`.

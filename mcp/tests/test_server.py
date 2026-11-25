@@ -81,6 +81,8 @@ LINES = [
     ("tongs_frames", {"timeout": 30}, "frames timeout=30"),
     ("tongs_screenshot", {}, "screenshot"),
     ("tongs_screenshot", {"name": "menu-1"}, "screenshot menu-1"),
+    ("tongs_screenshot", {"region": {"x": 0, "y": 10, "w": 640, "h": 360}}, "screenshot region=0,10,640,360"),
+    ("tongs_screenshot", {"name": "top", "region": {"x": 5, "y": 0, "w": 1, "h": 1}}, "screenshot top region=5,0,1,1"),
     ("tongs_wait_until", {"date": "1720.1.1"}, "wait_until 1720.1.1"),
     ("tongs_wait_until", {"date": "1720.1.1.12", "timeout": 60, "max_pause": 5}, "wait_until 1720.1.1.12 timeout=60 max_pause=5"),
     ("tongs_run_until", {"date": "1719.6.1"}, "run_until 1719.6.1"),
@@ -275,6 +277,11 @@ async def test_answer_that_is_not_json_is_an_error():
         ("tongs_key", {"name": "meta+a"}),
         ("tongs_wait_until", {"date": "next year"}),
         ("tongs_screenshot", {"name": "../x"}),
+        ("tongs_screenshot", {"name": "a.png"}),
+        ("tongs_screenshot", {"region": {"x": -1, "y": 0, "w": 5, "h": 5}}),
+        ("tongs_screenshot", {"region": {"x": 0, "y": 0, "w": 0, "h": 5}}),
+        ("tongs_screenshot", {"region": {"x": 0, "y": 0, "w": 5}}),
+        ("tongs_screenshot", {"region": {"x": 0, "y": 0, "w": 5, "h": 5, "scale": 2}}),
         ("tongs_ready", {"speed": 0}),
         ("tongs_ready", {"session": 0}),
         ("tongs_province", {"province_id": 0}),
@@ -422,6 +429,17 @@ async def test_screenshot_attaches_small_images(tmp_path: Path):
 
     plain = await call(pipe, "tongs_screenshot", {})
     assert [c.type for c in plain.content] == ["text"]
+
+    cut = await call(pipe, "tongs_screenshot", {"image": True, "region": {"x": 0, "y": 0, "w": 1, "h": 1}})
+    assert [c.type for c in cut.content] == ["text", "image"] and pipe.sent[-1] == "screenshot region=0,0,1,1"
+
+
+async def test_screenshot_of_another_game_is_refused_without_capturing():
+    pipe = game_with_ping()
+    result = await call(pipe, "tongs_screenshot", {"image": True, "expect_pid": 41})
+    assert result.is_error and pipe.sent == ["ping"]
+    assert result.structured_content["error"] == "process_mismatch"
+    assert [c.type for c in result.content] == ["text"]
 
 
 async def test_screenshot_skips_large_images(tmp_path: Path, monkeypatch):
@@ -761,6 +779,26 @@ async def test_ready_timeout_names_the_unmet_condition():
     assert answer["state"]["paused"] is False
 
 
+async def test_ready_answers_blocked_behind_the_achievements_notice():
+    title = "Vanilla achievements can no longer be earned"
+
+    def handler(line):
+        if line == "state":
+            return {"ok": True, "in_game": False, "pid": 42, "process_start_ms": 7}
+        if line.startswith("frames"):
+            return {"ok": True, "command": "frames", "frame": 9, "in_game": False, "pid": 42}
+        if line.startswith("ui find DefaultConfirm/"):
+            return {"ok": True, "command": "ui find", "count": 1, "matches": [{"visible": True, "text": title}]}
+        return {"ok": False, "error": "unexpected " + line}
+
+    pipe = FakePipe(handler)
+    result = await call(pipe, "tongs_ready", {"session": 1, "timeout": 30})
+    answer = result.structured_content
+    assert result.is_error and answer["error"] == "blocked" and answer["blocked_by"] == "achievements_notice"
+    assert answer["notice_title"] == title and answer["waited_ms"] < 5000
+    assert "ui find DefaultConfirm/AgreeButton" in pipe.sent and not any(s.startswith("ui click") for s in pipe.sent)
+
+
 async def test_ready_waits_for_the_pipe():
     def connect():
         raise FileNotFoundError(2, "not found")
@@ -879,7 +917,7 @@ async def test_tools_that_act_on_the_game_take_expect_pid():
         listed = {t.name: t for t in (await client.list_tools()).tools}
     for name, t in TOOLS.items():
         props = listed[name].input_schema["properties"]
-        acts = t.type != "read" or t.effect in ("waits", "control", "pointer", "raw")
+        acts = t.type != "read" or t.effect in ("files", "waits", "control", "pointer", "raw")
         assert ("expect_pid" in props) == acts, name
         assert ("expect_start_ms" in props) == acts, name
         if acts and name != "tongs_ready":
@@ -897,6 +935,7 @@ async def test_tools_that_act_on_the_game_take_expect_pid():
         ("tongs_raw", {"line": "state"}, "state"),
         ("tongs_cancel", {}, "cancel"),
         ("tongs_release", {}, "release"),
+        ("tongs_screenshot", {"region": {"x": 0, "y": 0, "w": 8, "h": 8}}, "screenshot region=0,0,8,8"),
         ("tongs_wait_until", {"date": "1720.1.1", "progress": False}, "wait_until 1720.1.1"),
     ],
 )

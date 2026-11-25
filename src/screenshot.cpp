@@ -159,10 +159,24 @@ void Prune(const std::filesystem::path& folder) {
     for (std::size_t i = 0; i + kMaxScreenshots < files.size(); ++i) std::filesystem::remove(files[i].path(), ec);
 }
 
+// The region's rows, copied at native resolution.
+Pixels Crop(const Pixels& px, const ScreenshotRegion& region) {
+    Pixels out;
+    out.width = region.w;
+    out.height = region.h;
+    const std::size_t row = static_cast<std::size_t>(region.w) * 4;
+    out.bgra.resize(row * static_cast<std::size_t>(region.h));
+    for (int y = 0; y < region.h; ++y) {
+        const std::size_t from = (static_cast<std::size_t>(region.y + y) * px.width + region.x) * 4;
+        std::memcpy(out.bgra.data() + static_cast<std::size_t>(y) * row, px.bgra.data() + from, row);
+    }
+    return out;
+}
+
 }  // namespace
 
 ScreenshotResult TakeScreenshot(const std::filesystem::path& folder, std::string_view name,
-                                std::string_view present_off) {
+                                const ScreenshotRegion& region, std::string_view present_off) {
     ScreenshotResult r;
     const WindowSnapshot w = ReadGameWindow();
     if (!w.found) {
@@ -201,6 +215,15 @@ ScreenshotResult TakeScreenshot(const std::filesystem::path& folder, std::string
                 return r;
             }
         }
+    }
+    r.window_width = px.width;
+    r.window_height = px.height;
+    if (!region.whole()) {
+        if (std::string error = RegionError(region, px.width, px.height); !error.empty()) {
+            r.error = error;
+            return r;
+        }
+        px = Crop(px, region);
     }
     r.blank = AllBlack(px);
     std::error_code ec;

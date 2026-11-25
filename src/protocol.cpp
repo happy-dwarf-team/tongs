@@ -1966,6 +1966,31 @@ std::string NavigationRefused(const Handlers& h, std::string_view command, std::
 
 std::string NavigationAct(const Handlers& h, const WorldRequest& request, ActivityGate::Activity& a);
 
+struct Parked {
+    bool done = false;
+    int x = 0;
+    int y = 0;
+};
+
+// The game scrolls the map for a real pointer outside the window (on another screen, say),
+// paused or not, and the camera's target then moves on from the one a navigation call set:
+// lab runs settled 0 of 12 calls with the real mouse there and 12 of 12 after a `move` into
+// the window (14.11.2026), 7 of 7 with this park (25.11.2026). So unless a client holds Tongs' pointer
+// (a mouse command, until `release` or a move of the real mouse), the call parks it at the
+// client area's centre with a motion event and keeps holding it there, as `move` would. Not
+// counted as input: it is part of the client call, as `covered_by`'s hover check is.
+Parked ParkPointer(const Handlers& h) {
+    if (!h.set_cursor || !h.send_input || !h.read_window) return {};
+    if (h.cursor_held ? h.cursor_held() : Held().known) return {};  // a client's pointer stays where it put it
+    const WindowSnapshot w = h.read_window();
+    if (!w.found || w.minimized || w.width <= 0 || w.height <= 0) return {};
+    const int x = w.width / 2, y = w.height / 2;
+    h.set_cursor(x, y);
+    h.send_input({MoveTo(x, y)});  // the motion event as `move` sends it: SDL's mouse state follows
+    Hold({true, x, y});
+    return {true, x, y};
+}
+
 // province open ID / province goto ID [timeout=S]: client calls (ADR 0003) behind the
 // navigation breaker, which tongs.navigation shares (ADR 0004). One main-thread job
 // checks and calls (it ends its batch), later jobs check what the next outer frames
@@ -2012,6 +2037,7 @@ std::string NavigationAct(const Handlers& h, const WorldRequest& request, Activi
     unsigned long fault_code = 0;
     CameraRaw set;  // the camera right after the call: the target it set
     WorldFailure camera_failure;
+    Parked parked;  // where the call parked the pointer, if it did
     Dispatcher::Outcome o = h.dispatcher->Run(
         Dispatcher::Kind::GameCall,
         [&] {
@@ -2032,6 +2058,8 @@ std::string NavigationAct(const Handlers& h, const WorldRequest& request, Activi
                 refusal = {r.error, r.detail};
             }
             if (refusal.failed()) return std::string();
+            // Before the call, so no frame after it edge-scrolls the target the call sets.
+            if (!facts.camera_locked) parked = ParkPointer(h);
             faulted = !h.call_navigation(open, facts, fault_code);
             if (faulted) {
                 a.Trip();
@@ -2091,10 +2119,13 @@ std::string NavigationAct(const Handlers& h, const WorldRequest& request, Activi
     }
 
     // The camera: until it reaches the target the call set, or the timeout (still ok).
-    // The target the game holds can move on (the pointer at the screen edge scrolls it),
-    // so the one read on the frame of the call is the one waited for and answered.
+    // The target the game holds can move on (a pointer at the screen edge scrolls it), so
+    // the one read on the frame of the call is the one waited for and answered. Once the
+    // game's target has left it, the camera will not reach it: the answer comes at once,
+    // settled false with moved_on, instead of at the timeout.
     if (camera_failure.failed()) return refuse(camera_failure.error, camera_failure.detail, counts);
     bool settled = false;
+    bool moved_on = false;
     while (!set.locked && !settled) {
         WorldFailure failure;
         CameraRaw now;
@@ -2108,7 +2139,8 @@ std::string NavigationAct(const Handlers& h, const WorldRequest& request, Activi
         if (!o.ran) break;
         if (failure.failed()) return refuse(failure.error, failure.detail, counts);
         settled = CameraReached(now, set.target_x, set.target_z);
-        if (settled || h.now_ms() >= deadline) break;
+        moved_on = !settled && TargetMovedOn(now, set);
+        if (settled || moved_on || h.now_ms() >= deadline) break;
         h.sleep_ms(h.poll_interval_ms);
     }
 
@@ -2121,7 +2153,8 @@ std::string NavigationAct(const Handlers& h, const WorldRequest& request, Activi
         if (hover.error.empty() && hover.cover.covered && !hover.cover.covered_by.empty()) {
             covered_by = Quote(hover.cover.covered_by);
         }
-        // The pointer goes back where it was: to a client's mouse command, or to the real mouse.
+        // The pointer goes back where it was: to a client's mouse command or where the call parked
+        // it, or to the real mouse.
         if (held.known) {
             h.set_cursor(held.x, held.y);
             h.send_input({MoveTo(held.x, held.y)});
@@ -2134,7 +2167,10 @@ std::string NavigationAct(const Handlers& h, const WorldRequest& request, Activi
 
     std::string out = "{\"ok\":true,\"command\":" + Quote(command) + province;
     if (open) out += ",\"view\":" + view_path + ",\"covered_by\":" + covered_by;
-    out += CameraMembers(set.target_x, set.target_z, settled, set.locked);
+    out += CameraMembers(set.target_x, set.target_z, settled, set.locked, moved_on);
+    if (parked.done) {
+        out += ",\"pointer_parked\":{\"x\":" + std::to_string(parked.x) + ",\"y\":" + std::to_string(parked.y) + "}";
+    }
     out += counts + ",\"waited_ms\":" + std::to_string(h.now_ms() - start);
     return out + state_tail() + "}";
 }
@@ -2773,17 +2809,54 @@ std::string ThreadsCommand(const Request& r) {
     return ThreadsJson(r.handlers.read_threads());
 }
 
+// screenshot [NAME] [region=X,Y,W,H]: the region is cut at native resolution, never scaled.
 std::string ScreenshotCommand(const Request& r) {
-    const std::string_view argument = r.argument;
     if (!r.handlers.take_screenshot) return Error("screenshots unavailable");
-    if (argument.size() > 48 || argument.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") !=
-                                    std::string_view::npos) {
-        return Error("screenshot takes an optional name of 1-48 letters, digits, _ or -");
+    constexpr char kNameError[] = "screenshot takes an optional name of 1-48 letters, digits, _ or -";
+    std::string_view name;
+    bool named = false;
+    ScreenshotRegion region;
+    for (const std::string_view word : SplitWords(r.argument)) {
+        if (word.starts_with("region=")) {
+            // Exactly four integers between commas: a part that is not one fails the whole.
+            std::vector<int> numbers;
+            bool parsed = true;
+            std::string_view rest = word.substr(7);
+            for (;;) {
+                const std::size_t comma = rest.find(',');
+                int n = 0;
+                if (numbers.size() == 4 || !ParseInt(rest.substr(0, comma), n)) {
+                    parsed = false;
+                    break;
+                }
+                numbers.push_back(n);
+                if (comma == std::string_view::npos) break;
+                rest.remove_prefix(comma + 1);
+            }
+            if (!region.whole() || !parsed || numbers.size() != 4 || numbers[0] < 0 || numbers[1] < 0 || numbers[2] < 1 ||
+                numbers[3] < 1) {
+                return Error("screenshot takes an optional region=X,Y,W,H in client pixels (X, Y from 0; W, H from 1), once");
+            }
+            region = {numbers[0], numbers[1], numbers[2], numbers[3]};
+            continue;
+        }
+        if (named || word.size() > 48 ||
+            word.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") != std::string_view::npos) {
+            return Error(kNameError);
+        }
+        name = word;
+        named = true;
     }
-    const ScreenshotResult shot = r.handlers.take_screenshot(argument);
+    const ScreenshotResult shot = r.handlers.take_screenshot(name, region);
     if (!shot.ok) return Error(shot.error);
+    std::string cut;
+    if (!region.whole()) {
+        cut = ",\"region\":{\"x\":" + std::to_string(region.x) + ",\"y\":" + std::to_string(region.y) + ",\"w\":" +
+              std::to_string(region.w) + ",\"h\":" + std::to_string(region.h) + "},\"window\":{\"width\":" +
+              std::to_string(shot.window_width) + ",\"height\":" + std::to_string(shot.window_height) + "}";
+    }
     return "{\"ok\":true,\"command\":\"screenshot\",\"path\":\"" + JsonEscape(shot.path) + "\",\"width\":" +
-           std::to_string(shot.width) + ",\"height\":" + std::to_string(shot.height) + ",\"bytes\":" +
+           std::to_string(shot.width) + ",\"height\":" + std::to_string(shot.height) + cut + ",\"bytes\":" +
            std::to_string(shot.bytes) + ",\"method\":\"" + shot.method + "\",\"blank\":" + Bool(shot.blank) +
            (shot.present_error.empty() ? std::string() : ",\"present_error\":\"" + JsonEscape(shot.present_error) + "\"") +
            "}";
@@ -2902,7 +2975,7 @@ constexpr Command kCommands[] = {
     {"state", Read, false, "state", &StateCommand},
     {"window", Read, false, "window", &WindowCommand},
     {"threads", Read, false, "threads", &ThreadsCommand},
-    {"screenshot", Read, false, "screenshot [NAME]", &ScreenshotCommand},
+    {"screenshot", Read, false, "screenshot [NAME] [region=X,Y,W,H]", &ScreenshotCommand},
     {"frames", Read, true, "frames [timeout=S]", &FramesHandler},
     {"ui find", Read, true, "ui find SEL [all] [stale] [limit=N]", &UiCommand},
     {"ui tree", Read, true, "ui tree [SEL] [depth=N] [limit=N] [all]", &UiCommand},
@@ -3072,6 +3145,16 @@ std::string JsonEscape(std::string_view text) {
         }
     }
     return out;
+}
+
+std::string RegionError(const ScreenshotRegion& region, int width, int height) {
+    if (region.x >= 0 && region.y >= 0 && region.w >= 1 && region.h >= 1 && region.x < width && region.y < height &&
+        region.w <= width - region.x && region.h <= height - region.y) {
+        return {};
+    }
+    return "region " + std::to_string(region.x) + "," + std::to_string(region.y) + "," + std::to_string(region.w) + "," +
+           std::to_string(region.h) + " does not lie inside the " + std::to_string(width) + "x" + std::to_string(height) +
+           " client area; nothing was written";
 }
 
 std::string HandleRequest(std::string_view line, const Handlers& handlers, int client) {

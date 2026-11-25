@@ -626,6 +626,16 @@ READY_TIMEOUT_LOAD_S = 30  # after save load (a later session)
 READY_TIMEOUT_MENU_S = 60  # a start to the main menu
 READY_POLL_S = 0.1
 READY_FRAMES_S = 10  # timeout= of each `frames` (at most)
+# While ready waits for a game, the main menu can hold the load behind the game's confirm window
+# (DefaultConfirm), e.g. the achievements notice of a start with continue= (lab, 25.11.2026: 400 s
+# and 600 s timeouts that one click on its Ok ended). Looked for every READY_NOTICE_LOOK_S; one
+# open for READY_NOTICE_S answers `blocked`, as `save load` does.
+READY_NOTICE_LOOK_S = 0.5
+READY_NOTICE_S = 2.0
+# Words of the achievements notice's title in the game's languages and in mods' wordings
+# ("Achievements can no longer be earned", Anbennar's "Vanilla achievements can no longer be
+# earned"); only for blocked_by: the notice is found by its widgets, whatever its title.
+ACHIEVEMENT_WORDS = ("achievement", "succès", "errungenschaft", "logro")
 
 
 def ready_timeout(session=None, in_game=True):
@@ -635,6 +645,22 @@ def ready_timeout(session=None, in_game=True):
     return READY_TIMEOUT_START_S if session in (None, 1) else READY_TIMEOUT_LOAD_S
 
 
+def notice_kind(title):
+    """blocked_by for a DefaultConfirm window with this title."""
+    lower = (title or "").lower()
+    return "achievements_notice" if any(w in lower for w in ACHIEVEMENT_WORDS) else "confirm_dialog"
+
+
+def unmet_detail(unmet, in_game, state):
+    """What a ready timeout waited for, in words: in_game alone reads either way round."""
+    if unmet != "in_game" or not isinstance(state, dict):
+        return unmet
+    if not in_game:
+        return "in_game: waiting for the main menu; the game is in a campaign"
+    reason = state.get("reason")
+    return "in_game: waiting for a campaign; the game is not in one" + (f" ({reason})" if reason else "")
+
+
 def wait_ready(call, session=None, in_game=True, speed=None, timeout=None, expect_pid=None, expect_start_ms=None,
                cancelled=None, clock=time.monotonic, sleep=time.sleep):
     """Waits, with no fixed sleep, until at once: the pipe answers from the pinned process;
@@ -642,17 +668,33 @@ def wait_ready(call, session=None, in_game=True, speed=None, timeout=None, expec
     of that session; and the game is paused. With in_game=False: the main menu instead, with no
     session and no pause. `call(line)` returns a parsed answer (OSError and CallTimeout count as
     the pipe not answering). `speed=N` then sets the speed, which proves input is handled
-    (`input_proven`) unless it already was N. Returns {"ok": true, "command": "ready", "session",
-    "state", "frame", "waited_ms", "speed", "input_proven"}; raises ReadyError or ProcessMismatch."""
+    (`input_proven`) unless it already was N. While it waits for a game, the game's confirm window
+    (DefaultConfirm with its AgreeButton) open for READY_NOTICE_S answers `blocked` with blocked_by
+    and notice_title. Returns {"ok": true, "command": "ready", "session", "state", "frame",
+    "waited_ms", "speed", "input_proven"}; raises ReadyError or ProcessMismatch."""
     if timeout is None:
         timeout = ready_timeout(session, in_game)
     start = clock()
     deadline = start + timeout
     unmet, state, seen = "pipe", None, False
+    next_look, notice_since = start, None
 
-    def fail(error, detail):
+    def fail(error, detail, **members):
         return ReadyError("ready", {"ok": False, "command": "ready", "error": error, "detail": detail,
-                                    "unmet": unmet, "state": state})
+                                    "unmet": unmet, "state": state, **members})
+
+    def look_for_notice():
+        """The title of the shown DefaultConfirm window ("" without one), or None when there is none
+        or the interface could not be read (no outer frame runs: the game is starting or loading)."""
+        frames = ask("frames timeout=1")
+        if frames is None or not frames.get("ok"):
+            return None
+        found = ask("ui find DefaultConfirm/AgreeButton")
+        if not found or not found.get("ok") or not any(m.get("visible") for m in found.get("matches") or ()):
+            return None
+        titles = ask("ui find DefaultConfirm/Title") or {}
+        texts = [m.get("text") for m in titles.get("matches") or () if m.get("visible") and m.get("text")]
+        return texts[0] if texts else ""
 
     def wrong(answer):
         """The first condition `answer` (with the state) does not meet, or None."""
@@ -687,13 +729,27 @@ def wait_ready(call, session=None, in_game=True, speed=None, timeout=None, expec
             raise fail("cancelled", "ready was cancelled")
         left = deadline - clock()
         if left <= 0:
-            raise fail("timeout", f"not ready within {timeout} s: {unmet}")
+            raise fail("timeout", f"not ready within {timeout} s: {unmet_detail(unmet, in_game, state)}")
         answer = ask("state")
         if answer is None:
             unmet = "pipe"
         else:
             state = answer
             unmet = wrong(state)
+            if unmet == "in_game" and in_game and clock() >= next_look:
+                title = look_for_notice()
+                now = clock()
+                next_look = now + READY_NOTICE_LOOK_S
+                notice_since = None if title is None else (notice_since if notice_since is not None else now)
+                if notice_since is not None and now - notice_since >= READY_NOTICE_S:
+                    kind = notice_kind(title)
+                    what = "achievements notice" if kind == "achievements_notice" else "confirm window"
+                    raise fail(
+                        "blocked",
+                        f'the game waits behind its {what} (DefaultConfirm) "{title}": click DefaultConfirm/AgreeButton '
+                        "(its Ok), then wait with ready again",
+                        blocked_by=kind, notice_title=title, waited_ms=round((now - start) * 1000),
+                    )
             if unmet is None:
                 frames = ask(f"frames timeout={max(1, min(READY_FRAMES_S, math.ceil(left)))}")
                 if frames is None or not frames.get("ok") or "in_game" not in frames:
