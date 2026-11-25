@@ -12,13 +12,11 @@ Words such as game call, main-thread read, outer frame, widget path, event,
 notification and marked run are defined in [`GLOSSARY.md`](../GLOSSARY.md).
 
 Addresses marked **static** were found by static analysis only. Each release
-PR checks them on a running game before it merges. Details, the method behind
-each claim and the full byte patterns (now `plugin/symbols.toml`) are on the research branches
-(never merged):
-[`research/main-thread-dispatch`](https://github.com/happy-dwarf-team/tongs/blob/research/main-thread-dispatch/docs/research/main-thread-dispatch.md),
-[`research/widget-tree`](https://github.com/happy-dwarf-team/tongs/blob/research/widget-tree/docs/research/widget-tree.md),
-[`research/console-commands`](https://github.com/happy-dwarf-team/tongs/blob/research/console-commands/docs/research/console-commands.md),
-[`research/event-ids`](https://github.com/happy-dwarf-team/tongs/blob/research/event-ids/docs/research/event-ids.md).
+PR checks them on a running game before it merges. Details and the method behind
+each claim were on the research branches `research/main-thread-dispatch`, `research/widget-tree`,
+`research/console-commands` and `research/event-ids` (never merged). They held the game's byte patterns from
+before `plugin/symbols.toml` kept digests, so they are no longer public: the team keeps them, and every other
+`research/*` and `prototype/*` branch this document names, in its private archive.
 
 ## Goal
 
