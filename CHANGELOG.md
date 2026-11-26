@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.38.0](https://github.com/happy-dwarf-team/tongs/compare/v0.37.0...v0.38.0) (2026-11-25)
+
+
+### Features
+
+* screenshot regions, a ready wait that sees the confirm window, a camera that settles ([#248](https://github.com/happy-dwarf-team/tongs/issues/248)) ([3c4679b](https://github.com/happy-dwarf-team/tongs/commit/3c4679b6d9c297e21cff768b0e3ce2109f6e5920))
+
 ## [0.37.0](https://github.com/happy-dwarf-team/tongs/compare/v0.36.0...v0.37.0) (2026-11-19)
 
 
